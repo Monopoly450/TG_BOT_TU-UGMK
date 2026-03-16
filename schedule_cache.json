@@ -1,0 +1,1811 @@
+{
+  "timestamp": "2026-03-14T19:59:16.756142",
+  "schedule": {
+    "Понедельник": [
+      {
+        "number": "",
+        "time": "",
+        "subject": "Дисциплина",
+        "teacher": "Преподаватель",
+        "room": "Аудитория",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "08:30 - 10:00",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "10:10 - 11:40",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "11:50 - 13:20",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "14:00 - 15:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "15:40 - 17:10",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "17:20 - 18:50",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "19:00 - 20:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Дисциплина",
+        "teacher": "Преподаватель",
+        "room": "Аудитория",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Иностранный языкПрактические",
+        "teacher": "Кабанов Александр Михайлович",
+        "room": "227",
+        "type": "Практические"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Высшая математикаЛекции",
+        "teacher": "Сакулин Валерий Александрович",
+        "room": "301",
+        "type": "Лекции"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "11:50 - 13:20",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Экономическая теорияЛекции",
+        "teacher": "Голубина Валентина Васильевна",
+        "room": "300",
+        "type": "Лекции"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "15:40 - 17:10",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "17:20 - 18:50",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "19:00 - 20:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Дисциплина",
+        "teacher": "Преподаватель",
+        "room": "Аудитория",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "08:30 - 10:00",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "10:10 - 11:40",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Экономическая теорияПрактические",
+        "teacher": "Голубина Валентина Васильевна",
+        "room": "317",
+        "type": "Практические"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "14:00 - 15:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Специальные главы физикиПрактические",
+        "teacher": "Игумнова Юлия Олеговна",
+        "room": "311",
+        "type": "Практические"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "17:20 - 18:50",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "19:00 - 20:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Дисциплина",
+        "teacher": "Преподаватель",
+        "room": "Аудитория",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "08:30 - 10:00",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "10:10 - 11:40",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "11:50 - 13:20",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "14:00 - 15:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Объектно-ориентированное программированиеЛабораторные",
+        "teacher": "Тюжина Ирина Викторовна",
+        "room": "Толк5",
+        "type": "Лабораторные"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Объектно-ориентированное программированиеЛабораторные",
+        "teacher": "Тюжина Ирина Викторовна",
+        "room": "Толк5",
+        "type": "Лабораторные"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "19:00 - 20:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Дисциплина",
+        "teacher": "Преподаватель",
+        "room": "Аудитория",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "08:30 - 10:00",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Высшая математикаПрактические",
+        "teacher": "Сакулин Валерий Александрович",
+        "room": "228",
+        "type": "Практические"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "11:50 - 13:20",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "14:00 - 15:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "15:40 - 17:10",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "17:20 - 18:50",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "19:00 - 20:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Дисциплина",
+        "teacher": "Преподаватель",
+        "room": "Аудитория",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "08:30 - 10:00",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "10:10 - 11:40",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "11:50 - 13:20",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "14:00 - 15:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "15:40 - 17:10",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "17:20 - 18:50",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "19:00 - 20:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Дисциплина",
+        "teacher": "Преподаватель",
+        "room": "Аудитория",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "08:30 - 10:00",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "10:10 - 11:40",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "11:50 - 13:20",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "14:00 - 15:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "15:40 - 17:10",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "17:20 - 18:50",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "19:00 - 20:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Дисциплина",
+        "teacher": "Преподаватель",
+        "room": "Аудитория",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "08:30 - 10:00",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "10:10 - 11:40",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "11:50 - 13:20",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "14:00 - 15:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "15:40 - 17:10",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "17:20 - 18:50",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "19:00 - 20:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Дисциплина",
+        "teacher": "Преподаватель",
+        "room": "Аудитория",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Иностранный языкПрактические",
+        "teacher": "Кабанов Александр Михайлович",
+        "room": "227",
+        "type": "Практические"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Высшая математикаЛекции",
+        "teacher": "Сакулин Валерий Александрович",
+        "room": "301",
+        "type": "Лекции"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "11:50 - 13:20",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Экономическая теорияЛекции",
+        "teacher": "Голубина Валентина Васильевна",
+        "room": "300",
+        "type": "Лекции"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "15:40 - 17:10",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "17:20 - 18:50",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "19:00 - 20:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Дисциплина",
+        "teacher": "Преподаватель",
+        "room": "Аудитория",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "08:30 - 10:00",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "10:10 - 11:40",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Экономическая теорияПрактические",
+        "teacher": "Голубина Валентина Васильевна",
+        "room": "317",
+        "type": "Практические"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "14:00 - 15:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Специальные главы физикиПрактические",
+        "teacher": "Игумнова Юлия Олеговна",
+        "room": "311",
+        "type": "Практические"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "17:20 - 18:50",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "19:00 - 20:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Дисциплина",
+        "teacher": "Преподаватель",
+        "room": "Аудитория",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "08:30 - 10:00",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "10:10 - 11:40",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "11:50 - 13:20",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "14:00 - 15:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Объектно-ориентированное программированиеЛабораторные",
+        "teacher": "Тюжина Ирина Викторовна",
+        "room": "Толк5",
+        "type": "Лабораторные"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Объектно-ориентированное программированиеЛабораторные",
+        "teacher": "Тюжина Ирина Викторовна",
+        "room": "Толк5",
+        "type": "Лабораторные"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "19:00 - 20:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Дисциплина",
+        "teacher": "Преподаватель",
+        "room": "Аудитория",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "08:30 - 10:00",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Высшая математикаПрактические",
+        "teacher": "Сакулин Валерий Александрович",
+        "room": "228",
+        "type": "Практические"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "11:50 - 13:20",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "14:00 - 15:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "15:40 - 17:10",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "17:20 - 18:50",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "19:00 - 20:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Дисциплина",
+        "teacher": "Преподаватель",
+        "room": "Аудитория",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "08:30 - 10:00",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "10:10 - 11:40",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "11:50 - 13:20",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "14:00 - 15:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "15:40 - 17:10",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "17:20 - 18:50",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "19:00 - 20:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Дисциплина",
+        "teacher": "Преподаватель",
+        "room": "Аудитория",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "08:30 - 10:00",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "10:10 - 11:40",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "11:50 - 13:20",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "14:00 - 15:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "15:40 - 17:10",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "17:20 - 18:50",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "19:00 - 20:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Дисциплина",
+        "teacher": "Преподаватель",
+        "room": "Аудитория",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "08:30 - 10:00",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "10:10 - 11:40",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "11:50 - 13:20",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "14:00 - 15:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "15:40 - 17:10",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "17:20 - 18:50",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "19:00 - 20:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Дисциплина",
+        "teacher": "Преподаватель",
+        "room": "Аудитория",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Иностранный языкПрактические",
+        "teacher": "Кабанов Александр Михайлович",
+        "room": "227",
+        "type": "Практические"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Высшая математикаЛекции",
+        "teacher": "Сакулин Валерий Александрович",
+        "room": "301",
+        "type": "Лекции"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "11:50 - 13:20",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Экономическая теорияЛекции",
+        "teacher": "Голубина Валентина Васильевна",
+        "room": "300",
+        "type": "Лекции"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "15:40 - 17:10",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "17:20 - 18:50",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "19:00 - 20:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Дисциплина",
+        "teacher": "Преподаватель",
+        "room": "Аудитория",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "08:30 - 10:00",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "10:10 - 11:40",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Экономическая теорияПрактические",
+        "teacher": "Голубина Валентина Васильевна",
+        "room": "317",
+        "type": "Практические"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "14:00 - 15:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Специальные главы физикиПрактические",
+        "teacher": "Игумнова Юлия Олеговна",
+        "room": "311",
+        "type": "Практические"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "17:20 - 18:50",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "19:00 - 20:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Дисциплина",
+        "teacher": "Преподаватель",
+        "room": "Аудитория",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "08:30 - 10:00",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "10:10 - 11:40",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "11:50 - 13:20",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "14:00 - 15:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Объектно-ориентированное программированиеЛабораторные",
+        "teacher": "Тюжина Ирина Викторовна",
+        "room": "Толк5",
+        "type": "Лабораторные"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Объектно-ориентированное программированиеЛабораторные",
+        "teacher": "Тюжина Ирина Викторовна",
+        "room": "Толк5",
+        "type": "Лабораторные"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "19:00 - 20:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Дисциплина",
+        "teacher": "Преподаватель",
+        "room": "Аудитория",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "08:30 - 10:00",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Высшая математикаПрактические",
+        "teacher": "Сакулин Валерий Александрович",
+        "room": "228",
+        "type": "Практические"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "11:50 - 13:20",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "14:00 - 15:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "15:40 - 17:10",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "17:20 - 18:50",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "19:00 - 20:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Дисциплина",
+        "teacher": "Преподаватель",
+        "room": "Аудитория",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "08:30 - 10:00",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "10:10 - 11:40",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "11:50 - 13:20",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "14:00 - 15:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "15:40 - 17:10",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "17:20 - 18:50",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "19:00 - 20:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Дисциплина",
+        "teacher": "Преподаватель",
+        "room": "Аудитория",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "08:30 - 10:00",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "10:10 - 11:40",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "11:50 - 13:20",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "14:00 - 15:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "15:40 - 17:10",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "17:20 - 18:50",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "19:00 - 20:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Дисциплина",
+        "teacher": "Преподаватель",
+        "room": "Аудитория",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "08:30 - 10:00",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "10:10 - 11:40",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "11:50 - 13:20",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "14:00 - 15:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "15:40 - 17:10",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "17:20 - 18:50",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "19:00 - 20:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      }
+    ],
+    "Вторник": [
+      {
+        "number": "",
+        "time": "",
+        "subject": "Дисциплина",
+        "teacher": "Преподаватель",
+        "room": "Аудитория",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Иностранный языкПрактические",
+        "teacher": "Кабанов Александр Михайлович",
+        "room": "227",
+        "type": "Практические"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Высшая математикаЛекции",
+        "teacher": "Сакулин Валерий Александрович",
+        "room": "301",
+        "type": "Лекции"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "11:50 - 13:20",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Экономическая теорияЛекции",
+        "teacher": "Голубина Валентина Васильевна",
+        "room": "300",
+        "type": "Лекции"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "15:40 - 17:10",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "17:20 - 18:50",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "19:00 - 20:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      }
+    ],
+    "Среда": [
+      {
+        "number": "",
+        "time": "",
+        "subject": "Дисциплина",
+        "teacher": "Преподаватель",
+        "room": "Аудитория",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "08:30 - 10:00",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "10:10 - 11:40",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Экономическая теорияПрактические",
+        "teacher": "Голубина Валентина Васильевна",
+        "room": "317",
+        "type": "Практические"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "14:00 - 15:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Специальные главы физикиПрактические",
+        "teacher": "Игумнова Юлия Олеговна",
+        "room": "311",
+        "type": "Практические"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "17:20 - 18:50",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "19:00 - 20:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      }
+    ],
+    "Четверг": [
+      {
+        "number": "",
+        "time": "",
+        "subject": "Дисциплина",
+        "teacher": "Преподаватель",
+        "room": "Аудитория",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "08:30 - 10:00",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "10:10 - 11:40",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "11:50 - 13:20",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "14:00 - 15:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Объектно-ориентированное программированиеЛабораторные",
+        "teacher": "Тюжина Ирина Викторовна",
+        "room": "Толк5",
+        "type": "Лабораторные"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Объектно-ориентированное программированиеЛабораторные",
+        "teacher": "Тюжина Ирина Викторовна",
+        "room": "Толк5",
+        "type": "Лабораторные"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "19:00 - 20:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      }
+    ],
+    "Пятница": [
+      {
+        "number": "",
+        "time": "",
+        "subject": "Дисциплина",
+        "teacher": "Преподаватель",
+        "room": "Аудитория",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "08:30 - 10:00",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "Высшая математикаПрактические",
+        "teacher": "Сакулин Валерий Александрович",
+        "room": "228",
+        "type": "Практические"
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "11:50 - 13:20",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "14:00 - 15:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "15:40 - 17:10",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "17:20 - 18:50",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "19:00 - 20:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      }
+    ],
+    "Суббота": [
+      {
+        "number": "",
+        "time": "",
+        "subject": "Дисциплина",
+        "teacher": "Преподаватель",
+        "room": "Аудитория",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "08:30 - 10:00",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "10:10 - 11:40",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "11:50 - 13:20",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "14:00 - 15:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "15:40 - 17:10",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "17:20 - 18:50",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "19:00 - 20:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      }
+    ],
+    "Воскресенье": [
+      {
+        "number": "",
+        "time": "",
+        "subject": "Дисциплина",
+        "teacher": "Преподаватель",
+        "room": "Аудитория",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "08:30 - 10:00",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "10:10 - 11:40",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "11:50 - 13:20",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "14:00 - 15:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "15:40 - 17:10",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "17:20 - 18:50",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      },
+      {
+        "number": "",
+        "time": "",
+        "subject": "19:00 - 20:30",
+        "teacher": "",
+        "room": "",
+        "type": ""
+      }
+    ]
+  }
+}

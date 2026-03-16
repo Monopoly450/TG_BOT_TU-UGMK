@@ -1,0 +1,7 @@
+aiogram
+beautifulsoup4
+lxml
+playwright
+redis
+aiohttp
+python-dotenv
