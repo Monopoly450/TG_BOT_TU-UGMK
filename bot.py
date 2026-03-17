@@ -114,11 +114,35 @@ dp.callback_query.middleware(UserRegistrationMiddleware())
 class RedisDAO:
     def __init__(self):
         self.client = redis.Redis(host=os.getenv("REDIS_HOST", "localhost"), port=6379, decode_responses=True)
-    async def connect(self): await self.client.ping()
-    async def get(self, k):
-        data = await self.client.get(k)
+        self.ok = False
+
+    async def connect(self):
+        try:
+            await self.client.ping()
+            self.ok = True
+            logger.info("✅ Redis DAO: Подключено.")
+        except Exception as e:
+            self.ok = False
+            logger.error(f"⚠️ Redis DAO: Ошибка подключения - {e}")
+
+    async def get(self, key):
+        if not self.ok: return None
+        data = await self.client.get(key)
         return json.loads(data) if data else None
-    async def lpush(self, k, v): await self.client.lpush(k, json.dumps(v, ensure_ascii=False))
+
+    async def set(self, key, value):
+        if self.ok:
+            await self.client.set(key, json.dumps(value, ensure_ascii=False), ex=CACHE_LIFETIME)
+
+    async def lpush(self, key, value):
+        if self.ok:
+            await self.client.lpush(key, json.dumps(value, ensure_ascii=False))
+
+    async def delete_many(self, pattern):
+        if self.ok:
+            keys = await self.client.keys(pattern)
+            if keys:
+                await self.client.delete(*keys)
 
 dao = RedisDAO()
 
@@ -135,11 +159,17 @@ class ScheduleManager:
             await asyncio.sleep(0.5)
             res = await dao.get(key)
             if res: return res
+        logger.error(f"Timeout waiting for schedule result for key: {key}")
         return {}
     async def clear_cache(self):
-        keys = await dao.client.keys(f"data:v{CACHE_VERSION}:*")
-        if keys: await dao.client.delete(*keys)
-        for f in os.listdir(CACHE_DIR): os.remove(os.path.join(CACHE_DIR, f))
+        await dao.delete_many(f"data:v{CACHE_VERSION}:*")
+        # Также очистим файловый кэш для консистентности
+        for f in os.listdir(CACHE_DIR):
+            if f.endswith(".json"):
+                try:
+                    os.remove(os.path.join(CACHE_DIR, f))
+                except OSError as e:
+                    logger.error(f"Error removing cache file {f}: {e}")
 
 sm = ScheduleManager()
 

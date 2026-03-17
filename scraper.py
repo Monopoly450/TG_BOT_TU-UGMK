@@ -60,53 +60,40 @@ LESSON_TYPES = ["Лекции", "Практические", "Лаборатор�
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("scraper")
 
+# --- REDIS DAO ---
 class RedisDAO:
-    def __init__(self, host=os.getenv("REDIS_HOST", "localhost"), port=int(os.getenv("REDIS_PORT", 6379)), db=0):
-        self.client = redis.Redis(host=host, port=port, db=db, decode_responses=True)
-        self.is_connected = False
+    def __init__(self):
+        self.client = redis.Redis(host=os.getenv("REDIS_HOST", "localhost"), port=6379, decode_responses=True)
+        self.ok = False
 
     async def connect(self):
         try:
             await self.client.ping()
-            self.is_connected = True
-            logger.info("✅ Redis DAO: Подключено.")
+            self.ok = True
+            logger.info("✅ Redis DAO (Scraper): Подключено.")
         except Exception as e:
-            self.is_connected = False
-            logger.warning(f"⚠️ Redis DAO: Ошибка подключения: {e}")
-            raise
+            self.ok = False
+            logger.error(f"⚠️ Redis DAO (Scraper): Ошибка подключения - {e}")
 
-    async def set(self, key: str, value: Any, ttl: int = CACHE_LIFETIME):
-        if not self.is_connected: return
-        try:
-            val = json.dumps(value, ensure_ascii=False)
-            await self.client.setex(key, ttl, val)
-        except Exception as e:
-            logger.error(f"DAO Set Error: {e}")
+    async def get(self, key):
+        if not self.ok: return None
+        data = await self.client.get(key)
+        return json.loads(data) if data else None
 
-    async def get(self, key: str):
-        if not self.is_connected: return None
-        try:
-            data = await self.client.get(key)
-            return json.loads(data) if data else None
-        except Exception as e:
-            logger.error(f"DAO Get Error: {e}")
+    async def set(self, key, value):
+        if self.ok:
+            await self.client.set(key, json.dumps(value, ensure_ascii=False), ex=CACHE_LIFETIME)
+    
+    async def blpop(self, key, timeout=0):
+        if not self.ok: 
+            await asyncio.sleep(5) # Пауза, если редис отвалился
             return None
-            
-    async def sadd(self, name: str, value: str):
-        if not self.is_connected: return
-        try:
+        return await self.client.blpop(key, timeout)
+
+    async def sadd(self, name, value):
+        if self.ok:
             await self.client.sadd(name, value)
             await self.client.expire(name, CACHE_LIFETIME)
-        except Exception as e:
-            logger.error(f"DAO SAdd Error: {e}")
-
-    async def blpop(self, key: str, timeout: int = 0):
-        if not self.is_connected: return None
-        try:
-            return await self.client.blpop(key, timeout)
-        except Exception as e:
-            logger.error(f"DAO BLPOP Error: {e}")
-            return None
 
 dao = RedisDAO()
 
