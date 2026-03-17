@@ -78,7 +78,23 @@ class ScheduleParser:
         return url
 
     async def fetch(self, wo=0, t_type=None, t_val=None):
-        ctx = await self.browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        # Настройка контекста с реалистичными заголовками
+        ctx = await self.browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            viewport={"width": 1920, "height": 1080},
+            extra_http_headers={
+                "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                "Sec-Ch-Ua": '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
+                "Sec-Ch-Ua-Mobile": "?0",
+                "Sec-Ch-Ua-Platform": '"Windows"',
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "same-origin",
+                "Sec-Fetch-User": "?1",
+                "Upgrade-Insecure-Requests": "1"
+            }
+        )
         page = await ctx.new_page()
         try:
             url = self._build_url(wo, t_type, t_val)
@@ -92,17 +108,17 @@ class ScheduleParser:
             if "login" in page.url.lower():
                 logger.info("Login required, performing login...")
                 await self._login(page)
-                # После логина идем еще раз
-                await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                # После логина идем еще раз на целевой URL
+                await page.goto(url, wait_until="networkidle", timeout=60000)
             
-            # Ждем немного дольше для прогрузки JS
-            await asyncio.sleep(2)
+            # Ждем прогрузки JS (динамических таблиц)
+            await asyncio.sleep(4)
             
-            # Пытаемся дождаться таблицы или контейнера
+            # Пытаемся дождаться таблицы
             try:
                 await page.wait_for_selector(".day-container, table", timeout=15000)
             except:
-                logger.warning("Selectors not found, continuing...")
+                logger.warning("Selectors not found, continuing with raw HTML...")
 
             html = await page.content()
             
@@ -114,7 +130,7 @@ class ScheduleParser:
             
             res = self._parse(html, t_type, t_val)
             if not res or (not res.get("_dates") and len(res) <= 1):
-                logger.error(f"Failed to parse any data for {t_val}")
+                logger.error(f"Failed to parse any data for {t_val}. Check debug_last_fetch.html")
                 return {"_error": "Parse error or empty page"}
             
             return res
