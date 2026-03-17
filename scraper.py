@@ -54,85 +54,46 @@ class ScheduleParser:
         self._initialized = True
     async def _login(self, page):
         try:
-            logger.info(f"Attempting login with {LOGIN}")
+            logger.info(f"Attempting login as {LOGIN}...")
+            await page.wait_for_selector('input[name="LoginForm[login]"], #openid-auth-user', timeout=10000)
             await page.fill('input[name="LoginForm[login]"], #openid-auth-user', LOGIN)
             await page.fill('input[name="LoginForm[password]"], #openid-auth-pwd', PASSWORD)
-            await page.click('#login-submit, button[type="submit"]')
-            logger.info("Login submitted")
-            await page.wait_for_load_state("networkidle", timeout=15000)
-            logger.info(f"Login complete. Current URL: {page.url}")
+            await asyncio.gather(
+                page.wait_for_navigation(wait_until="networkidle", timeout=30000),
+                page.click('#login-submit, button[type="submit"]')
+            )
+            logger.info(f"Login submitted. Final URL: {page.url}")
+            if "login" in page.url.lower():
+                logger.error("Login failed: Still on login page. Check credentials!")
+                await page.screenshot(path="debug_login_error.png")
+                return False
+            return True
         except Exception as e: 
-            logger.error(f"Login failed: {e}")
-            # Try to screenshot for debug if possible? No, but let's at least log.
-    def _get_dates(self, offset):
-        mon = datetime.now() - timedelta(days=datetime.now().weekday()) + timedelta(weeks=offset)
-        return mon.strftime("%d.%m.%Y"), (mon + timedelta(days=6)).strftime("%d.%m.%Y")
-    def _build_url(self, wo=0, t_type=None, t_val=None):
-        sd, ed = self._get_dates(wo)
-        db = {"group": GROUPS_DB, "teacher": TEACHERS_DB, "classroom": CLASSROOMS_DB}
-        tm = {"group": "AcademicGroup", "teacher": "Teacher", "classroom": "Classroom"}
-        oid = db[t_type][t_val]
-        # Добавляем _referrer, так как он был в вашей ссылке
-        url = f"{SCHEDULE_URL}?scheduleType=Week&objectType={tm[t_type]}&objectId={oid}&startDate={sd}&endDate={ed}&_referrer=%2Fstudent%2Findex"
-        if t_type == "group": url += f"&another_group={urllib.parse.quote(t_val)}"
-        return url
+            logger.error(f"Login process error: {e}")
+            await page.screenshot(path="debug_login_crash.png")
+            return False
 
     async def fetch(self, wo=0, t_type=None, t_val=None):
-        # Настройка контекста с реалистичными заголовками
         ctx = await self.browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            viewport={"width": 1920, "height": 1080},
-            extra_http_headers={
-                "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                "Sec-Ch-Ua": '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
-                "Sec-Ch-Ua-Mobile": "?0",
-                "Sec-Ch-Ua-Platform": '"Windows"',
-                "Sec-Fetch-Dest": "document",
-                "Sec-Fetch-Mode": "navigate",
-                "Sec-Fetch-Site": "same-origin",
-                "Sec-Fetch-User": "?1",
-                "Upgrade-Insecure-Requests": "1"
-            }
+            viewport={"width": 1920, "height": 1080}
         )
         page = await ctx.new_page()
         try:
             url = self._build_url(wo, t_type, t_val)
             logger.info(f"[{t_type}] Fetching: {url}")
-            
-            start_time = datetime.now()
-            # Переходим на страницу
             await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            
-            # Если нас выкинуло на логин
             if "login" in page.url.lower():
-                logger.info("Login required, performing login...")
-                await self._login(page)
-                # После логина идем еще раз на целевой URL
-                await page.goto(url, wait_until="networkidle", timeout=60000)
-            
-            # Ждем прогрузки JS (динамических таблиц)
-            await asyncio.sleep(4)
-            
-            # Пытаемся дождаться таблицы
-            try:
-                await page.wait_for_selector(".day-container, table", timeout=15000)
-            except:
-                logger.warning("Selectors not found, continuing with raw HTML...")
-
+                if not await self._login(page): return {"_error": "Login failed"}
+                if page.url != url: await page.goto(url, wait_until="networkidle", timeout=60000)
+            await asyncio.sleep(5)
+            logger.info(f"Page title: {await page.title()}")
             html = await page.content()
-            
-            # Сохраняем последний HTML для отладки
-            with open("debug_last_fetch.html", "w", encoding="utf-8") as f:
-                f.write(html)
-            
-            logger.info(f"Page loaded in {(datetime.now() - start_time).total_seconds():.2f}s, saved to debug_last_fetch.html")
-            
+            with open("debug_last_fetch.html", "w", encoding="utf-8") as f: f.write(html)
             res = self._parse(html, t_type, t_val)
-            if not res or (not res.get("_dates") and len(res) <= 1):
-                logger.error(f"Failed to parse any data for {t_val}. Check debug_last_fetch.html")
-                return {"_error": "Parse error or empty page"}
-            
+            if not res or not res.get("_dates"):
+                if "ошибка" in html.lower() or "не найден" in html.lower(): return {"_error": "Site error message"}
+                return {"_error": "No data parsed"}
             return res
         except Exception as e: 
             logger.error(f"Fetch error: {e}")
