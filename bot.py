@@ -161,37 +161,24 @@ def get_week_nav(wo):
 
 def fmt_day(day, lessons, s, target_type=None):
     ds = s.get("_dates", {}).get(day, "")
-    text = f"🗓 <b>{day.upper()} ({ds})</b>
-" + "─"*20 + "
-
-"
+    text = f"🗓 <b>{day.upper()} ({ds})</b>\n" + "─"*20 + "\n\n"
     if not lessons: return text + "😴 Нет занятий"
     for l in lessons:
-        text += f"<b>{l['subject']}</b>
-"
-        text += f"   🕐 {l['time']} | 🏫 {l['room']}
-"
+        text += f"<b>{l['subject']}</b>\n"
+        text += f"   🕐 {l['time']} | 🏫 {l['room']}\n"
         if target_type in ["teacher", "classroom"]:
-            text += f"   👥 {l['group']}
-"
+            text += f"   👥 {l['group']}\n"
         else:
-            text += f"   👩‍🏫 {l['teacher']}
-"
+            text += f"   👩‍🏫 {l['teacher']}\n"
     return text
 
 def fmt_week(s, wo):
-    text = f"🗓 <b>НЕДЕЛЯ {wo}</b>
-" + "─"*20 + "
-
-"
+    text = f"🗓 <b>НЕДЕЛЯ {wo}</b>\n" + "─"*20 + "\n\n"
     for day in DAYS_OF_WEEK[:6]:
         lessons = s.get(day, [])
-        text += f"<b>{day.upper()}</b>: {len(lessons)} пар
-"
-        for l in lessons: text += f"   • {l['time']} | {l['subject']}
-"
-        text += "
-"
+        text += f"<b>{day.upper()}</b>: {len(lessons)} пар\n"
+        for l in lessons: text += f"   • {l['time']} | {l['subject']}\n"
+        text += "\n"
     return text
 
 @router.message(CommandStart())
