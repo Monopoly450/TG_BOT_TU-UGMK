@@ -256,10 +256,15 @@ async def weeks(m: Message, state: FSMContext):
 async def clear(m: Message, state: FSMContext):
     await state.clear()
     try:
-        # Пытаемся удалить последние 100 сообщений
-        await m.bot.delete_messages(m.chat.id, [m.message_id - i for i in range(100)])
-    except Exception as e:
-        logger.error(f"Failed to clear messages: {e}")
+        # Пытаемся удалить сообщение-команду от пользователя
+        await m.delete()
+    except Exception:
+        # Игнорируем ошибку, если не получилось (например, нет прав в группе)
+        pass
+    
+    # Отправляем 40 пустых строк, чтобы визуально "очистить" экран
+    await m.answer("⠀\n" * 40, parse_mode=None)
+    
     await m.answer("🧹 Чат очищен, фильтры сброшены.", reply_markup=get_main_menu())
 
 @router.message(F.text == "🔄 Сбросить")
