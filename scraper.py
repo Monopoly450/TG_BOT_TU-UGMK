@@ -186,19 +186,28 @@ class ScheduleParser:
 
     def _find_schedule_tables(self, all_tables, target_type, target_value):
         """Find the correct tables for the given target."""
-        if target_type == "group" and target_value:
-            target_tables = []
+        target_tables = []
+        
+        if target_value:
+            search_val = target_value.lower()
+            # Индекс колонки для поиска: 3 для групп, 4 для преподавателей
+            col_idx = 3 if target_type == "group" else 4
+            
             for table in all_tables:
+                found_in_table = False
                 for row in table.find_all("tr"):
                     cells = row.find_all("td")
-                    if len(cells) >= 4 and target_value.lower() in cells[3].get_text().lower():
-                        target_tables.append(table)
+                    if len(cells) > col_idx and search_val in cells[col_idx].get_text().lower():
+                        found_in_table = True
                         break
+                if found_in_table:
+                    target_tables.append(table)
+            
             if target_tables:
                 return target_tables
 
-        # Fallback for other types or if group search fails
-        if len(all_tables) >= 14 and target_type:
+        # Fallback если ничего не нашли или это аудитория
+        if len(all_tables) >= 14:
             return all_tables[-7:]
         return all_tables[:7]
 

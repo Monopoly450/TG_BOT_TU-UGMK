@@ -69,7 +69,7 @@ class OutgoingMessageTracker(BaseRequestMiddleware):
             sent_messages[result.chat.id].append(result.message_id)
         return result
 
-# --- BOT, DP, and MIDDLEWARES SETUP ---
+# --- BOT SETUP ---
 session = AiohttpSession(proxy=PROXY_URL) if PROXY_URL else None
 bot = Bot(token=BOT_TOKEN, session=session)
 bot.session.middleware(OutgoingMessageTracker())
@@ -99,24 +99,21 @@ class ScheduleManager:
             try:
                 if await dao.exists(key): return json.loads(await dao.get(key))
             except Exception as e: logger.error(f"Redis poll error: {e}")
-        logger.warning(f"Timeout waiting for schedule: {key}")
         return {}
 
 sm = ScheduleManager()
 
-# --- FSM States & UTILS ---
+# --- UTILS ---
 class ScheduleStates(StatesGroup): viewing = State()
 
 @asynccontextmanager
 async def loading_animation(chat_id: int):
-    async def _keep_sending_typing(chat_id: int):
+    async def _typing(chat_id):
         while True:
-            try:
-                await bot.send_chat_action(chat_id=chat_id, action="typing")
-                await asyncio.sleep(4)
+            try: await bot.send_chat_action(chat_id=chat_id, action="typing"), await asyncio.sleep(4)
             except asyncio.CancelledError: break
-            except Exception: break
-    task = asyncio.create_task(_keep_sending_typing(chat_id))
+            except: break
+    task = asyncio.create_task(_typing(chat_id))
     try: yield
     finally: task.cancel()
 
@@ -126,30 +123,27 @@ def get_main_menu(val=None):
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
 def get_day_pagination_kb(target_date: date):
-    prev_date_str, next_date_str = (target_date - timedelta(days=1)).isoformat(), (target_date + timedelta(days=1)).isoformat()
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Пред. день", callback_data=f"day_nav:{prev_date_str}"), InlineKeyboardButton(text="След. день ➡️", callback_data=f"day_nav:{next_date_str}")]])
+    prev, next = (target_date - timedelta(days=1)).isoformat(), (target_date + timedelta(days=1)).isoformat()
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Пред. день", callback_data=f"day_nav:{prev}"), InlineKeyboardButton(text="След. день ➡️", callback_data=f"day_nav:{next}")]])
 
-def format_lesson(lesson: dict, target_type: str) -> str:
-    subject, time, room, group, teacher = (lesson.get(k, 'Н/Д') for k in ['subject', 'time', 'room', 'group', 'teacher'])
-    text = f"📖 <b>{subject}</b>\n"
-    text += f"   └ <code>{time}</code> | 🚪 <code>{room}</code> | "
-    text += f"👥 {group}" if target_type in ["teacher", "classroom"] else f"👨‍🏫 {teacher}"
-    return text
+def format_lesson(l: dict, t_type: str) -> str:
+    subj, time, room, grp, teach = (l.get(k, 'Н/Д') for k in ['subject', 'time', 'room', 'group', 'teacher'])
+    text = f"📖 <b>{subj}</b>\n   └ <code>{time}</code> | 🚪 <code>{room}</code> | "
+    return text + (f"👥 {grp}" if t_type in ["teacher", "classroom"] else f"👨‍🏫 {teach}")
 
-def fmt_day(day_date: date, lessons: list, target_type: str) -> str:
+def fmt_day(day_date: date, lessons: list, t_type: str) -> str:
     day_name, date_str = DAYS_OF_WEEK[day_date.weekday()], day_date.strftime("%d.%m.%Y")
-    header = f"<b>🗓 {day_name.upper()}</b> ({date_str})\n"
-    text = header + "─" * 24 + "\n\n"
+    text = f"<b>🗓 {day_name.upper()}</b> ({date_str})\n" + "─" * 24 + "\n\n"
     if not lessons: return text + "😴 Нет занятий"
     sorted_lessons = sorted(lessons, key=lambda x: x.get('time', '00:00'))
-    return text + "\n\n".join([format_lesson(lesson, target_type) for lesson in sorted_lessons])
+    return text + "\n\n".join([format_lesson(l, t_type) for l in sorted_lessons])
 
-def fmt_week(week_schedule: dict, target_type: str) -> str:
+def fmt_week(s: dict, t_type: str) -> str:
     full_text = ""
     for day_name in DAYS_OF_WEEK[:6]:
-        if date_str := week_schedule.get("_dates", {}).get(day_name):
-            day_date, day_lessons = datetime.strptime(date_str, "%d.%m.%Y").date(), week_schedule.get(day_name, [])
-            full_text += fmt_day(day_date, day_lessons, target_type) + "\n\n" + "═" * 24 + "\n\n"
+        if d_str := s.get("_dates", {}).get(day_name):
+            d_date, d_lessons = datetime.strptime(d_str, "%d.%m.%Y").date(), s.get(day_name, [])
+            full_text += fmt_day(d_date, d_lessons, t_type) + "\n\n" + "═" * 24 + "\n\n"
     return full_text if full_text.strip() else "😴 На этой неделе занятий нет."
 
 # --- HANDLERS ---
@@ -159,11 +153,10 @@ async def start(m: Message, state: FSMContext):
 
 @dp.message(F.text.in_({"👥 Группы", "👩‍🏫 Преподаватели", "🏫 Аудитории"}))
 async def show_filter_menu(m: Message):
-    t_type_map = {"👥 Группы": "group", "👩‍🏫 Преподаватели": "teacher", "🏫 Аудитории": "classroom"}
-    t_type = t_type_map[m.text]
+    t_type = "group" if m.text == "👥 Группы" else "teacher" if m.text == "👩‍🏫 Преподаватели" else "classroom"
     db = {"group": GROUPS_DB, "teacher": TEACHERS_DB, "classroom": CLASSROOMS_DB}[t_type]
-    buttons = [InlineKeyboardButton(text=name, callback_data=f"fsel:{t_type}:{name}") for name in db]
-    kb = InlineKeyboardMarkup(inline_keyboard=[buttons[i:i+2] for i in range(0, len(buttons), 2)])
+    btns = [InlineKeyboardButton(text=n, callback_data=f"fsel:{t_type}:{n}") for n in db]
+    kb = InlineKeyboardMarkup(inline_keyboard=[btns[i:i+2] for i in range(0, len(btns), 2)])
     await m.answer("👇 Выберите:", reply_markup=kb)
 
 @dp.callback_query(F.data.startswith("fsel:"))
@@ -175,14 +168,15 @@ async def cb_sel(c: CallbackQuery, state: FSMContext):
 
 async def display_day_schedule(message: Message | CallbackQuery, state: FSMContext, target_date: date):
     data = await state.get_data()
-    target_val, target_type = data.get("target_value"), data.get("target_type")
+    t_val, t_type = data.get("target_value"), data.get("target_type")
     chat_id = message.chat.id if isinstance(message, Message) else message.message.chat.id
     today = datetime.now().date()
-    week_offset = ((target_date - timedelta(days=target_date.weekday())) - (today - timedelta(days=today.weekday()))).days // 7
+    wo = ((target_date - timedelta(days=target_date.weekday())) - (today - timedelta(days=today.weekday()))).days // 7
     async with loading_animation(chat_id):
-        week_schedule = await sm.fetch_schedule(week_offset, target_type, target_val)
-    day_name, day_lessons = DAYS_OF_WEEK[target_date.weekday()], week_schedule.get(day_name, [])
-    text, kb = fmt_day(target_date, day_lessons, target_type), get_day_pagination_kb(target_date)
+        week_s = await sm.fetch_schedule(wo, t_type, t_val)
+    day_name = DAYS_OF_WEEK[target_date.weekday()]
+    day_lessons = week_s.get(day_name, [])
+    text, kb = fmt_day(target_date, day_lessons, t_type), get_day_pagination_kb(target_date)
     if isinstance(message, CallbackQuery):
         try: await message.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
         except TelegramBadRequest: pass
@@ -200,23 +194,23 @@ async def handle_days(m: Message, state: FSMContext):
 
 @dp.message(F.text.in_({"🗓 Эта неделя", "➡️ След. неделя"}), ScheduleStates.viewing)
 async def handle_weeks(m: Message, state: FSMContext):
-    data, week_offset = await state.get_data(), 1 if m.text == "➡️ След. неделя" else 0
+    data, wo = await state.get_data(), 1 if m.text == "➡️ След. неделя" else 0
     async with loading_animation(m.chat.id):
-        schedule = await sm.fetch_schedule(week_offset, data.get("target_type"), data.get("target_value"))
-    text = fmt_week(schedule, data.get("target_type"))
+        s = await sm.fetch_schedule(wo, data.get("target_type"), data.get("target_value"))
+    text = fmt_week(s, data.get("target_type"))
     if len(text) > 4096:
         for i in range(0, len(text), 4096): await m.answer(text[i:i+4096], parse_mode="HTML")
     else: await m.answer(text, parse_mode="HTML")
 
 @dp.message(F.text == "🧹 Очистить")
 async def clear(m: Message, state: FSMContext):
-    message_ids = list(set(sent_messages.get(m.chat.id, [])))
-    for i in range(0, len(message_ids), 100):
-        try: await bot.delete_messages(m.chat.id, message_ids[i:i+100])
-        except TelegramBadRequest:
-            for msg_id in message_ids[i:i+100]:
-                try: await bot.delete_message(m.chat.id, msg_id)
-                except TelegramBadRequest: continue
+    ids = list(set(sent_messages.get(m.chat.id, [])))
+    for i in range(0, len(ids), 100):
+        try: await bot.delete_messages(m.chat.id, ids[i:i+100])
+        except:
+            for mid in ids[i:i+100]:
+                try: await bot.delete_message(m.chat.id, mid)
+                except: continue
     sent_messages[m.chat.id] = []
     await m.answer("🧹 Чат очищен.", reply_markup=get_main_menu())
 
@@ -230,8 +224,7 @@ async def require_filter_message(m: Message):
 
 async def main():
     if PROXY_URL: logger.info(f"🌐 Используется прокси: {PROXY_URL}")
-    await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
+    await bot.delete_webhook(drop_pending_updates=True), await dp.start_polling(bot)
 
 if __name__ == "__main__":
     try: asyncio.run(main())
