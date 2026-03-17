@@ -77,18 +77,8 @@ CLASSROOMS_DB = {
 
 DAYS_OF_WEEK = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
 SHORT_DAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
-DAY_EMOJI = {"Понедельник": "1️⃣", "Вторник": "2️⃣", "Среда": "3️⃣", "Четверг": "4️⃣", "Пятница": "5️⃣", "Суббота": "6️⃣", "Воскресенье": "7️⃣"}
 
 # --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
-def is_maintenance():
-    if not os.path.exists(MAINTENANCE_FILE): return False
-    try:
-        with open(MAINTENANCE_FILE, "r") as f: return json.load(f).get("is_active", False)
-    except: return False
-
-def set_maintenance(state: bool):
-    with open(MAINTENANCE_FILE, "w") as f: json.dump({"is_active": state}, f)
-
 def get_users():
     if not os.path.exists(USERS_FILE): return set()
     try:
@@ -114,35 +104,14 @@ dp.callback_query.middleware(UserRegistrationMiddleware())
 class RedisDAO:
     def __init__(self):
         self.client = redis.Redis(host=os.getenv("REDIS_HOST", "localhost"), port=6379, decode_responses=True)
-        self.ok = False
-
-    async def connect(self):
-        try:
-            await self.client.ping()
-            self.ok = True
-            logger.info("✅ Redis DAO: Подключено.")
-        except Exception as e:
-            self.ok = False
-            logger.error(f"⚠️ Redis DAO: Ошибка подключения - {e}")
-
-    async def get(self, key):
-        if not self.ok: return None
-        data = await self.client.get(key)
+    async def connect(self): await self.client.ping()
+    async def get(self, k):
+        data = await self.client.get(k)
         return json.loads(data) if data else None
-
-    async def set(self, key, value):
-        if self.ok:
-            await self.client.set(key, json.dumps(value, ensure_ascii=False), ex=CACHE_LIFETIME)
-
-    async def lpush(self, key, value):
-        if self.ok:
-            await self.client.lpush(key, json.dumps(value, ensure_ascii=False))
-
+    async def lpush(self, k, v): await self.client.lpush(k, json.dumps(v, ensure_ascii=False))
     async def delete_many(self, pattern):
-        if self.ok:
-            keys = await self.client.keys(pattern)
-            if keys:
-                await self.client.delete(*keys)
+        keys = await self.client.keys(pattern)
+        if keys: await self.client.delete(*keys)
 
 dao = RedisDAO()
 
@@ -159,63 +128,70 @@ class ScheduleManager:
             await asyncio.sleep(0.5)
             res = await dao.get(key)
             if res: return res
-        logger.error(f"Timeout waiting for schedule result for key: {key}")
         return {}
     async def clear_cache(self):
         await dao.delete_many(f"data:v{CACHE_VERSION}:*")
-        # Также очистим файловый кэш для консистентности
         for f in os.listdir(CACHE_DIR):
-            if f.endswith(".json"):
-                try:
-                    os.remove(os.path.join(CACHE_DIR, f))
-                except OSError as e:
-                    logger.error(f"Error removing cache file {f}: {e}")
+            if f.endswith(".json"): os.remove(os.path.join(CACHE_DIR, f))
 
 sm = ScheduleManager()
 
 # --- UI & HANDLERS ---
 def get_main_menu(val=None):
-    kb = [
-        [KeyboardButton(text="📅 Сегодня"), KeyboardButton(text="📆 Завтра")],
-        [KeyboardButton(text="🗓 Эта неделя"), KeyboardButton(text="➡️ След. неделя")],
-        [KeyboardButton(text="👥 Группы"), KeyboardButton(text="👩‍🏫 Преподаватели"), KeyboardButton(text="🏫 Аудитории")],
-        [KeyboardButton(text="🔄 Сбросить"), KeyboardButton(text="🧹 Очистить"), KeyboardButton(text="🙈 Скрыть")]
-    ] if val else [
-        [KeyboardButton(text="👥 Группы"), KeyboardButton(text="👩‍🏫 Преподаватели")],
-        [KeyboardButton(text="🏫 Аудитории")]
-    ]
+    if val:
+        # Меню, когда фильтр УЖЕ выбран
+        kb = [
+            [KeyboardButton(text="📅 Сегодня"), KeyboardButton(text="📆 Завтра")],
+            [KeyboardButton(text="🗓 Эта неделя"), KeyboardButton(text="➡️ След. неделя")],
+            [KeyboardButton(text="🔄 Сбросить"), KeyboardButton(text="🧹 Очистить"), KeyboardButton(text="🙈 Скрыть")]
+        ]
+    else:
+        # Меню, когда фильтр НЕ выбран
+        kb = [
+            [KeyboardButton(text="👥 Группы"), KeyboardButton(text="👩‍🏫 Преподаватели")],
+            [KeyboardButton(text="🏫 Аудитории")]
+        ]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
 def get_day_nav(di, wo):
-    nav = [
-        InlineKeyboardButton(text="🗓 Вся неделя", callback_data=f"showweek_{wo}"),
-        InlineKeyboardButton(text="🔄 Обновить", callback_data=f"refresh_day_{di}_{wo}")
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=[nav])
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🗓 Вся неделя", callback_data=f"showweek_{wo}"), InlineKeyboardButton(text="🔄 Обновить", callback_data=f"refresh_day_{di}_{wo}")]])
 
 def get_week_nav(wo):
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⏪ Пред.нед", callback_data=f"showweek_{wo-1}"), InlineKeyboardButton(text="След.нед ⏩", callback_data=f"showweek_{wo+1}")], [InlineKeyboardButton(text="🔄 Обновить", callback_data=f"refresh_week_{wo}")]])
 
 def fmt_day(day, lessons, s, target_type=None):
     ds = s.get("_dates", {}).get(day, "")
-    text = f"🗓 <b>{day.upper()} ({ds})</b>\n" + "─"*20 + "\n\n"
+    text = f"🗓 <b>{day.upper()} ({ds})</b>
+" + "─"*20 + "
+
+"
     if not lessons: return text + "😴 Нет занятий"
     for l in lessons:
-        text += f"<b>{l['subject']}</b>\n"
-        text += f"   🕐 {l['time']} | 🏫 {l['room']}\n"
+        text += f"<b>{l['subject']}</b>
+"
+        text += f"   🕐 {l['time']} | 🏫 {l['room']}
+"
         if target_type in ["teacher", "classroom"]:
-            text += f"   👥 {l['group']}\n"
+            text += f"   👥 {l['group']}
+"
         else:
-            text += f"   👩‍🏫 {l['teacher']}\n"
+            text += f"   👩‍🏫 {l['teacher']}
+"
     return text
 
 def fmt_week(s, wo):
-    text = f"🗓 <b>НЕДЕЛЯ {wo}</b>\n" + "─"*20 + "\n\n"
+    text = f"🗓 <b>НЕДЕЛЯ {wo}</b>
+" + "─"*20 + "
+
+"
     for day in DAYS_OF_WEEK[:6]:
         lessons = s.get(day, [])
-        text += f"{DAY_EMOJI[day]} <b>{day.upper()}</b>: {len(lessons)} пар\n"
-        for l in lessons: text += f"   • {l['time']} | {l['subject']}\n"
-        text += "\n"
+        text += f"<b>{day.upper()}</b>: {len(lessons)} пар
+"
+        for l in lessons: text += f"   • {l['time']} | {l['subject']}
+"
+        text += "
+"
     return text
 
 @router.message(CommandStart())
@@ -256,9 +232,7 @@ async def display_schedule(m: Message, state: FSMContext, is_week: bool, wo_offs
         return
 
     loading_msg = await m.answer("⏳ Загружаю расписание...")
-    
     s = await sm.fetch_schedule(wo_offset, data.get("target_type"), target_val)
-    
     await loading_msg.delete()
 
     if not s:
@@ -269,7 +243,7 @@ async def display_schedule(m: Message, state: FSMContext, is_week: bool, wo_offs
         await m.answer(fmt_week(s, wo_offset), parse_mode="HTML", reply_markup=get_week_nav(wo_offset))
     else:
         di = datetime.now().weekday()
-        if wo_offset == 1: di = 0 # If "tomorrow" on a weekend
+        if wo_offset == 1: di = 0 
         await m.answer(fmt_day(DAYS_OF_WEEK[di], s.get(DAYS_OF_WEEK[di], []), s, data.get("target_type")), parse_mode="HTML", reply_markup=get_day_nav(di, wo_offset))
 
 @router.message(F.text.in_({"📅 Сегодня", "📆 Завтра"}))
@@ -285,16 +259,8 @@ async def weeks(m: Message, state: FSMContext):
 @router.message(F.text == "🧹 Очистить")
 async def clear(m: Message, state: FSMContext):
     await state.clear()
-    try:
-        # Пытаемся удалить сообщение-команду от пользователя
-        await m.delete()
-    except Exception:
-        # Игнорируем ошибку, если не получилось (например, нет прав в группе)
-        pass
-    
-    # Отправляем 40 пустых строк, чтобы визуально "очистить" экран
-    await m.answer("⠀\n" * 40, parse_mode=None)
-    
+    await m.answer("⠀
+" * 40, parse_mode=None) 
     await m.answer("🧹 Чат очищен, фильтры сброшены.", reply_markup=get_main_menu())
 
 @router.message(F.text == "🔄 Сбросить")
