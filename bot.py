@@ -71,7 +71,8 @@ class UserRegistrationMiddleware(BaseMiddleware):
 
 class SentMessageTracker(BaseMiddleware):
     async def __call__(self, handler, event: Message, data: Dict[str, Any]):
-        # Мы будем "обезьяньим патчем" подменять метод answer
+        if getattr(event, "chat", None) and getattr(event, "message_id", None):
+            sent_messages[event.chat.id].append(event.message_id)
         original_answer = event.answer
         async def answer_with_tracking(*args, **kwargs):
             msg = await original_answer(*args, **kwargs)
@@ -122,33 +123,22 @@ def get_main_menu(val=None):
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
 def fmt_day(day_name: str, lessons: list, s: dict, target_type: str | None = None) -> str:
-    text = f"🗓 <b>{day_name.upper()}</b>
-" + "─"*20 + "
-
-"
+    text = f"🗓 <b>{day_name.upper()}</b>\n" + "─"*20 + "\n\n"
     if not lessons: return text + "😴 Нет занятий"
     for l in lessons:
-        text += f"<b>{l['subject']}</b>
-"
-        text += f"   🕐 {l['time']} | 🏫 {l['room']}
-"
+        text += f"<b>{l['subject']}</b>\n"
+        text += f"   🕐 {l['time']} | 🏫 {l['room']}\n"
         if target_type in ["teacher", "classroom"]:
-            text += f"   👥 {l['group']}
-"
+            text += f"   👥 {l['group']}\n"
         else:
-            text += f"   👩‍🏫 {l['teacher']}
-"
+            text += f"   👩‍🏫 {l['teacher']}\n"
     return text
 
 def fmt_week(s: dict, wo: int) -> str:
-    text = f"🗓 <b>НЕДЕЛЯ {wo}</b>
-" + "─"*20 + "
-
-"
+    text = f"🗓 <b>НЕДЕЛЯ {wo}</b>\n" + "─"*20 + "\n\n"
     for day_name in DAYS_OF_WEEK[:6]:
         lessons = s.get(day_name, [])
-        text += f"<b>{day_name}</b>: {len(lessons)} пар
-"
+        text += f"<b>{day_name}</b>: {len(lessons)} пар\n"
     return text
 
 # --- HANDLERS ---
@@ -171,7 +161,8 @@ async def cb_sel(c: CallbackQuery, state: FSMContext):
     val = list(db.keys())[int(idx)]
     await state.update_data(target_type=t_type, target_value=val)
     await c.message.delete()
-    await c.message.answer(f"✅ Фильтр: <b>{val}</b>", parse_mode="HTML", reply_markup=get_main_menu(val))
+    msg = await c.message.answer(f"✅ Фильтр: <b>{val}</b>", parse_mode="HTML", reply_markup=get_main_menu(val))
+    if msg: sent_messages[c.message.chat.id].append(msg.message_id)
     await c.answer()
 
 async def display_schedule(m: Message, state: FSMContext, is_week: bool, wo_offset: int):
