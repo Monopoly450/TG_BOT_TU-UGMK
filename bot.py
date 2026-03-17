@@ -200,14 +200,18 @@ async def start(m: Message, state: FSMContext):
 async def show_filter_menu(m: Message):
     t_type = "group" if m.text == "👥 Группы" else "teacher" if m.text == "👩‍🏫 Преподаватели" else "classroom"
     db = {"group": GROUPS_DB, "teacher": TEACHERS_DB, "classroom": CLASSROOMS_DB}[t_type]
-    btns = [InlineKeyboardButton(text=n, callback_data=f"fsel:{t_type}:{n}") for n in db]
+    # Используем индекс вместо имени, чтобы не превысить лимит 64 байта в callback_data
+    btns = [InlineKeyboardButton(text=n, callback_data=f"fsel:{t_type}:{i}") for i, n in enumerate(db)]
     kb = InlineKeyboardMarkup(inline_keyboard=[btns[i:i+2] for i in range(0, len(btns), 2)])
     await m.answer("👇 Выберите:", reply_markup=kb)
 
 @dp.callback_query(F.data.startswith("fsel:"))
 async def cb_sel(c: CallbackQuery, state: FSMContext):
     await c.message.delete()
-    _, t_type, t_val = c.data.split(":", 2)
+    _, t_type, idx = c.data.split(":", 2)
+    db = {"group": GROUPS_DB, "teacher": TEACHERS_DB, "classroom": CLASSROOMS_DB}[t_type]
+    # Восстанавливаем имя по индексу
+    t_val = list(db.keys())[int(idx)]
     await state.set_state(ScheduleStates.viewing), await state.update_data(target_type=t_type, target_value=t_val)
     await c.message.answer(f"✅ Фильтр: <b>{t_val}</b>", parse_mode="HTML", reply_markup=get_main_menu(t_val)), await c.answer()
 
