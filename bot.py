@@ -246,8 +246,7 @@ async def weeks(m: Message, state: FSMContext):
 @router.message(F.text == "🧹 Очистить")
 async def clear(m: Message, state: FSMContext):
     await state.clear()
-    await m.answer("⠀
-" * 40, parse_mode=None) 
+    await m.answer("⠀\n" * 40, parse_mode=None) 
     await m.answer("🧹 Чат очищен, фильтры сброшены.", reply_markup=get_main_menu())
 
 @router.message(F.text == "🔄 Сбросить")
