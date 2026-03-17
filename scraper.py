@@ -16,7 +16,7 @@ SCHEDULE_URL = "https://up.corp.tu-ugmk.com/student/schedule"
 LOGIN = os.getenv("LOGIN", "uvybhjhhv@gmail.com")
 PASSWORD = os.getenv("PASSWORD", "qazwsxedcip60000OP")
 
-CACHE_LIFETIME, CACHE_VERSION = 86400, 34
+CACHE_LIFETIME, CACHE_VERSION = 86400, 35
 
 # ════════════ БАЗЫ ДАННЫХ ID ═════════════════════
 GROUPS_DB = {"Ит-24107 гр.1": "756cb41d-42af-11ef-b448-00155d7f1420%3A309c2eb3-6dea-11f0-b44a-00155d7f1420", "Ит-24107 гр.2": "ea53e266-6dd2-11f0-b44a-00155d7f1420%3A5bbb50dd-6dea-11f0-b44a-00155d7f1420", "Ит-24107 гр.3": "e694ebbb-6dd3-11f0-b44a-00155d7f1420%3A9293ef2e-6dea-11f0-b44a-00155d7f1420", "А-24101": "b47ff74e-3d0f-11ef-b448-00155d7f1420%3A715cc0fc-3eb1-11ef-b448-00155d7f1420", "М-24102": "926cd860-42b2-11ef-b448-00155d7f1420%3A372960bb-4374-11ef-b448-00155d7f1420", "Т-24105": "0e9d8133-42b5-11ef-b448-00155d7f1420%3A5873fb74-4373-11ef-b448-00155d7f1420", "Эн-24103": "171f74fb-3d19-11ef-b448-00155d7f1420%3A19692d41-3ead-11ef-b448-00155d7f1420", "ГД-24104": "14064fbf-4335-11ef-b448-00155d7f1420%3A148d5959-4376-11ef-b448-00155d7f1420", "Гэм-24106": "d53322fa-4338-11ef-b448-00155d7f1420%3A629425ac-4375-11ef-b448-00155d7f1420"}
@@ -61,7 +61,7 @@ class ScheduleParser:
             # Нажимаем кнопку входа
             await page.click('#login-submit, button[type="submit"]')
             # Ждем завершения загрузки страницы
-            await page.wait_for_load_state("networkidle", timeout=30000)
+            await page.wait_for_load_state("domcontentloaded", timeout=30000)
             
             logger.info(f"Login submitted. Final URL: {page.url}")
             if "login" in page.url.lower():
@@ -99,8 +99,16 @@ class ScheduleParser:
             await page.goto(url, wait_until="domcontentloaded", timeout=60000)
             if "login" in page.url.lower():
                 if not await self._login(page): return {"_error": "Login failed"}
-                if page.url != url: await page.goto(url, wait_until="networkidle", timeout=60000)
-            await asyncio.sleep(5)
+                if page.url != url: await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            
+            # Ждем появления контейнеров с расписанием или сообщения об ошибке
+            try:
+                await page.wait_for_selector(".day-container, .alert-danger, .empty-result, table.table", timeout=15000)
+                # Даем немного времени на отрисовку JS если нужно
+                await asyncio.sleep(0.5)
+            except:
+                logger.warning("Timeout waiting for specific selectors, proceeding to parse anyway.")
+            
             logger.info(f"Page title: {await page.title()}")
             html = await page.content()
             with open("debug_last_fetch.html", "w", encoding="utf-8") as f: f.write(html)
