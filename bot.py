@@ -150,7 +150,19 @@ async def loading_animation(chat_id: int):
 
 # --- UI & FORMATTING ---
 def get_main_menu(val=None):
-    kb = [[KeyboardButton(text="📅 Сегодня"), KeyboardButton(text="📆 Завтра")], [KeyboardButton(text="🗓 Эта неделя"), KeyboardButton(text="➡️ След. неделя")], [KeyboardButton(text="🔄 Сбросить"), KeyboardButton(text="🧹 Очистить")]] if val else [[KeyboardButton(text="👥 Группы"), KeyboardButton(text="👩‍🏫 Преподаватели")], [KeyboardButton(text="🏫 Аудитории")]]
+    if val:
+        kb = [
+            [KeyboardButton(text="📅 Сегодня"), KeyboardButton(text="📆 Завтра")],
+            [KeyboardButton(text="🗓 Эта неделя"), KeyboardButton(text="➡️ След. неделя")],
+            [KeyboardButton(text="🔄 Сбросить"), KeyboardButton(text="🧹 Очистить")]
+        ]
+    else:
+        # Все категории в одну строку (горизонтально)
+        kb = [[
+            KeyboardButton(text="👥 Группы"), 
+            KeyboardButton(text="👩‍🏫 Преподаватели"), 
+            KeyboardButton(text="🏫 Аудитории")
+        ]]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
 def get_day_pagination_kb(target_date: date):
@@ -202,7 +214,8 @@ async def show_filter_menu(m: Message):
     db = {"group": GROUPS_DB, "teacher": TEACHERS_DB, "classroom": CLASSROOMS_DB}[t_type]
     # Используем индекс вместо имени, чтобы не превысить лимит 64 байта в callback_data
     btns = [InlineKeyboardButton(text=n, callback_data=f"fsel:{t_type}:{i}") for i, n in enumerate(db)]
-    kb = InlineKeyboardMarkup(inline_keyboard=[btns[i:i+2] for i in range(0, len(btns), 2)])
+    # Выводим по одной кнопке в ряд
+    kb = InlineKeyboardMarkup(inline_keyboard=[[btn] for btn in btns])
     await m.answer("👇 Выберите:", reply_markup=kb)
 
 @dp.callback_query(F.data.startswith("fsel:"))
