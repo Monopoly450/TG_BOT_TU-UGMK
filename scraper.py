@@ -73,6 +73,19 @@ class ScheduleParser:
             await page.screenshot(path="debug_login_crash.png")
             return False
 
+    def _get_dates(self, offset):
+        mon = datetime.now() - timedelta(days=datetime.now().weekday()) + timedelta(weeks=offset)
+        return mon.strftime("%d.%m.%Y"), (mon + timedelta(days=6)).strftime("%d.%m.%Y")
+
+    def _build_url(self, wo=0, t_type=None, t_val=None):
+        sd, ed = self._get_dates(wo)
+        db = {"group": GROUPS_DB, "teacher": TEACHERS_DB, "classroom": CLASSROOMS_DB}
+        tm = {"group": "AcademicGroup", "teacher": "Teacher", "classroom": "Classroom"}
+        oid = db[t_type][t_val]
+        url = f"{SCHEDULE_URL}?scheduleType=Week&objectType={tm[t_type]}&objectId={oid}&startDate={sd}&endDate={ed}&_referrer=%2Fstudent%2Findex"
+        if t_type == "group": url += f"&another_group={urllib.parse.quote(t_val)}"
+        return url
+
     async def fetch(self, wo=0, t_type=None, t_val=None):
         ctx = await self.browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
