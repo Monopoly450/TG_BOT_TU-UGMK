@@ -21,7 +21,7 @@ DATA_DIR = "data"
 CACHE_DIR = "cache"
 
 CACHE_LIFETIME = 86400 
-CACHE_VERSION = 32
+CACHE_VERSION = 33
 
 # Создаем папки
 os.makedirs(DATA_DIR, exist_ok=True)
