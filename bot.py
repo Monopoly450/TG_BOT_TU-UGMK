@@ -41,8 +41,6 @@ logger = logging.getLogger(__name__)
 session = AiohttpSession(proxy=PROXY_URL) if PROXY_URL else None
 bot = Bot(token=BOT_TOKEN, session=session)
 dp = Dispatcher(storage=MemoryStorage())
-router = Router()
-dp.include_router(router)
 
 ADMIN_IDS = [474095004] 
 sent_messages = collections.defaultdict(list)
@@ -112,42 +110,92 @@ def get_main_menu(val=None):
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
 def fmt_day(day, lessons, s, target_type=None):
-    text = f"🗓 <b>{day.upper()}</b>\n" + "─"*20 + "\n\n"
+    text = f"🗓 <b>{day.upper()}</b>
+" + "─"*20 + "
+
+"
     if not lessons: return text + "😴 Нет занятий"
     for l in lessons:
-        text += f"<b>{l['subject']}</b>\n"
-        text += f"   🕐 {l['time']} | 🏫 {l['room']}\n"
-        if target_type in ["teacher", "classroom"]: text += f"   👥 {l['group']}\n"
-        else: text += f"   👩‍🏫 {l['teacher']}\n"
+        text += f"<b>{l['subject']}</b>
+"
+        text += f"   🕐 {l['time']} | 🏫 {l['room']}
+"
+        if target_type in ["teacher", "classroom"]: text += f"   👥 {l['group']}
+"
+        else: text += f"   👩‍🏫 {l['teacher']}
+"
     return text
 
-def fmt_week(s, wo):
-    text = f"🗓 <b>НЕДЕЛЯ {wo}</b>\n" + "─"*20 + "\n\n"
-    for day_name in DAYS_OF_WEEK[:6]:
-        lessons = s.get(day_name, [])
-        text += f"<b>{day_name}</b>: {len(lessons)} пар\n"
-    return text
+# --- HANDLERS ---
+@dp.message(CommandStart())
+async def start(m: Message, state: FSMContext):
+    await state.clear()
+    await m.answer("👋 Бот расписания готов!", reply_markup=get_main_menu())
 
-@router.message(F.text.in_({"📅 Сегодня", "📆 Завтра"}))
+@dp.message(F.text.in_({"👥 Группы", "👩‍🏫 Преподаватели", "🏫 Аудитории"}))
+async def show_filter_menu(m: Message):
+    t_type = "group" if "Группы" in m.text else "teacher" if "Преподаватели" in m.text else "classroom"
+    db = GROUPS_DB if t_type=="group" else TEACHERS_DB if t_type=="teacher" else CLASSROOMS_DB
+    kb = [[InlineKeyboardButton(text=name, callback_data=f"fsel:{t_type}:{i}")] for i, name in enumerate(db.keys())]
+    await m.answer(f"👇 Выберите:", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+
+@dp.callback_query(F.data.startswith("fsel:"))
+async def cb_sel(c: CallbackQuery, state: FSMContext):
+    _, t_type, idx = c.data.split(":")
+    db = GROUPS_DB if t_type=="group" else TEACHERS_DB if t_type=="teacher" else CLASSROOMS_DB
+    val = list(db.keys())[int(idx)]
+    await state.update_data(target_type=t_type, target_value=val)
+    await c.message.delete()
+    await c.message.answer(f"✅ Фильтр: <b>{val}</b>", parse_mode="HTML", reply_markup=get_main_menu(val))
+    await c.answer()
+
+async def display_schedule(m: Message, state: FSMContext, is_week: bool, wo_offset: int = 0):
+    data = await state.get_data()
+    if not data.get("target_value"):
+        await m.answer("⚠️ Сначала выберите фильтр.", reply_markup=get_main_menu())
+        return
+
+    loading_msg = await m.answer("⏳ Загружаю расписание...")
+    s = await sm.fetch_schedule(wo_offset, data.get("target_type"), data.get("target_value"))
+    await loading_msg.delete()
+
+    if not s:
+        await m.answer("⚠️ Не удалось загрузить расписание.")
+        return
+
+    if is_week:
+        text = f"🗓 <b>НЕДЕЛЯ {wo_offset}</b>
+" + "─"*20 + "
+
+"
+        for day_name in DAYS_OF_WEEK[:6]:
+            lessons = s.get(day_name, [])
+            text += f"<b>{day_name}</b>: {len(lessons)} пар
+"
+        await m.answer(text, parse_mode="HTML")
+    else:
+        di = datetime.now().weekday() + (1 if m.text == "📆 Завтра" else 0)
+        day_name = DAYS_OF_WEEK[di % 7]
+        await m.answer(fmt_day(day_name, s.get(day_name, []), s, data.get("target_type")), parse_mode="HTML")
+
+@dp.message(F.text.in_({"📅 Сегодня", "📆 Завтра"}))
 async def days(m: Message, state: FSMContext):
     await display_schedule(m, state, is_week=False, wo_offset=1 if m.text == "📆 Завтра" else 0)
 
-@router.message(F.text.in_({"🗓 Эта неделя", "➡️ След. неделя"}))
+@dp.message(F.text.in_({"🗓 Эта неделя", "➡️ След. неделя"}))
 async def weeks(m: Message, state: FSMContext):
     await display_schedule(m, state, is_week=True, wo_offset=1 if m.text == "➡️ След. неделя" else 0)
 
-@router.message(F.text == "🧹 Очистить")
+@dp.message(F.text == "🧹 Очистить")
 async def clear(m: Message, state: FSMContext):
     await state.clear()
     chat_id = m.chat.id
     
-    # Добавляем ID команды "Очистить" в список
     if chat_id in sent_messages:
         sent_messages[chat_id].append(m.message_id)
     
     message_ids_to_delete = list(sent_messages.get(chat_id, []))
     
-    # Пытаемся удалить все сообщения пачками по 100
     for i in range(0, len(message_ids_to_delete), 100):
         try:
             await m.bot.delete_messages(chat_id, message_ids_to_delete[i:i+100])
@@ -158,7 +206,7 @@ async def clear(m: Message, state: FSMContext):
     new_msg = await m.answer("🧹 Чат очищен, фильтры сброшены.", reply_markup=get_main_menu())
     sent_messages[chat_id].append(new_msg.message_id)
 
-@router.message(F.text == "🔄 Сбросить")
+@dp.message(F.text == "🔄 Сбросить")
 async def reset(m: Message, state: FSMContext):
     await state.clear()
     await m.answer("🔄 Фильтры сброшены.", reply_markup=get_main_menu())
