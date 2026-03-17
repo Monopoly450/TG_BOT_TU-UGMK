@@ -254,14 +254,19 @@ async def display_day_schedule(message: Message | CallbackQuery, state: FSMConte
     chat_id = message.chat.id if isinstance(message, Message) else message.message.chat.id
     today = datetime.now().date()
     wo = ((target_date - timedelta(days=target_date.weekday())) - (today - timedelta(days=today.weekday()))).days // 7
+    
     async with loading_animation(chat_id):
         week_s = await sm.fetch_schedule(wo, t_type, t_val)
     
     day_name = DAYS_OF_WEEK[target_date.weekday()]
     day_lessons = week_s.get(day_name, [])
     
-    if not week_s and not isinstance(message, Message):
-        text = "⚠️ <b>Превышено время ожидания.</b>\nСайт университета отвечает слишком медленно. Попробуйте еще раз через минуту."
+    # Check if we got a valid response (even if empty) or a timeout/error
+    # A valid response should have _dates or at least be a non-empty dict without _error
+    is_error = not week_s or "_error" in week_s
+    
+    if is_error:
+        text = "⚠️ <b>Ошибка загрузки.</b>\nУниверситетский сайт не ответил вовремя или произошла ошибка парсинга. Попробуйте еще раз."
     else:
         text = fmt_day(target_date, day_lessons, t_type)
         

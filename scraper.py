@@ -75,22 +75,53 @@ class ScheduleParser:
         page = await ctx.new_page()
         try:
             url = self._build_url(wo, t_type, t_val)
-            logger.info(f"Fetching: {url}")
-            await page.goto(url, wait_until="networkidle", timeout=45000)
+            logger.info(f"[{t_type}] Fetching: {url}")
+            
+            start_time = datetime.now()
+            await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            
             if "login" in page.url.lower():
-                await self._login(page); await page.goto(url, wait_until="networkidle", timeout=45000)
+                logger.info("Login required, performing login...")
+                await self._login(page)
+                await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            
+            # Wait for any of the common schedule elements
+            try:
+                await page.wait_for_selector(".schedule-container, table, .day-container", timeout=15000)
+            except:
+                logger.warning("Timeout waiting for schedule selectors, proceeding with current content")
+
             html = await page.content()
-            return self._parse(html, t_type, t_val)
-        except Exception as e: logger.error(f"Fetch error: {e}"); return {}
-        finally: await page.close(); await ctx.close()
+            logger.info(f"Page loaded in {(datetime.now() - start_time).total_seconds():.2f}s, length: {len(html)}")
+            
+            res = self._parse(html, t_type, t_val)
+            if not res or not res.get("_dates"):
+                logger.warning(f"No dates found in parsed result for {t_val}")
+                # If we have tables but no dates, maybe it's actually empty, but if no tables either, it's an error
+                if not any(res.get(d) for d in DAYS_OF_WEEK if d in res):
+                    return {"_error": "Empty result"}
+            
+            return res
+        except Exception as e: 
+            logger.error(f"Fetch error for {t_val}: {e}")
+            return {"_error": str(e)}
+        finally: 
+            await page.close()
+            await ctx.close()
+
     def _find_tables(self, soup, t_type, t_val):
         all_t = soup.find_all("table")
-        if not all_t: return []
-        if t_type in ["classroom", "teacher"] or not t_val: return all_t[:7]
-        # Ищем по фамилии (первое слово) для надежности
-        surname = t_val.split()[0].lower()
-        target_t = [t for t in all_t if surname in t.get_text().lower()]
-        return target_t if target_t else all_t[:7]
+        if not all_t: 
+            logger.warning("No tables found in HTML")
+            return []
+            
+        if t_type in ["classroom", "teacher"] or not t_val: 
+            return all_t[:7]
+            
+        # For groups, we look for the group name in the table
+        # But on a group page, it might be in the header, not in the table cells
+        # Let's be more lenient: if it's a group page, all tables likely belong to it
+        return all_t[:7]
     def _parse(self, html, t_type=None, t_val=None):
         soup, schedule, dates = BeautifulSoup(html, "lxml"), {}, {}
         for text in soup.stripped_strings:
