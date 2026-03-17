@@ -112,75 +112,21 @@ def get_main_menu(val=None):
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
 def fmt_day(day, lessons, s, target_type=None):
-    text = f"🗓 <b>{day.upper()}</b>
-" + "─"*20 + "
-
-"
+    text = f"🗓 <b>{day.upper()}</b>\n" + "─"*20 + "\n\n"
     if not lessons: return text + "😴 Нет занятий"
     for l in lessons:
-        text += f"<b>{l['subject']}</b>
-"
-        text += f"   🕐 {l['time']} | 🏫 {l['room']}
-"
-        if target_type in ["teacher", "classroom"]: text += f"   👥 {l['group']}
-"
-        else: text += f"   👩‍🏫 {l['teacher']}
-"
+        text += f"<b>{l['subject']}</b>\n"
+        text += f"   🕐 {l['time']} | 🏫 {l['room']}\n"
+        if target_type in ["teacher", "classroom"]: text += f"   👥 {l['group']}\n"
+        else: text += f"   👩‍🏫 {l['teacher']}\n"
     return text
 
-# --- HANDLERS ---
-@router.message(CommandStart())
-async def start(m: Message, state: FSMContext):
-    await state.clear()
-    await m.answer("👋 Бот расписания готов!", reply_markup=get_main_menu())
-
-@router.message(F.text.in_({"👥 Группы", "👩‍🏫 Преподаватели", "🏫 Аудитории"}))
-async def show_filter_menu(m: Message):
-    t_type = "group" if "Группы" in m.text else "teacher" if "Преподаватели" in m.text else "classroom"
-    db = GROUPS_DB if t_type=="group" else TEACHERS_DB if t_type=="teacher" else CLASSROOMS_DB
-    kb = [[InlineKeyboardButton(text=name, callback_data=f"fsel:{t_type}:{i}")] for i, name in enumerate(db.keys())]
-    await m.answer(f"👇 Выберите:", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
-
-@router.callback_query(F.data.startswith("fsel:"))
-async def cb_sel(c: CallbackQuery, state: FSMContext):
-    _, t_type, idx = c.data.split(":")
-    db = GROUPS_DB if t_type=="group" else TEACHERS_DB if t_type=="teacher" else CLASSROOMS_DB
-    val = list(db.keys())[int(idx)]
-    await state.update_data(target_type=t_type, target_value=val)
-    await c.message.delete()
-    await c.message.answer(f"✅ Фильтр: <b>{val}</b>", parse_mode="HTML", reply_markup=get_main_menu(val))
-    await c.answer()
-
-async def display_schedule(m: Message, state: FSMContext, is_week: bool, wo_offset: int = 0):
-    data = await state.get_data()
-    if not data.get("target_value"):
-        await m.answer("⚠️ Сначала выберите фильтр.", reply_markup=get_main_menu())
-        return
-
-    loading_msg = await m.answer("⏳ Загружаю расписание...")
-    s = await sm.fetch_schedule(wo_offset, data.get("target_type"), data.get("target_value"))
-    await loading_msg.delete()
-
-    if not s:
-        await m.answer("⚠️ Не удалось загрузить расписание.")
-        return
-
-    if is_week:
-        # Недельный вид (упрощенный)
-        text = f"🗓 <b>НЕДЕЛЯ {wo_offset}</b>
-" + "─"*20 + "
-
-"
-        for day_name in DAYS_OF_WEEK[:6]:
-            lessons = s.get(day_name, [])
-            text += f"<b>{day_name}</b>: {len(lessons)} пар
-"
-        await m.answer(text, parse_mode="HTML")
-    else:
-        # Дневной вид
-        di = datetime.now().weekday() + (wo_offset if m.text == "📆 Завтра" else 0)
-        day_name = DAYS_OF_WEEK[di % 7]
-        await m.answer(fmt_day(day_name, s.get(day_name, []), s, data.get("target_type")), parse_mode="HTML")
+def fmt_week(s, wo):
+    text = f"🗓 <b>НЕДЕЛЯ {wo}</b>\n" + "─"*20 + "\n\n"
+    for day_name in DAYS_OF_WEEK[:6]:
+        lessons = s.get(day_name, [])
+        text += f"<b>{day_name}</b>: {len(lessons)} пар\n"
+    return text
 
 @router.message(F.text.in_({"📅 Сегодня", "📆 Завтра"}))
 async def days(m: Message, state: FSMContext):
