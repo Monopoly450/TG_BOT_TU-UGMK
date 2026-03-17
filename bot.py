@@ -22,15 +22,12 @@ from aiogram.fsm.context import FSMContext
 import redis.asyncio as redis
 
 # ═══════════════════ НАСТРОЙКИ ═══════════════════
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8789288719:AAFTR5Mp2iV3yrtvHSSgdxxa5buJbbpl-uc")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 PROXY_URL = os.getenv("PROXY_URL") 
 
-SCHEDULE_URL = "https://up.corp.tu-ugmk.com/student/schedule"
 DATA_DIR = "data"
 CACHE_DIR = "cache"
 USERS_FILE = os.path.join(DATA_DIR, "users.json")
-MAINTENANCE_FILE = os.path.join(DATA_DIR, "maintenance.json")
-
 CACHE_LIFETIME = 86400 
 CACHE_VERSION = 32 
 
@@ -40,7 +37,7 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Сессия с прокси
+# Сессия с прокси и инициализация бота
 session = AiohttpSession(proxy=PROXY_URL) if PROXY_URL else None
 bot = Bot(token=BOT_TOKEN, session=session)
 dp = Dispatcher(storage=MemoryStorage())
@@ -48,158 +45,101 @@ router = Router()
 dp.include_router(router)
 
 ADMIN_IDS = [474095004] 
+sent_messages = collections.defaultdict(list)
 
 # --- БАЗЫ ДАННЫХ ID ---
 GROUPS_DB = {
     "Ит-24107 гр.1": "756cb41d-42af-11ef-b448-00155d7f1420%3A309c2eb3-6dea-11f0-b44a-00155d7f1420",
-    "Ит-24107 гр.2": "ea53e266-6dd2-11f0-b44a-00155d7f1420%3A5bbb50dd-6dea-11f0-b44a-00155d7f1420",
-    "Ит-24107 гр.3": "e694ebbb-6dd3-11f0-b44a-00155d7f1420%3A9293ef2e-6dea-11f0-b44a-00155d7f1420",
     "А-24101": "b47ff74e-3d0f-11ef-b448-00155d7f1420%3A715cc0fc-3eb1-11ef-b448-00155d7f1420",
-    "М-24102": "926cd860-42b2-11ef-b448-00155d7f1420%3A372960bb-4374-11ef-b448-00155d7f1420",
-    "Т-24105": "0e9d8133-42b5-11ef-b448-00155d7f1420%3A5873fb74-4373-11ef-b448-00155d7f1420",
-    "Эн-24103": "171f74fb-3d19-11ef-b448-00155d7f1420%3A19692d41-3ead-11ef-b448-00155d7f1420",
-    "ГД-24104": "14064fbf-4335-11ef-b448-00155d7f1420%3A148d5959-4376-11ef-b448-00155d7f1420",
-    "Гэм-24106": "d53322fa-4338-11ef-b448-00155d7f1420%3A629425ac-4375-11ef-b448-00155d7f1420",
 }
 TEACHERS_DB = {
     "Сакулин Валерий Александрович": "000000376",
     "Мазитов Виктор Расульевич": "000000421",
-    "Котельников Сергей Андреевич": "000000383",
-    "Голубина Валентина Васильевна": "000000467",
-    "Кабанов Александр Михайлович": "000000409",
-    "Игумнова Юлия Олеговна": "000002912",
-    "Тюжина Ирина Викторовна": "000002915",
 }
-CLASSROOMS_DB = {
-    "Толк5": "2355c22e-2bcd-11e7-b191-005056953b1b",
-    "Ауд. 203": "67941c0b-ca51-11ee-b440-00155d7f0e19",
-}
-
+CLASSROOMS_DB = { "Ауд. 203": "67941c0b-ca51-11ee-b440-00155d7f0e19" }
 DAYS_OF_WEEK = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
-SHORT_DAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
-
-# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
-def get_users():
-    if not os.path.exists(USERS_FILE): return set()
-    try:
-        with open(USERS_FILE, "r") as f: return set(json.load(f))
-    except: return set()
-
-def save_user(user_id):
-    users = get_users()
-    if user_id not in users:
-        users.add(user_id)
-        with open(USERS_FILE, "w") as f: json.dump(list(users), f)
 
 # --- MIDDLEWARES ---
 class UserRegistrationMiddleware(BaseMiddleware):
     async def __call__(self, handler, event, data):
-        if hasattr(event, "from_user") and event.from_user: save_user(event.from_user.id)
+        if hasattr(event, "from_user") and event.from_user:
+            users = set()
+            if os.path.exists(USERS_FILE):
+                with open(USERS_FILE, "r") as f: users = set(json.load(f))
+            if event.from_user.id not in users:
+                users.add(event.from_user.id)
+                with open(USERS_FILE, "w") as f: json.dump(list(users), f)
+        return await handler(event, data)
+
+class SentMessageTracker(BaseMiddleware):
+    async def __call__(self, handler, event: Message, data: Dict[str, Any]):
+        original_answer = event.answer
+        async def answer_with_tracking(*args, **kwargs):
+            msg = await original_answer(*args, **kwargs)
+            if msg: sent_messages[event.chat.id].append(msg.message_id)
+            return msg
+        event.answer = answer_with_tracking
         return await handler(event, data)
 
 dp.message.middleware(UserRegistrationMiddleware())
-dp.callback_query.middleware(UserRegistrationMiddleware())
+dp.message.middleware(SentMessageTracker())
 
-# --- REDIS DAO ---
-class RedisDAO:
-    def __init__(self):
-        self.client = redis.Redis(host=os.getenv("REDIS_HOST", "localhost"), port=6379, decode_responses=True)
-    async def connect(self): await self.client.ping()
-    async def get(self, k):
-        data = await self.client.get(k)
-        return json.loads(data) if data else None
-    async def lpush(self, k, v): await self.client.lpush(k, json.dumps(v, ensure_ascii=False))
-    async def delete_many(self, pattern):
-        keys = await self.client.keys(pattern)
-        if keys: await self.client.delete(*keys)
+# --- REDIS & SCHEDULE MANAGER ---
+dao = redis.Redis(host=os.getenv("REDIS_HOST", "localhost"), port=6379, decode_responses=True)
 
-dao = RedisDAO()
-
-# --- МЕНЕДЖЕР РАСПИСАНИЯ ---
 class ScheduleManager:
-    async def init(self): await dao.connect()
     async def fetch_schedule(self, wo=0, t_type=None, t_val=None):
-        tid = f"{t_type}:{t_val}" if t_type and t_val else "default"
-        key = f"data:v{CACHE_VERSION}:{tid}:w{wo}"
-        cached = await dao.get(key)
-        if cached: return cached
-        await dao.lpush('schedule_jobs', {"week_offset": wo, "target_type": t_type, "target_value": t_val})
-        for _ in range(120): # 60 sec timeout
+        key = f"data:v{CACHE_VERSION}:{t_type}:{t_val}:w{wo}"
+        if await dao.exists(key): return json.loads(await dao.get(key))
+        await dao.lpush('schedule_jobs', json.dumps({"week_offset": wo, "target_type": t_type, "target_value": t_val}))
+        for _ in range(120):
             await asyncio.sleep(0.5)
-            res = await dao.get(key)
-            if res: return res
+            if await dao.exists(key): return json.loads(await dao.get(key))
         return {}
     async def clear_cache(self):
-        await dao.delete_many(f"data:v{CACHE_VERSION}:*")
-        for f in os.listdir(CACHE_DIR):
-            if f.endswith(".json"): os.remove(os.path.join(CACHE_DIR, f))
+        keys = await dao.keys(f"data:v{CACHE_VERSION}:*")
+        if keys: await dao.delete(*keys)
+        for f in os.listdir(CACHE_DIR): os.remove(os.path.join(CACHE_DIR, f))
 
 sm = ScheduleManager()
 
-# --- UI & HANDLERS ---
+# --- UI ---
 def get_main_menu(val=None):
     if val:
-        # Меню, когда фильтр УЖЕ выбран
-        kb = [
-            [KeyboardButton(text="📅 Сегодня"), KeyboardButton(text="📆 Завтра")],
-            [KeyboardButton(text="🗓 Эта неделя"), KeyboardButton(text="➡️ След. неделя")],
-            [KeyboardButton(text="🔄 Сбросить"), KeyboardButton(text="🧹 Очистить"), KeyboardButton(text="🙈 Скрыть")]
-        ]
+        kb = [[KeyboardButton(text="📅 Сегодня"), KeyboardButton(text="📆 Завтра")], [KeyboardButton(text="🗓 Эта неделя"), KeyboardButton(text="➡️ След. неделя")], [KeyboardButton(text="🔄 Сбросить"), KeyboardButton(text="🧹 Очистить")]]
     else:
-        # Меню, когда фильтр НЕ выбран
-        kb = [
-            [KeyboardButton(text="👥 Группы"), KeyboardButton(text="👩‍🏫 Преподаватели")],
-            [KeyboardButton(text="🏫 Аудитории")]
-        ]
+        kb = [[KeyboardButton(text="👥 Группы"), KeyboardButton(text="👩‍🏫 Преподаватели")], [KeyboardButton(text="🏫 Аудитории")]]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
-def get_day_nav(di, wo):
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🗓 Вся неделя", callback_data=f"showweek_{wo}"), InlineKeyboardButton(text="🔄 Обновить", callback_data=f"refresh_day_{di}_{wo}")]])
-
-def get_week_nav(wo):
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⏪ Пред.нед", callback_data=f"showweek_{wo-1}"), InlineKeyboardButton(text="След.нед ⏩", callback_data=f"showweek_{wo+1}")], [InlineKeyboardButton(text="🔄 Обновить", callback_data=f"refresh_week_{wo}")]])
-
 def fmt_day(day, lessons, s, target_type=None):
-    ds = s.get("_dates", {}).get(day, "")
-    text = f"🗓 <b>{day.upper()} ({ds})</b>\n" + "─"*20 + "\n\n"
+    text = f"🗓 <b>{day.upper()}</b>
+" + "─"*20 + "
+
+"
     if not lessons: return text + "😴 Нет занятий"
     for l in lessons:
-        text += f"<b>{l['subject']}</b>\n"
-        text += f"   🕐 {l['time']} | 🏫 {l['room']}\n"
-        if target_type in ["teacher", "classroom"]:
-            text += f"   👥 {l['group']}\n"
-        else:
-            text += f"   👩‍🏫 {l['teacher']}\n"
+        text += f"<b>{l['subject']}</b>
+"
+        text += f"   🕐 {l['time']} | 🏫 {l['room']}
+"
+        if target_type in ["teacher", "classroom"]: text += f"   👥 {l['group']}
+"
+        else: text += f"   👩‍🏫 {l['teacher']}
+"
     return text
 
-def fmt_week(s, wo):
-    text = f"🗓 <b>НЕДЕЛЯ {wo}</b>\n" + "─"*20 + "\n\n"
-    for day in DAYS_OF_WEEK[:6]:
-        lessons = s.get(day, [])
-        text += f"<b>{day.upper()}</b>: {len(lessons)} пар\n"
-        for l in lessons: text += f"   • {l['time']} | {l['subject']}\n"
-        text += "\n"
-    return text
-
+# --- HANDLERS ---
 @router.message(CommandStart())
 async def start(m: Message, state: FSMContext):
     await state.clear()
-    await m.answer("👋 Бот расписания готов к работе!", reply_markup=get_main_menu())
+    await m.answer("👋 Бот расписания готов!", reply_markup=get_main_menu())
 
-async def show_filter_menu(m: Message, target_type: str):
-    db_map = {"group": GROUPS_DB, "teacher": TEACHERS_DB, "classroom": CLASSROOMS_DB}
-    title_map = {"group": "группу", "teacher": "преподавателя", "classroom": "аудиторию"}
-    kb = [[InlineKeyboardButton(text=name, callback_data=f"fsel:{target_type}:{i}")] for i, name in enumerate(db_map[target_type].keys())]
-    await m.answer(f"👇 Выберите {title_map[target_type]}:", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
-
-@router.message(F.text == "👥 Группы")
-async def btn_gr(m: Message): await show_filter_menu(m, "group")
-
-@router.message(F.text == "👩‍🏫 Преподаватели")
-async def btn_tr(m: Message): await show_filter_menu(m, "teacher")
-
-@router.message(F.text == "🏫 Аудитории")
-async def btn_cr(m: Message): await show_filter_menu(m, "classroom")
+@router.message(F.text.in_({"👥 Группы", "👩‍🏫 Преподаватели", "🏫 Аудитории"}))
+async def show_filter_menu(m: Message):
+    t_type = "group" if "Группы" in m.text else "teacher" if "Преподаватели" in m.text else "classroom"
+    db = GROUPS_DB if t_type=="group" else TEACHERS_DB if t_type=="teacher" else CLASSROOMS_DB
+    kb = [[InlineKeyboardButton(text=name, callback_data=f"fsel:{t_type}:{i}")] for i, name in enumerate(db.keys())]
+    await m.answer(f"👇 Выберите:", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
 
 @router.callback_query(F.data.startswith("fsel:"))
 async def cb_sel(c: CallbackQuery, state: FSMContext):
@@ -213,76 +153,72 @@ async def cb_sel(c: CallbackQuery, state: FSMContext):
 
 async def display_schedule(m: Message, state: FSMContext, is_week: bool, wo_offset: int = 0):
     data = await state.get_data()
-    target_val = data.get("target_value")
-    if not target_val:
-        await m.answer("⚠️ Сначала выберите группу, преподавателя или аудиторию.", reply_markup=get_main_menu())
+    if not data.get("target_value"):
+        await m.answer("⚠️ Сначала выберите фильтр.", reply_markup=get_main_menu())
         return
 
     loading_msg = await m.answer("⏳ Загружаю расписание...")
-    s = await sm.fetch_schedule(wo_offset, data.get("target_type"), target_val)
+    s = await sm.fetch_schedule(wo_offset, data.get("target_type"), data.get("target_value"))
     await loading_msg.delete()
 
     if not s:
-        await m.answer("⚠️ Не удалось загрузить расписание. Попробуйте позже.")
+        await m.answer("⚠️ Не удалось загрузить расписание.")
         return
 
     if is_week:
-        await m.answer(fmt_week(s, wo_offset), parse_mode="HTML", reply_markup=get_week_nav(wo_offset))
+        # Недельный вид (упрощенный)
+        text = f"🗓 <b>НЕДЕЛЯ {wo_offset}</b>
+" + "─"*20 + "
+
+"
+        for day_name in DAYS_OF_WEEK[:6]:
+            lessons = s.get(day_name, [])
+            text += f"<b>{day_name}</b>: {len(lessons)} пар
+"
+        await m.answer(text, parse_mode="HTML")
     else:
-        di = datetime.now().weekday()
-        if wo_offset == 1: di = 0 
-        await m.answer(fmt_day(DAYS_OF_WEEK[di], s.get(DAYS_OF_WEEK[di], []), s, data.get("target_type")), parse_mode="HTML", reply_markup=get_day_nav(di, wo_offset))
+        # Дневной вид
+        di = datetime.now().weekday() + (wo_offset if m.text == "📆 Завтра" else 0)
+        day_name = DAYS_OF_WEEK[di % 7]
+        await m.answer(fmt_day(day_name, s.get(day_name, []), s, data.get("target_type")), parse_mode="HTML")
 
 @router.message(F.text.in_({"📅 Сегодня", "📆 Завтра"}))
 async def days(m: Message, state: FSMContext):
-    wo = 1 if m.text == "📆 Завтра" and datetime.now().weekday() >= 5 else 0
-    await display_schedule(m, state, is_week=False, wo_offset=wo)
+    await display_schedule(m, state, is_week=False, wo_offset=1 if m.text == "📆 Завтра" else 0)
 
 @router.message(F.text.in_({"🗓 Эта неделя", "➡️ След. неделя"}))
 async def weeks(m: Message, state: FSMContext):
-    wo = 1 if m.text == "➡️ След. неделя" else 0
-    await display_schedule(m, state, is_week=True, wo_offset=wo)
+    await display_schedule(m, state, is_week=True, wo_offset=1 if m.text == "➡️ След. неделя" else 0)
 
 @router.message(F.text == "🧹 Очистить")
 async def clear(m: Message, state: FSMContext):
     await state.clear()
-    await m.answer("⠀\n" * 40, parse_mode=None) 
-    await m.answer("🧹 Чат очищен, фильтры сброшены.", reply_markup=get_main_menu())
+    chat_id = m.chat.id
+    
+    # Добавляем ID команды "Очистить" в список
+    if chat_id in sent_messages:
+        sent_messages[chat_id].append(m.message_id)
+    
+    message_ids_to_delete = list(sent_messages.get(chat_id, []))
+    
+    # Пытаемся удалить все сообщения пачками по 100
+    for i in range(0, len(message_ids_to_delete), 100):
+        try:
+            await m.bot.delete_messages(chat_id, message_ids_to_delete[i:i+100])
+        except Exception as e:
+            logger.error(f"Partial clear failed: {e}")
+
+    sent_messages[chat_id] = []
+    new_msg = await m.answer("🧹 Чат очищен, фильтры сброшены.", reply_markup=get_main_menu())
+    sent_messages[chat_id].append(new_msg.message_id)
 
 @router.message(F.text == "🔄 Сбросить")
 async def reset(m: Message, state: FSMContext):
     await state.clear()
     await m.answer("🔄 Фильтры сброшены.", reply_markup=get_main_menu())
 
-@router.message(F.text == "🙈 Скрыть")
-async def hide(m: Message):
-    await m.answer("⌨️ Клавиатура скрыта.", reply_markup=ReplyKeyboardRemove())
-
-@router.callback_query(F.data.startswith("showday_"))
-async def cb_day(c: CallbackQuery, state: FSMContext):
-    di, wo = map(int, c.data.replace("showday_", "").split("_"))
-    d = await state.get_data()
-    s = await sm.fetch_schedule(wo, d.get("target_type"), d.get("target_value"))
-    await c.message.edit_text(fmt_day(DAYS_OF_WEEK[di], s.get(DAYS_OF_WEEK[di], []), s, d.get("target_type")), reply_markup=get_day_nav(di, wo), parse_mode="HTML")
-
-@router.callback_query(F.data.startswith("showweek_"))
-async def cb_week(c: CallbackQuery, state: FSMContext):
-    wo = int(c.data.replace("showweek_", ""))
-    d = await state.get_data()
-    s = await sm.fetch_schedule(wo, d.get("target_type"), d.get("target_value"))
-    await c.message.edit_text(fmt_week(s, wo), reply_markup=get_week_nav(wo), parse_mode="HTML")
-
-@router.callback_query(F.data.startswith("refresh_"))
-async def cb_ref(c: CallbackQuery, state: FSMContext):
-    await sm.clear_cache()
-    await c.answer("⏳ Обновляю...")
-    if "day" in c.data: await cb_day(c, state)
-    else: await cb_week(c, state)
-
 async def main():
-    await sm.init()
-    if PROXY_URL:
-        logger.info(f"🌐 Используется прокси: {PROXY_URL}")
+    if PROXY_URL: logger.info(f"🌐 Используется прокси: {PROXY_URL}")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
