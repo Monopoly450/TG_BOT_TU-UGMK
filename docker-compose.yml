@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # 🤖 Бот - отвечает за интерфейс и логику Telegram
+  # 🤖 Бот - интерфейс и логика Telegram
   bot:
     build: .
     container_name: raspis_bot
@@ -18,7 +18,7 @@ services:
       - proxy
     command: python bot.py
 
-  # ⚙️ Воркеры (Скраперы) - выполняют тяжелую работу по парсингу
+  # ⚙️ Воркеры (Скраперы) - парсинг сайта
   worker:
     build: .
     restart: always
@@ -35,17 +35,15 @@ services:
       replicas: 2
     command: python scraper.py
 
-  # 🌐 Прокси-сервер - туннелирует весь трафик через внешний SOCKS5
+  # 🌐 Прокси-сервер - туннель через внешний SOCKS5
   proxy:
-    image: monius/docker-http-proxy
+    image: ginuerzh/gost
     container_name: network_proxy
     restart: always
-    environment:
-      - GLOBAL_PROXY=socks5://user377122:dolyzf@46.203.97.252:19377
-    # Порт можно не пробрасывать наружу, если не нужно, 
-    # внутри сети Docker он доступен по имени 'proxy'
+    # ЗАМЕНИТЕ user:password@ip:port на ваши данные SOCKS5
+    command: -L=:8888 -F=socks5://user377122:dolyzf@46.203.97.252:19377
 
-  # 🗄️ База данных (Redis) - кэш и очередь задач
+  # 🗄️ База данных (Redis) - кэш и очередь
   redis:
     image: redis:alpine
     container_name: redis_db
