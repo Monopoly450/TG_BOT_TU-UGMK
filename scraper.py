@@ -169,6 +169,16 @@ class ScheduleParser:
             except: pass
 
             html = await page.content()
+
+            # --- DEBUG: Сохраняем HTML для отладки парсера преподавателей ---
+            if target_type == 'teacher':
+                safe_name = re.sub(r'[^a-zA-Z0-9-]', '_', target_value)
+                debug_path = os.path.join(CACHE_DIR, f"debug_teacher_{safe_name}.html")
+                with open(debug_path, "w", encoding="utf-8") as f:
+                    f.write(html)
+                logger.info(f"DEBUG: HTML для преподавателя '{target_value}' сохранен в {debug_path}")
+            # --- END DEBUG ---
+
             return self._parse_html(html, target_type, target_value)
         finally:
             await page.close()
