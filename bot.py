@@ -19,7 +19,7 @@ from aiogram.types import (
     Message, CallbackQuery, InlineKeyboardButton,
     InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton,
 )
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, Command
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
@@ -36,7 +36,8 @@ if not BOT_TOKEN:
 
 DATA_DIR, CACHE_DIR, USERS_FILE = "data", "cache", os.path.join("data", "users.json")
 CACHE_LIFETIME, CACHE_VERSION = 86400, 33
-MSG_STORE_LIMIT = 172800 # 48 часов в секундах
+MSG_STORE_LIMIT = 172800 # 48 часов
+ADMIN_IDS = [474095004] 
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(CACHE_DIR, exist_ok=True)
@@ -44,14 +45,26 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-ADMIN_IDS = [474095004] 
 dao = redis.Redis(host=os.getenv("REDIS_HOST", "localhost"), port=6379, decode_responses=True)
 
-# --- TRACKING LOGIC (REDIS BASED) ---
+# --- MAINTENANCE MODE ---
+async def is_maintenance():
+    return await dao.get("maintenance_mode") == "1"
+
+# --- TRACKING LOGIC ---
 async def track_message(chat_id: int, message_id: int):
     key = f"msg_history:{chat_id}"
     await dao.sadd(key, message_id)
     await dao.expire(key, MSG_STORE_LIMIT)
+
+class MaintenanceMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event, data):
+        user_id = event.from_user.id if event.from_user else 0
+        if await is_maintenance() and user_id not in ADMIN_IDS:
+            if isinstance(event, Message):
+                await event.answer("🛠 <b>Ведутся технические работы.</b>\nБот временно недоступен. Пожалуйста, попробуйте позже.", parse_mode="HTML")
+            return
+        return await handler(event, data)
 
 class IncomingMessageTracker(BaseMiddleware):
     async def __call__(self, handler, event: Message, data: Dict[str, Any]):
@@ -66,25 +79,14 @@ class OutgoingMessageTracker(BaseRequestMiddleware):
             await track_message(result.chat.id, result.message_id)
         return result
 
-# --- MIDDLEWARES ---
-class UserRegistrationMiddleware(BaseMiddleware):
-    async def __call__(self, handler, event, data):
-        if hasattr(event, "from_user") and event.from_user:
-            users = set()
-            if os.path.exists(USERS_FILE):
-                with open(USERS_FILE, "r") as f: users = set(json.load(f))
-            if event.from_user.id not in users:
-                users.add(event.from_user.id)
-                with open(USERS_FILE, "w") as f: json.dump(list(users), f)
-        return await handler(event, data)
-
 # --- BOT SETUP ---
 session = AiohttpSession(proxy=PROXY_URL) if PROXY_URL else None
 bot = Bot(token=BOT_TOKEN, session=session)
 bot.session.middleware(OutgoingMessageTracker())
 
 dp = Dispatcher(storage=MemoryStorage())
-dp.message.middleware(UserRegistrationMiddleware())
+dp.message.middleware(MaintenanceMiddleware())
+dp.callback_query.middleware(MaintenanceMiddleware())
 dp.message.middleware(IncomingMessageTracker())
 
 # --- DATABASES ---
@@ -153,6 +155,17 @@ def fmt_week(s: dict, t_type: str) -> str:
             full_text += fmt_day(d_date, d_lessons, t_type) + "\n\n" + "═" * 24 + "\n\n"
     return full_text if full_text.strip() else "😴 На этой неделе занятий нет."
 
+# --- ADMIN HANDLERS ---
+@dp.message(Command("stop"), F.from_user.id.in_(ADMIN_IDS))
+async def admin_stop(m: Message):
+    await dao.set("maintenance_mode", "1")
+    await m.answer("🔴 <b>Режим технических работ ВКЛЮЧЕН.</b>\nТеперь бот недоступен для пользователей.", parse_mode="HTML")
+
+@dp.message(Command("start_admin"), F.from_user.id.in_(ADMIN_IDS))
+async def admin_start(m: Message):
+    await dao.delete("maintenance_mode")
+    await m.answer("🟢 <b>Режим технических работ ВЫКЛЮЧЕН.</b>\nБот снова доступен для всех.", parse_mode="HTML")
+
 # --- HANDLERS ---
 @dp.message(CommandStart())
 async def start(m: Message, state: FSMContext):
@@ -211,26 +224,16 @@ async def handle_weeks(m: Message, state: FSMContext):
 
 @dp.message(F.text == "🧹 Очистить")
 async def clear(m: Message, state: FSMContext):
-    chat_id = m.chat.id
-    key = f"msg_history:{chat_id}"
-    ids = [int(x) for x in await dao.smembers(key)]
-    
-    if not ids:
-        await m.answer("🧹 Чат уже чист.", reply_markup=get_main_menu())
-        return
-
-    # Удаляем сообщения пачками
+    ids = list(set(await dao.smembers(f"msg_history:{m.chat.id}")))
+    ids = [int(x) for x in ids]
     for i in range(0, len(ids), 100):
-        batch = ids[i:i+100]
-        try:
-            await bot.delete_messages(chat_id, batch)
+        try: await bot.delete_messages(m.chat.id, ids[i:i+100])
         except:
-            for mid in batch:
-                try: await bot.delete_message(chat_id, mid)
+            for mid in ids[i:i+100]:
+                try: await bot.delete_message(m.chat.id, mid)
                 except: continue
-    
-    await dao.delete(key)
-    await m.answer("🧹 Чат очищен за последние 2 дня.", reply_markup=get_main_menu())
+    await dao.delete(f"msg_history:{m.chat.id}")
+    await m.answer("🧹 Чат очищен.", reply_markup=get_main_menu())
 
 @dp.message(F.text == "🔄 Сбросить")
 async def reset(m: Message, state: FSMContext):
