@@ -72,37 +72,54 @@ class ScheduleParser:
         db = {"group": GROUPS_DB, "teacher": TEACHERS_DB, "classroom": CLASSROOMS_DB}
         tm = {"group": "AcademicGroup", "teacher": "Teacher", "classroom": "Classroom"}
         oid = db[t_type][t_val]
-        url = f"{SCHEDULE_URL}?scheduleType=Week&objectType={tm[t_type]}&objectId={oid}&startDate={sd}&endDate={ed}"
+        # Добавляем _referrer, так как он был в вашей ссылке
+        url = f"{SCHEDULE_URL}?scheduleType=Week&objectType={tm[t_type]}&objectId={oid}&startDate={sd}&endDate={ed}&_referrer=%2Fstudent%2Findex"
         if t_type == "group": url += f"&another_group={urllib.parse.quote(t_val)}"
         return url
+
     async def fetch(self, wo=0, t_type=None, t_val=None):
-        ctx = await self.browser.new_context(user_agent="Mozilla/5.0")
+        ctx = await self.browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         page = await ctx.new_page()
         try:
             url = self._build_url(wo, t_type, t_val)
             logger.info(f"[{t_type}] Fetching: {url}")
             
             start_time = datetime.now()
-            # Используем networkidle для полной загрузки AJAX-данных
-            await page.goto(url, wait_until="networkidle", timeout=60000)
+            # Переходим на страницу
+            await page.goto(url, wait_until="domcontentloaded", timeout=60000)
             
+            # Если нас выкинуло на логин
             if "login" in page.url.lower():
                 logger.info("Login required, performing login...")
                 await self._login(page)
-                await page.goto(url, wait_until="networkidle", timeout=60000)
+                # После логина идем еще раз
+                await page.goto(url, wait_until="domcontentloaded", timeout=60000)
             
-            # Ждем появления контейнера расписания
+            # Ждем немного дольше для прогрузки JS
+            await asyncio.sleep(2)
+            
+            # Пытаемся дождаться таблицы или контейнера
             try:
-                await page.wait_for_selector(".day-container", timeout=20000)
+                await page.wait_for_selector(".day-container, table", timeout=15000)
             except:
-                logger.warning("Timeout waiting for .day-container, trying to parse what we have")
+                logger.warning("Selectors not found, continuing...")
 
             html = await page.content()
-            logger.info(f"Page loaded in {(datetime.now() - start_time).total_seconds():.2f}s, length: {len(html)}")
             
-            return self._parse(html, t_type, t_val)
+            # Сохраняем последний HTML для отладки
+            with open("debug_last_fetch.html", "w", encoding="utf-8") as f:
+                f.write(html)
+            
+            logger.info(f"Page loaded in {(datetime.now() - start_time).total_seconds():.2f}s, saved to debug_last_fetch.html")
+            
+            res = self._parse(html, t_type, t_val)
+            if not res or (not res.get("_dates") and len(res) <= 1):
+                logger.error(f"Failed to parse any data for {t_val}")
+                return {"_error": "Parse error or empty page"}
+            
+            return res
         except Exception as e: 
-            logger.error(f"Fetch error for {t_val}: {e}")
+            logger.error(f"Fetch error: {e}")
             return {"_error": str(e)}
         finally: 
             await page.close()
@@ -111,52 +128,55 @@ class ScheduleParser:
     def _parse(self, html, t_type=None, t_val=None):
         soup, schedule, dates = BeautifulSoup(html, "lxml"), {}, {}
         
-        # Находим все контейнеры дней
+        # Находим контейнеры дней
         day_containers = soup.find_all("div", class_="day-container")
         
         if not day_containers:
-            logger.warning("No .day-container found, fallback to old table parsing")
-            # Если нет контейнеров, попробуем старый метод (на случай изменения верстки)
+            logger.warning("No .day-container found, using legacy table parser")
             return self._parse_legacy(soup, t_type, t_val)
 
         for container in day_containers:
             header = container.find("strong", class_="day-name")
             if not header: continue
             
-            header_text = header.get_text(strip=True)
-            # Извлекаем день и дату (напр. "Вторник 10.03.2026")
-            match = re.search(r"([А-Яа-я]+)\s+(\d{2}\.\d{2}\.\d{4})", header_text)
-            if not match: continue
+            header_text = header.get_text(separator=" ", strip=True)
+            # Упрощенный поиск дня
+            day_name = None
+            for d in DAYS_OF_WEEK:
+                if d.lower() in header_text.lower():
+                    day_name = d
+                    break
             
-            day_name, day_date = match.group(1), match.group(2)
-            dates[day_name] = day_date
+            if not day_name: continue
+            
+            # Извлекаем дату
+            date_match = re.search(r"(\d{2}\.\d{2}\.\d{4})", header_text)
+            if date_match:
+                dates[day_name] = date_match.group(1)
             
             table = container.find("table")
-            if not table: 
-                schedule[day_name] = []
-                continue
-                
             lessons = []
-            for row in table.find_all("tr"):
-                cells = row.find_all("td")
-                if len(cells) < 5: continue
-                
-                disc_cell = cells[1]
-                disc_text = disc_cell.get_text(separator=" ", strip=True)
-                if not disc_text: continue
-                
-                l_type_span = disc_cell.find("span", class_="lesson-type")
-                l_type = l_type_span.get_text(strip=True) if l_type_span else ""
-                subject = disc_text.replace(l_type, "").strip() if l_type else disc_text
-                
-                lessons.append({
-                    "time": cells[0].get_text(strip=True), 
-                    "subject": subject,
-                    "type": l_type,
-                    "room": cells[2].get_text(strip=True),
-                    "group": cells[3].get_text(strip=True), 
-                    "teacher": cells[4].get_text(strip=True),
-                })
+            if table:
+                for row in table.find_all("tr"):
+                    cells = row.find_all("td")
+                    if len(cells) < 5: continue
+                    
+                    disc_cell = cells[1]
+                    disc_text = disc_cell.get_text(separator=" ", strip=True)
+                    if not disc_text or len(disc_text) < 2: continue
+                    
+                    l_type_span = disc_cell.find("span", class_="lesson-type")
+                    l_type = l_type_span.get_text(strip=True) if l_type_span else ""
+                    subject = disc_text.replace(l_type, "").strip() if l_type else disc_text
+                    
+                    lessons.append({
+                        "time": cells[0].get_text(strip=True), 
+                        "subject": subject,
+                        "type": l_type,
+                        "room": cells[2].get_text(strip=True),
+                        "group": cells[3].get_text(strip=True), 
+                        "teacher": cells[4].get_text(strip=True),
+                    })
             schedule[day_name] = lessons
             
         schedule["_dates"] = dates
