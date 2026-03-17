@@ -71,24 +71,34 @@ async def broadcast(text: str):
 
 class MaintenanceMiddleware(BaseMiddleware):
     async def __call__(self, handler, event, data):
-        user_id = event.from_user.id if event.from_user else 0
-        if await is_maintenance() and user_id not in ADMIN_IDS:
-            if isinstance(event, Message):
-                await event.answer("🛠 <b>Ведутся технические работы.</b>\nБот временно недоступен. Пожалуйста, попробуйте позже.", parse_mode="HTML")
-            return
+        try:
+            user_id = event.from_user.id if event.from_user else 0
+            if await is_maintenance() and user_id not in ADMIN_IDS:
+                if isinstance(event, Message):
+                    await event.answer("🛠 <b>Ведутся технические работы.</b>\nБот временно недоступен. Пожалуйста, попробуйте позже.", parse_mode="HTML")
+                return
+        except Exception as e:
+            logger.error(f"Maintenance check failed: {e}")
         return await handler(event, data)
 
 class IncomingMessageTracker(BaseMiddleware):
     async def __call__(self, handler, event: Message, data: Dict[str, Any]):
         if getattr(event, "chat", None) and getattr(event, "message_id", None):
-            await track_message(event.chat.id, event.message_id)
+            try:
+                await track_message(event.chat.id, event.message_id)
+                logger.info(f"msg from {event.chat.id}: {event.text}")
+            except Exception as e:
+                logger.error(f"Tracking failed: {e}")
         return await handler(event, data)
 
 class OutgoingMessageTracker(BaseRequestMiddleware):
     async def __call__(self, make_request, bot, method):
         result = await make_request(bot, method)
         if result and hasattr(result, "message_id") and hasattr(result, "chat"):
-            await track_message(result.chat.id, result.message_id)
+            try:
+                await track_message(result.chat.id, result.message_id)
+            except Exception as e:
+                logger.error(f"Outgoing tracking failed: {e}")
         return result
 
 # --- BOT SETUP ---
