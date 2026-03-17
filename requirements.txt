@@ -4,4 +4,5 @@ lxml
 playwright
 redis
 aiohttp
+aiohttp-socks
 python-dotenv

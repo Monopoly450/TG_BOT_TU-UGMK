@@ -6,21 +6,11 @@ import asyncio
 import urllib.parse
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
-from playwright.async_api import async_playwright
 from aiogram import Bot, Dispatcher, F, Router
-from aiogram.client.session.aiohttp import AiohttpSession
-from aiogram.types import (
-    Message, CallbackQuery, InlineKeyboardButton,
-    InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove,
-)
-from aiogram.filters import CommandStart, Command
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.context import FSMContext
 
 # ═══════════════════ НАСТРОЙКИ ═══════════════════
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8458170697:AAF248VvYpM8GKapPzh--CKFLcq6_Enr8xw")
-PROXY_URL = os.getenv("PROXY_URL") # Формат: http://ip:port
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8789288719:AAFTR5Mp2iV3yrtvHSSgdxxa5buJbbpl-uc")
+PROXY_URL = os.getenv("PROXY_URL") # Формат: http://proxy:8888
 
 SCHEDULE_URL = "https://up.corp.tu-ugmk.com/student/schedule"
 
@@ -29,88 +19,38 @@ COOKIES = {}
 LOGIN = os.getenv("LOGIN", "uvybhjhhv@gmail.com")
 PASSWORD = os.getenv("PASSWORD", "qazwsxedcip60000OP")
 
+# Папки для данных (будут примонтированы как тома)
+DATA_DIR = "data"
 CACHE_DIR = "cache"
+
+USERS_FILE = os.path.join(DATA_DIR, "users.json")
+MAINTENANCE_FILE = os.path.join(DATA_DIR, "maintenance.json")
+
 CACHE_LIFETIME = 86400 
 CACHE_VERSION = 32 
-# ═════════════════════════════════════════════════
 
-# ════════════ БАЗЫ ДАННЫХ ID ═════════════════════
-USERS_FILE = "users.json"
-MAINTENANCE_FILE = "maintenance.json"
-ADMIN_IDS = [474095004] # Можно дополнить своим ID
-
-def is_maintenance():
-    if not os.path.exists(MAINTENANCE_FILE):
-        return False
-    try:
-        with open(MAINTENANCE_FILE, "r") as f:
-            return json.load(f).get("is_active", False)
-    except Exception:
-        return False
-
-def set_maintenance(state: bool):
-    with open(MAINTENANCE_FILE, "w") as f:
-        json.dump({"is_active": state}, f)
-
-def get_users():
-    if not os.path.exists(USERS_FILE):
-        return set()
-    try:
-        with open(USERS_FILE, "r") as f:
-            return set(json.load(f))
-    except Exception:
-        return set()
-
-def save_user(user_id):
-    users = get_users()
-    if user_id not in users:
-        users.add(user_id)
-        with open(USERS_FILE, "w") as f:
-            json.dump(list(users), f)
-
-GROUPS_DB = {
-    "Ит-24107 гр.1": "756cb41d-42af-11ef-b448-00155d7f1420%3A309c2eb3-6dea-11f0-b44a-00155d7f1420",
-    "Ит-24107 гр.2": "ea53e266-6dd2-11f0-b44a-00155d7f1420%3A5bbb50dd-6dea-11f0-b44a-00155d7f1420",
-    "Ит-24107 гр.3": "e694ebbb-6dd3-11f0-b44a-00155d7f1420%3A9293ef2e-6dea-11f0-b44a-00155d7f1420",
-    "А-24101": "b47ff74e-3d0f-11ef-b448-00155d7f1420%3A715cc0fc-3eb1-11ef-b448-00155d7f1420",
-    "М-24102": "926cd860-42b2-11ef-b448-00155d7f1420%3A372960bb-4374-11ef-b448-00155d7f1420",
-    "Т-24105": "0e9d8133-42b5-11ef-b448-00155d7f1420%3A5873fb74-4373-11ef-b448-00155d7f1420",
-    "Эн-24103": "171f74fb-3d19-11ef-b448-00155d7f1420%3A19692d41-3ead-11ef-b448-00155d7f1420",
-    "ГД-24104": "14064fbf-4335-11ef-b448-00155d7f1420%3A148d5959-4376-11ef-b448-00155d7f1420",
-    "Гэм-24106": "d53322fa-4338-11ef-b448-00155d7f1420%3A629425ac-4375-11ef-b448-00155d7f1420",
-
-}
-
-TEACHERS_DB = {
-    "Сакулин Валерий Александрович": "000000376",
-    "Мазитов Виктор Расульевич": "000000421",
-    "Котельников Сергей Андреевич": "000000383",
-    "Голубина Валентина Васильевна": "000000467",
-    "Кабанов Александр Михайлович": "000000409",
-    "Игумнова Юлия Олеговна": "000002912",
-    "Тюжина Ирина Викторовна": "000002915",
-}
-
-CLASSROOMS_DB = {
-    "Толк5": "2355c22e-2bcd-11e7-b191-005056953b1b",
-    "Ауд. 203": "67941c0b-ca51-11ee-b440-00155d7f0e19",
-}
+# Создаем папки, если их нет
+os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(CACHE_DIR, exist_ok=True)
 # ═════════════════════════════════════════════════
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Настройка прокси для aiohttp
+# Настройка прокси для aiohttp. Внутри докера используем HTTP-интерфейс прокси-контейнера.
 session_kwargs = {"timeout": 120.0}
 if PROXY_URL:
     session_kwargs["proxy"] = PROXY_URL
-    logger.info(f"🌐 Используется прокси для aiohttp: {PROXY_URL}")
+    logger.info(f"🌐 Используется прокси (через контейнер): {PROXY_URL}")
 
 session = AiohttpSession(**session_kwargs)
 bot = Bot(token=BOT_TOKEN, session=session)
 dp = Dispatcher(storage=MemoryStorage())
 router = Router()
 dp.include_router(router)
+
+# ════════════ БАЗЫ ДАННЫХ ID ═════════════════════
+ADMIN_IDS = [474095004] # Можно дополнить своим ID
 
 import asyncio
 import collections
@@ -269,209 +209,116 @@ class RedisDAO:
             logger.error(f"DAO SMembers Error: {e}")
             return []
 
+    async def lpush(self, key: str, value: Any):
+        if not self.is_connected: return None
+        try:
+            val = json.dumps(value, ensure_ascii=False)
+            return await self.client.lpush(key, val)
+        except Exception as e:
+            logger.error(f"DAO LPush Error: {e}")
+            return None
+            
 dao = RedisDAO()
 
-# ═══════════════ ПАРСЕР ══════════════════════════
-class ScheduleParser:
-    def __init__(self):
-        self.playwright = None
-        self.browser = None
-        self.context = None
-        self._initialized = False
+# ═══════════════ МЕНЕДЖЕР РАСПИСАНИЯ ════════════
+class ScheduleManager:
+    def __init__(self, dao_instance):
+        self.dao = dao_instance
 
     async def init(self):
-        if self._initialized: return
-        await dao.connect()
-        self.playwright = await async_playwright().start()
-        
-        launch_kwargs = {"headless": True}
-        if PROXY_URL:
-            launch_kwargs["proxy"] = {"server": PROXY_URL}
-            logger.info(f"🌐 Используется прокси для Playwright: {PROXY_URL}")
-            
-        self.browser = await self.playwright.chromium.launch(**launch_kwargs)
-        self.context = await self.browser.new_context(user_agent="Mozilla/5.0")
-        if COOKIES:
-            cookie_list = [{"name": n, "value": v, "domain": "up.corp.tu-ugmk.com", "path": "/"} for n, v in COOKIES.items()]
-            await self.context.add_cookies(cookie_list)
-        self._initialized = True
+        # В боте нам не нужно инициализировать Playwright, только DAO
+        if not self.dao.is_connected:
+            await self.dao.connect()
 
-    async def _login_page(self, page):
-        try:
-            await page.fill('input[name="LoginForm[login]"], #openid-auth-user', LOGIN)
-            await page.fill('input[name="LoginForm[password]"], #openid-auth-pwd', PASSWORD)
-            await page.click('#login-submit, button[type="submit"]')
-            await page.wait_for_load_state("domcontentloaded", timeout=15000)
-        except Exception: pass
-
-    async def _build_schedule_url(self, week_offset=0, target_type=None, target_value=None):
-        start_date, end_date = self._get_week_dates(week_offset)
-        
-        db_map = {"group": GROUPS_DB, "teacher": TEACHERS_DB, "classroom": CLASSROOMS_DB}
-        type_map = {"group": "AcademicGroup", "teacher": "Teacher", "classroom": "Classroom"}
-
-        if not target_type or not target_value:
-            return f"{SCHEDULE_URL}?scheduleType=Week&startDate={start_date}&endDate={end_date}"
-
-        obj_type = type_map.get(target_type, "AcademicGroup")
-        obj_id = db_map[target_type][target_value]
-        
-        qs = f"scheduleType=Week&objectType={obj_type}&objectId={obj_id}&startDate={start_date}&endDate={end_date}"
-        if target_type == "group":
-            encoded_name = urllib.parse.quote(target_value)
-            qs += f"&another_group={encoded_name}"
-            
-        url = f"{SCHEDULE_URL}?{qs}"
-        logger.info(f"Requesting schedule URL: {url}")
-        return url
-
-    async def fetch_schedule(self, week_offset=0, target_type=None, target_value=None):
-        # Детерминированные ключи
-        target_id = f"{target_type}:{target_value}" if target_type else "default"
+    def _get_cache_keys(self, week_offset=0, target_type=None, target_value=None):
+        target_id = f"{target_type}:{target_value}" if target_type and target_value else "default"
         data_key = f"data:v{CACHE_VERSION}:{target_id}:w{week_offset}"
         index_key = f"index:v{CACHE_VERSION}:{target_id}"
+        return data_key, index_key
 
-        cached = await self._load_cache(data_key)
-        if cached is not None:
-            return cached
-
-        try:
-            if not self._initialized:
-                await self.init()
-
-            url = await self._build_schedule_url(week_offset, target_type, target_value)
-            page = await self.context.new_page()
-            try:
-                await page.goto(url, wait_until="networkidle", timeout=45000)
-                if "login" in page.url.lower():
-                    await self._login_page(page)
-                    await page.goto(url, wait_until="networkidle", timeout=45000)
-
-                try: await page.wait_for_selector("table", timeout=5000)
-                except: pass
-
-                html = await page.content()
-                schedule = self._parse_html(html, target_type, target_value)
-
-                if schedule and "login" not in page.url.lower():
-                    await self._save_cache(schedule, data_key, index_key)
-
-                return schedule
-            finally:
-                await page.close()
-        except Exception as e:
-            logger.error(f"Fetch error: {e}")
-            self._initialized = False 
-            return {}
-
-    def _get_week_dates(self, offset):
-        now = datetime.now()
-        monday = now - timedelta(days=now.weekday())
-        target_mon = monday + timedelta(weeks=offset)
-        return target_mon.strftime("%d.%m.%Y"), (target_mon + timedelta(days=6)).strftime("%d.%m.%Y")
-
-    def _parse_html(self, html, target_type=None, target_value=None):
-        soup = BeautifulSoup(html, "lxml")
-        schedule, day_dates = {}, {}
-        
-        for text in soup.stripped_strings:
-            for day in DAYS_OF_WEEK:
-                m = re.search(r"(\d{2}\.\d{2}\.\d{4})", text)
-                if text.startswith(day) and m:
-                    day_dates[day] = m.group(1)
-
-        all_tables = soup.find_all("table")
-        target_tables = []
-        if target_type == "group" and target_value:
-            for table in all_tables:
-                for row in table.find_all("tr"):
-                    cells = row.find_all("td")
-                    if len(cells) >= 4 and target_value.lower() in cells[3].get_text().lower():
-                        target_tables.append(table)
-                        break
-        
-        if not target_tables:
-            if len(all_tables) >= 14 and target_type:
-                target_tables = all_tables[-7:]
-            else:
-                target_tables = all_tables[:7]
-
-        for i, table in enumerate(target_tables):
-            day = DAYS_OF_WEEK[i] if i < len(DAYS_OF_WEEK) else f"Extra_{i}"
-            schedule[day] = []
-            for row in table.find_all("tr"):
-                cells = row.find_all("td")
-                if len(cells) < 5: continue
-                full_disc = cells[1].get_text(strip=True)
-                if not full_disc: continue
-                
-                subject, lesson_type = self._split(list(cells[1].stripped_strings), full_disc)
-                if subject:
-                    schedule[day].append({
-                        "time": cells[0].get_text(strip=True), "subject": subject,
-                        "type": lesson_type, "room": cells[2].get_text(strip=True),
-                        "group": cells[3].get_text(strip=True), "teacher": cells[4].get_text(strip=True),
-                    })
-        schedule["_dates"] = day_dates
-        return schedule
-
-    def _split(self, parts, full):
-        if len(parts) >= 2:
-            last = parts[-1].strip()
-            for t in LESSON_TYPES:
-                if last.lower() == t.lower(): return " ".join(parts[:-1]).strip(), last
-        for t in LESSON_TYPES:
-            if full.lower().endswith(t.lower()):
-                s = full[:-len(t.lower())].strip()
-                if s: return s, t
-            idx = full.lower().rfind(t.lower())
-            if idx > 0:
-                s = full[:idx].strip()
-                if s: return s, full[idx:idx + len(t)]
-        return full, ""
-
-    async def _load_cache(self, data_key):
-        cached = await dao.get(data_key)
-        if cached: return cached
-
+    async def _load_from_file_cache(self, data_key):
         path = os.path.join(CACHE_DIR, data_key.replace(":", "_") + ".json")
         if os.path.exists(path):
             try:
                 with open(path, "r", encoding="utf-8") as f: data = json.load(f)
-                if (datetime.now() - datetime.fromisoformat(data["timestamp"])).total_seconds() >= CACHE_LIFETIME:
-                    os.remove(path)
-                    return None
-                return data["schedule"]
-            except Exception: return None
+                if (datetime.now() - datetime.fromisoformat(data["timestamp"])).total_seconds() < CACHE_LIFETIME:
+                    # Прогреваем редис кэш, если его там нет
+                    if not await self.dao.get(data_key):
+                       await self.dao.set(data_key, data["schedule"])
+                    return data["schedule"]
+                else:
+                    os.remove(path) # Удаляем устаревший файл
+            except Exception: pass
         return None
 
-    async def _save_cache(self, schedule, data_key, index_key):
-        await dao.set(data_key, schedule)
-        await dao.sadd(index_key, data_key)
+    async def fetch_schedule(self, week_offset=0, target_type=None, target_value=None):
+        data_key, _ = self._get_cache_keys(week_offset, target_type, target_value)
 
-        os.makedirs(CACHE_DIR, exist_ok=True)
-        path = os.path.join(CACHE_DIR, data_key.replace(":", "_") + ".json")
-        data = {"timestamp": datetime.now().isoformat(), "schedule": schedule}
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        # 1. Проверяем Redis кэш
+        cached_data = await self.dao.get(data_key)
+        if cached_data:
+            logger.info(f"Cache hit (Redis): {data_key}")
+            return cached_data
+
+        # 2. Проверяем файловый кэш
+        cached_data = await self._load_from_file_cache(data_key)
+        if cached_data:
+            logger.info(f"Cache hit (File): {data_key}")
+            return cached_data
+
+        # 3. Если в кэше нет - ставим задачу в очередь
+        logger.info(f"Cache miss. Enqueuing job for: {data_key}")
+        job = {
+            "week_offset": week_offset,
+            "target_type": target_type,
+            "target_value": target_value
+        }
+        await self.dao.lpush('schedule_jobs', job)
+
+        # 4. Ждем результат в кэше (поллинг)
+        POLL_TIMEOUT = 60 # секунд
+        POLL_INTERVAL = 0.5 # секунды
+        for _ in range(int(POLL_TIMEOUT / POLL_INTERVAL)):
+            await asyncio.sleep(POLL_INTERVAL)
+            result = await self.dao.get(data_key)
+            if result:
+                logger.info(f"Result appeared in cache: {data_key}")
+                return result
+        
+        logger.error(f"Timeout waiting for schedule result: {data_key}")
+        return {} # Возвращаем пустой результат в случае таймаута
 
     async def clear_cache(self, target_type=None, target_value=None):
         if target_type and target_value:
+            # Удаляем по конкретному таргету
             target_id = f"{target_type}:{target_value}"
             index_key = f"index:v{CACHE_VERSION}:{target_id}"
-            keys_to_del = await dao.smembers(index_key)
+            keys_to_del = await self.dao.smembers(index_key)
             for k in keys_to_del:
-                await dao.delete(k)
-            await dao.delete(index_key)
+                await self.dao.delete(k)
+            await self.dao.delete(index_key)
         else:
-            await dao.delete_many(f"data:v{CACHE_VERSION}:*")
-            await dao.delete_many(f"index:v{CACHE_VERSION}:*")
+            # Удаляем весь кэш данных
+            await self.dao.delete_many(f"data:v{CACHE_VERSION}:*")
+            await self.dao.delete_many(f"index:v{CACHE_VERSION}:*")
 
+        # Очистка файлового кэша
         if os.path.exists(CACHE_DIR):
             for f in os.listdir(CACHE_DIR):
-                if f.endswith(".json"): os.remove(os.path.join(CACHE_DIR, f))
+                if f.startswith(f'data_v{CACHE_VERSION}') and f.endswith(".json"):
+                    # Умная очистка файлов: только для данного таргета или все
+                    should_delete = True
+                    if target_type and target_value:
+                        # f.e. data_v32_group_А-24101_w0.json
+                        if f"_{target_type}_{target_value}_" not in f:
+                            should_delete = False
+                    if should_delete:
+                        try:
+                           os.remove(os.path.join(CACHE_DIR, f))
+                        except OSError as e:
+                           logger.error(f"Error removing file {f}: {e}")
 
-parser = ScheduleParser()
+schedule_manager = ScheduleManager(dao)
 
 # ═══════════════ ОФОРМЛЕНИЕ И КНОПКИ ═════════════
 
@@ -722,12 +569,12 @@ async def btn_days(message: Message, state: FSMContext):
         target_value = data.get("target_value")
 
         if message.text == "📅 Сегодня":
-            s = await parser.fetch_schedule(0, target_type, target_value)
+            s = await schedule_manager.fetch_schedule(0, target_type, target_value)
             idx = find_today_index(s)
             wo = 0
         else: # Завтра
             wo, idx = (1, 0) if wd >= 5 else (0, wd + 1)
-            s = await parser.fetch_schedule(wo, target_type, target_value)
+            s = await schedule_manager.fetch_schedule(wo, target_type, target_value)
         
         try:
             await status_msg.delete()
@@ -763,7 +610,7 @@ async def btn_weeks(message: Message, state: FSMContext):
         wo = 0 if message.text == "🗓 Эта неделя" else 1
         target_type = data.get("target_type")
         target_value = data.get("target_value")
-        s = await parser.fetch_schedule(wo, target_type, target_value)
+        s = await schedule_manager.fetch_schedule(wo, target_type, target_value)
         
         try:
             await status_msg.delete()
@@ -796,7 +643,7 @@ async def show_day_view(message: Message, state: FSMContext, di: int, wo: int):
     data = await state.get_data()
     target_type = data.get("target_type")
     target_value = data.get("target_value")
-    s = await parser.fetch_schedule(wo, target_type, target_value)
+    s = await schedule_manager.fetch_schedule(wo, target_type, target_value)
     text = ""
     if target_value:
         text = f"✅ Фильтр: {target_value}\n"
@@ -811,7 +658,7 @@ async def show_week_view(message: Message, state: FSMContext, wo: int):
     data = await state.get_data()
     target_type = data.get("target_type")
     target_value = data.get("target_value")
-    s = await parser.fetch_schedule(wo, target_type, target_value)
+    s = await schedule_manager.fetch_schedule(wo, target_type, target_value)
     text = ""
     if target_value:
         text = f"✅ Фильтр: {target_value}\n"
@@ -891,7 +738,7 @@ async def cb_filter_select(c: CallbackQuery, state: FSMContext):
         items = list(db_map[target_type].keys())
         target_value = items[item_idx]
         
-        parser.clear_cache()
+        await schedule_manager.clear_cache()
         await state.update_data(target_type=target_type, target_value=target_value)
         
         if view_info == "main_menu":
@@ -940,14 +787,14 @@ async def cb_back_to_schedule(c: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data.startswith("refresh_"))
 async def cb_refresh(c: CallbackQuery, state: FSMContext):
     await c.answer("⏳ Обновляю...")
-    parser.clear_cache()
+    await schedule_manager.clear_cache()
     data = await state.get_data()
     action = c.data.replace("refresh_", "")
     
     try:
         if action.startswith("week_"):
             wo = int(action.replace("week_", ""))
-            s = await parser.fetch_schedule(wo, data.get("target_type"), data.get("target_value"))
+            s = await schedule_manager.fetch_schedule(wo, data.get("target_type"), data.get("target_value"))
             await c.message.edit_text(
                 fmt_week(s, wo, data.get("target_type")),
                 parse_mode="HTML",
@@ -955,7 +802,7 @@ async def cb_refresh(c: CallbackQuery, state: FSMContext):
             )
         elif action.startswith("day_"):
             di, wo = map(int, action.replace("day_", "").split("_"))
-            s = await parser.fetch_schedule(wo, data.get("target_type"), data.get("target_value"))
+            s = await schedule_manager.fetch_schedule(wo, data.get("target_type"), data.get("target_value"))
             await c.message.edit_text(
                 fmt_day(DAYS_OF_WEEK[di], s.get(DAYS_OF_WEEK[di], []), s, wo, data.get("target_type")),
                 parse_mode="HTML",
@@ -1025,6 +872,7 @@ async def fallback_any_text(message: Message, state: FSMContext):
     await message.answer("👇 Используй меню ниже:", reply_markup=get_main_menu())
 
 async def main():
+    await schedule_manager.init()
     # Пропускаем сообщения, пришедшие когда бот был выключен
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)

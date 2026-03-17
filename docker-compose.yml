@@ -1,21 +1,51 @@
 version: '3.8'
 
 services:
-  raspis:
+  # 🤖 Бот - отвечает за интерфейс и логику Telegram
+  bot:
     build: .
     container_name: raspis_bot
     restart: always
-    volumes:
-      - .:/app
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      # Если вы используете прокси от VPN:
-      # - PROXY_URL=http://vpn:8888 
+      - PROXY_URL=http://proxy:8888
+    volumes:
+      - bot_data:/app/data
+      - shared_cache:/app/cache
     depends_on:
       - redis
-      # - vpn # Раскомментируйте, если используете VPN контейнер
+      - proxy
+    command: python bot.py
 
+  # ⚙️ Воркеры (Скраперы) - выполняют тяжелую работу по парсингу
+  worker:
+    build: .
+    restart: always
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - PROXY_URL=http://proxy:8888
+    volumes:
+      - shared_cache:/app/cache
+    depends_on:
+      - redis
+      - proxy
+    deploy:
+      replicas: 2
+    command: python scraper.py
+
+  # 🌐 Прокси-сервер - туннелирует весь трафик через внешний SOCKS5
+  proxy:
+    image: monius/docker-http-proxy
+    container_name: network_proxy
+    restart: always
+    environment:
+      - GLOBAL_PROXY=socks5://user377122:dolyzf@46.203.97.252:19377
+    # Порт можно не пробрасывать наружу, если не нужно, 
+    # внутри сети Docker он доступен по имени 'proxy'
+
+  # 🗄️ База данных (Redis) - кэш и очередь задач
   redis:
     image: redis:alpine
     container_name: redis_db
@@ -24,22 +54,7 @@ services:
       - redis_data:/data
     command: redis-server --save 60 1 --loglevel warning
 
-  # Пример настройки VPN (Gluetun)
-  # vpn:
-  #   image: qmcgaw/gluetun
-  #   container_name: vpn
-  #   cap_add:
-  #     - NET_ADMIN
-  #   devices:
-  #     - /dev/net/tun:/dev/net/tun
-  #   environment:
-  #     - VPN_SERVICE_PROVIDER=custom
-  #     - VPN_TYPE=wireguard
-  #     # Сюда вставляются настройки вашего VPN (из файла Happ/Hiddify/WG)
-  #     - WIREGUARD_PRIVATE_KEY=ваш_ключ
-  #     - WIREGUARD_ADDRESSES=10.0.0.2/32
-  #     - PROXY_HTTP_SERVER_PORT=8888 # Порт прокси для бота
-  #   restart: always
-
 volumes:
   redis_data:
+  bot_data:
+  shared_cache:

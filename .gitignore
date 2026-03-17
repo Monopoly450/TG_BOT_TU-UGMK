@@ -1,2 +1,22 @@
+# Данные и кэш (ВАЖНО)
+data/
+cache/
+*.json
+!requirements.txt
+
+# Python
 __pycache__/
+*.py[cod]
+*$py.class
 .env
+.venv
+env/
+venv/
+ENV/
+
+# Docker
+.dockerignore
+
+# IDE
+.vscode/
+.idea/
