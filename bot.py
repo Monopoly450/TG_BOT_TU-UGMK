@@ -125,7 +125,8 @@ class ScheduleManager:
             if await dao.exists(key): return json.loads(await dao.get(key))
         except Exception as e: logger.error(f"Redis get error: {e}")
         await dao.lpush('schedule_jobs', json.dumps({"week_offset": wo, "target_type": t_type, "target_value": t_val}))
-        for _ in range(120):
+        # Poll for results for up to 25 seconds (Telegram callback limit is ~30s)
+        for _ in range(50):
             await asyncio.sleep(0.5)
             try:
                 if await dao.exists(key): return json.loads(await dao.get(key))
@@ -255,14 +256,32 @@ async def display_day_schedule(message: Message | CallbackQuery, state: FSMConte
     wo = ((target_date - timedelta(days=target_date.weekday())) - (today - timedelta(days=today.weekday()))).days // 7
     async with loading_animation(chat_id):
         week_s = await sm.fetch_schedule(wo, t_type, t_val)
+    
     day_name = DAYS_OF_WEEK[target_date.weekday()]
     day_lessons = week_s.get(day_name, [])
-    text, kb = fmt_day(target_date, day_lessons, t_type), get_day_pagination_kb(target_date)
+    
+    if not week_s and not isinstance(message, Message):
+        text = "⚠️ <b>Превышено время ожидания.</b>\nСайт университета отвечает слишком медленно. Попробуйте еще раз через минуту."
+    else:
+        text = fmt_day(target_date, day_lessons, t_type)
+        
+    kb = get_day_pagination_kb(target_date)
+    
     if isinstance(message, CallbackQuery):
-        try: await message.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
-        except TelegramBadRequest: pass
-        await message.answer()
-    else: await message.answer(text, parse_mode="HTML", reply_markup=kb)
+        try: 
+            await message.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+        except TelegramBadRequest: 
+            await message.message.answer(text, parse_mode="HTML", reply_markup=kb)
+            
+        try:
+            await message.answer()
+        except TelegramBadRequest as e:
+            if "query is too old" in str(e):
+                logger.warning("Callback query expired before answering")
+            else:
+                raise
+    else: 
+        await message.answer(text, parse_mode="HTML", reply_markup=kb)
 
 @dp.callback_query(F.data.startswith("day_nav:"))
 async def cb_day_nav(c: CallbackQuery, state: FSMContext):
