@@ -36,13 +36,35 @@ if not BOT_TOKEN:
 
 DATA_DIR, CACHE_DIR, USERS_FILE = "data", "cache", os.path.join("data", "users.json")
 CACHE_LIFETIME, CACHE_VERSION = 86400, 33
+MSG_STORE_LIMIT = 172800 # 48 часов в секундах
+
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-ADMIN_IDS, sent_messages = [474095004], collections.defaultdict(list)
+ADMIN_IDS = [474095004] 
+dao = redis.Redis(host=os.getenv("REDIS_HOST", "localhost"), port=6379, decode_responses=True)
+
+# --- TRACKING LOGIC (REDIS BASED) ---
+async def track_message(chat_id: int, message_id: int):
+    key = f"msg_history:{chat_id}"
+    await dao.sadd(key, message_id)
+    await dao.expire(key, MSG_STORE_LIMIT)
+
+class IncomingMessageTracker(BaseMiddleware):
+    async def __call__(self, handler, event: Message, data: Dict[str, Any]):
+        if getattr(event, "chat", None) and getattr(event, "message_id", None):
+            await track_message(event.chat.id, event.message_id)
+        return await handler(event, data)
+
+class OutgoingMessageTracker(BaseRequestMiddleware):
+    async def __call__(self, make_request, bot, method):
+        result = await make_request(bot, method)
+        if result and hasattr(result, "message_id") and hasattr(result, "chat"):
+            await track_message(result.chat.id, result.message_id)
+        return result
 
 # --- MIDDLEWARES ---
 class UserRegistrationMiddleware(BaseMiddleware):
@@ -55,19 +77,6 @@ class UserRegistrationMiddleware(BaseMiddleware):
                 users.add(event.from_user.id)
                 with open(USERS_FILE, "w") as f: json.dump(list(users), f)
         return await handler(event, data)
-
-class IncomingMessageTracker(BaseMiddleware):
-    async def __call__(self, handler, event: Message, data: Dict[str, Any]):
-        if getattr(event, "chat", None) and getattr(event, "message_id", None):
-            sent_messages[event.chat.id].append(event.message_id)
-        return await handler(event, data)
-
-class OutgoingMessageTracker(BaseRequestMiddleware):
-    async def __call__(self, make_request, bot, method):
-        result = await make_request(bot, method)
-        if result and hasattr(result, "message_id") and hasattr(result, "chat"):
-            sent_messages[result.chat.id].append(result.message_id)
-        return result
 
 # --- BOT SETUP ---
 session = AiohttpSession(proxy=PROXY_URL) if PROXY_URL else None
@@ -84,9 +93,7 @@ TEACHERS_DB = {"Сакулин Валерий Александрович": "0000
 CLASSROOMS_DB = {"Толк5": "2355c22e-2bcd-11e7-b191-005056953b1b", "Ауд. 203": "67941c0b-ca51-11ee-b440-00155d7f0e19"}
 DAYS_OF_WEEK = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
 
-# --- REDIS & SCHEDULE MANAGER ---
-dao = redis.Redis(host=os.getenv("REDIS_HOST", "localhost"), port=6379, decode_responses=True)
-
+# --- SCHEDULE MANAGER ---
 class ScheduleManager:
     async def fetch_schedule(self, wo=0, t_type=None, t_val=None):
         key = f"data:v{CACHE_VERSION}:{t_type}:{t_val}:w{wo}"
@@ -204,15 +211,26 @@ async def handle_weeks(m: Message, state: FSMContext):
 
 @dp.message(F.text == "🧹 Очистить")
 async def clear(m: Message, state: FSMContext):
-    ids = list(set(sent_messages.get(m.chat.id, [])))
+    chat_id = m.chat.id
+    key = f"msg_history:{chat_id}"
+    ids = [int(x) for x in await dao.smembers(key)]
+    
+    if not ids:
+        await m.answer("🧹 Чат уже чист.", reply_markup=get_main_menu())
+        return
+
+    # Удаляем сообщения пачками
     for i in range(0, len(ids), 100):
-        try: await bot.delete_messages(m.chat.id, ids[i:i+100])
+        batch = ids[i:i+100]
+        try:
+            await bot.delete_messages(chat_id, batch)
         except:
-            for mid in ids[i:i+100]:
-                try: await bot.delete_message(m.chat.id, mid)
+            for mid in batch:
+                try: await bot.delete_message(chat_id, mid)
                 except: continue
-    sent_messages[m.chat.id] = []
-    await m.answer("🧹 Чат очищен.", reply_markup=get_main_menu())
+    
+    await dao.delete(key)
+    await m.answer("🧹 Чат очищен за последние 2 дня.", reply_markup=get_main_menu())
 
 @dp.message(F.text == "🔄 Сбросить")
 async def reset(m: Message, state: FSMContext):
