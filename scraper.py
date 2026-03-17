@@ -58,10 +58,12 @@ class ScheduleParser:
             await page.wait_for_selector('input[name="LoginForm[login]"], #openid-auth-user', timeout=10000)
             await page.fill('input[name="LoginForm[login]"], #openid-auth-user', LOGIN)
             await page.fill('input[name="LoginForm[password]"], #openid-auth-pwd', PASSWORD)
-            await asyncio.gather(
-                page.wait_for_navigation(wait_until="networkidle", timeout=30000),
-                page.click('#login-submit, button[type="submit"]')
-            )
+            
+            # Нажимаем кнопку входа
+            await page.click('#login-submit, button[type="submit"]')
+            # Ждем завершения загрузки страницы
+            await page.wait_for_load_state("networkidle", timeout=30000)
+            
             logger.info(f"Login submitted. Final URL: {page.url}")
             if "login" in page.url.lower():
                 logger.error("Login failed: Still on login page. Check credentials!")
