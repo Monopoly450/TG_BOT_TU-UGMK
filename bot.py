@@ -52,10 +52,22 @@ async def is_maintenance():
     return await dao.get("maintenance_mode") == "1"
 
 # --- TRACKING LOGIC ---
+async def register_user(user_id: int):
+    await dao.sadd("bot_users", user_id)
+
 async def track_message(chat_id: int, message_id: int):
     key = f"msg_history:{chat_id}"
     await dao.sadd(key, message_id)
     await dao.expire(key, MSG_STORE_LIMIT)
+
+async def broadcast(text: str):
+    users = await dao.smembers("bot_users")
+    for user_id in users:
+        try:
+            await bot.send_message(user_id, text, parse_mode="HTML")
+            await asyncio.sleep(0.05) # Anti-flood
+        except Exception as e:
+            logger.error(f"Failed to send broadcast to {user_id}: {e}")
 
 class MaintenanceMiddleware(BaseMiddleware):
     async def __call__(self, handler, event, data):
@@ -159,16 +171,19 @@ def fmt_week(s: dict, t_type: str) -> str:
 @dp.message(Command("stop"), F.from_user.id.in_(ADMIN_IDS))
 async def admin_stop(m: Message):
     await dao.set("maintenance_mode", "1")
-    await m.answer("🔴 <b>Режим технических работ ВКЛЮЧЕН.</b>\nТеперь бот недоступен для пользователей.", parse_mode="HTML")
+    msg = "🛠 <b>Бот уходит на технические работы.</b>\nВременно недоступен."
+    await m.answer(f"🔴 {msg}"), await broadcast(msg)
 
 @dp.message(Command("start_admin"), F.from_user.id.in_(ADMIN_IDS))
 async def admin_start(m: Message):
     await dao.delete("maintenance_mode")
-    await m.answer("🟢 <b>Режим технических работ ВЫКЛЮЧЕН.</b>\nБот снова доступен для всех.", parse_mode="HTML")
+    msg = "✅ <b>Технические работы завершены.</b>\nБот снова онлайн и готов к работе!"
+    await m.answer(f"🟢 {msg}"), await broadcast(msg)
 
 # --- HANDLERS ---
 @dp.message(CommandStart())
 async def start(m: Message, state: FSMContext):
+    await register_user(m.from_user.id)
     await state.clear(), await m.answer("👋 Бот расписания готов!", reply_markup=get_main_menu())
 
 @dp.message(F.text.in_({"👥 Группы", "👩‍🏫 Преподаватели", "🏫 Аудитории"}))
