@@ -29,7 +29,7 @@ DATA_DIR = "data"
 CACHE_DIR = "cache"
 USERS_FILE = os.path.join(DATA_DIR, "users.json")
 CACHE_LIFETIME = 86400 
-CACHE_VERSION = 32 
+CACHE_VERSION = 33 # Сменил версию для сброса старого кэша
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(CACHE_DIR, exist_ok=True)
@@ -71,6 +71,7 @@ class UserRegistrationMiddleware(BaseMiddleware):
 
 class SentMessageTracker(BaseMiddleware):
     async def __call__(self, handler, event: Message, data: Dict[str, Any]):
+        # Мы будем "обезьяньим патчем" подменять метод answer
         original_answer = event.answer
         async def answer_with_tracking(*args, **kwargs):
             msg = await original_answer(*args, **kwargs)
@@ -88,20 +89,31 @@ dao = redis.Redis(host=os.getenv("REDIS_HOST", "localhost"), port=6379, decode_r
 class ScheduleManager:
     async def fetch_schedule(self, wo=0, t_type=None, t_val=None):
         key = f"data:v{CACHE_VERSION}:{t_type}:{t_val}:w{wo}"
-        if await dao.exists(key): return json.loads(await dao.get(key))
-        await dao.lpush('schedule_jobs', json.dumps({"week_offset": wo, "target_type": t_type, "target_value": t_val}))
-        for _ in range(120):
-            await asyncio.sleep(0.5)
+        try:
             if await dao.exists(key): return json.loads(await dao.get(key))
+        except Exception as e:
+            logger.error(f"Redis get error: {e}")
+
+        await dao.lpush('schedule_jobs', json.dumps({"week_offset": wo, "target_type": t_type, "target_value": t_val}))
+        for _ in range(120): # 60 сек таймаут
+            await asyncio.sleep(0.5)
+            try:
+                if await dao.exists(key): return json.loads(await dao.get(key))
+            except Exception as e:
+                logger.error(f"Redis poll error: {e}")
+
+        logger.warning(f"Timeout waiting for schedule: {key}")
         return {}
     async def clear_cache(self):
-        keys = await dao.keys(f"data:v{CACHE_VERSION}:*")
-        if keys: await dao.delete(*keys)
-        for f in os.listdir(CACHE_DIR): os.remove(os.path.join(CACHE_DIR, f))
+        try:
+            keys = await dao.keys(f"data:v{CACHE_VERSION}:*")
+            if keys: await dao.delete(*keys)
+        except Exception as e:
+            logger.error(f"Redis clear error: {e}")
 
 sm = ScheduleManager()
 
-# --- UI ---
+# --- UI & FORMATTING---
 def get_main_menu(val=None):
     if val:
         kb = [[KeyboardButton(text="📅 Сегодня"), KeyboardButton(text="📆 Завтра")], [KeyboardButton(text="🗓 Эта неделя"), KeyboardButton(text="➡️ След. неделя")], [KeyboardButton(text="🔄 Сбросить"), KeyboardButton(text="🧹 Очистить")]]
@@ -109,8 +121,8 @@ def get_main_menu(val=None):
         kb = [[KeyboardButton(text="👥 Группы"), KeyboardButton(text="👩‍🏫 Преподаватели")], [KeyboardButton(text="🏫 Аудитории")]]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
-def fmt_day(day, lessons, s, target_type=None):
-    text = f"🗓 <b>{day.upper()}</b>
+def fmt_day(day_name: str, lessons: list, s: dict, target_type: str | None = None) -> str:
+    text = f"🗓 <b>{day_name.upper()}</b>
 " + "─"*20 + "
 
 "
@@ -120,9 +132,22 @@ def fmt_day(day, lessons, s, target_type=None):
 "
         text += f"   🕐 {l['time']} | 🏫 {l['room']}
 "
-        if target_type in ["teacher", "classroom"]: text += f"   👥 {l['group']}
+        if target_type in ["teacher", "classroom"]:
+            text += f"   👥 {l['group']}
 "
-        else: text += f"   👩‍🏫 {l['teacher']}
+        else:
+            text += f"   👩‍🏫 {l['teacher']}
+"
+    return text
+
+def fmt_week(s: dict, wo: int) -> str:
+    text = f"🗓 <b>НЕДЕЛЯ {wo}</b>
+" + "─"*20 + "
+
+"
+    for day_name in DAYS_OF_WEEK[:6]:
+        lessons = s.get(day_name, [])
+        text += f"<b>{day_name}</b>: {len(lessons)} пар
 "
     return text
 
@@ -134,77 +159,77 @@ async def start(m: Message, state: FSMContext):
 
 @dp.message(F.text.in_({"👥 Группы", "👩‍🏫 Преподаватели", "🏫 Аудитории"}))
 async def show_filter_menu(m: Message):
-    t_type = "group" if "Группы" in m.text else "teacher" if "Преподаватели" in m.text else "classroom"
-    db = GROUPS_DB if t_type=="group" else TEACHERS_DB if t_type=="teacher" else CLASSROOMS_DB
+    t_type = "group" if m.text == "👥 Группы" else "teacher" if m.text == "👩‍🏫 Преподаватели" else "classroom"
+    db = GROUPS_DB if t_type == "group" else TEACHERS_DB if t_type == "teacher" else CLASSROOMS_DB
     kb = [[InlineKeyboardButton(text=name, callback_data=f"fsel:{t_type}:{i}")] for i, name in enumerate(db.keys())]
     await m.answer(f"👇 Выберите:", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
 
 @dp.callback_query(F.data.startswith("fsel:"))
 async def cb_sel(c: CallbackQuery, state: FSMContext):
     _, t_type, idx = c.data.split(":")
-    db = GROUPS_DB if t_type=="group" else TEACHERS_DB if t_type=="teacher" else CLASSROOMS_DB
+    db = GROUPS_DB if t_type == "group" else TEACHERS_DB if t_type == "teacher" else CLASSROOMS_DB
     val = list(db.keys())[int(idx)]
     await state.update_data(target_type=t_type, target_value=val)
     await c.message.delete()
     await c.message.answer(f"✅ Фильтр: <b>{val}</b>", parse_mode="HTML", reply_markup=get_main_menu(val))
     await c.answer()
 
-async def display_schedule(m: Message, state: FSMContext, is_week: bool, wo_offset: int = 0):
+async def display_schedule(m: Message, state: FSMContext, is_week: bool, wo_offset: int):
     data = await state.get_data()
-    if not data.get("target_value"):
+    target_val = data.get("target_value")
+    if not target_val:
         await m.answer("⚠️ Сначала выберите фильтр.", reply_markup=get_main_menu())
         return
 
     loading_msg = await m.answer("⏳ Загружаю расписание...")
-    s = await sm.fetch_schedule(wo_offset, data.get("target_type"), data.get("target_value"))
+    s = await sm.fetch_schedule(wo_offset, data.get("target_type"), target_val)
     await loading_msg.delete()
 
     if not s:
         await m.answer("⚠️ Не удалось загрузить расписание.")
         return
-
+        
     if is_week:
-        text = f"🗓 <b>НЕДЕЛЯ {wo_offset}</b>
-" + "─"*20 + "
-
-"
-        for day_name in DAYS_OF_WEEK[:6]:
-            lessons = s.get(day_name, [])
-            text += f"<b>{day_name}</b>: {len(lessons)} пар
-"
-        await m.answer(text, parse_mode="HTML")
+        await m.answer(fmt_week(s, wo_offset), parse_mode="HTML")
     else:
-        di = datetime.now().weekday() + (1 if m.text == "📆 Завтра" else 0)
-        day_name = DAYS_OF_WEEK[di % 7]
+        today_weekday = datetime.now().weekday()
+        day_index = (today_weekday + wo_offset) % 7
+        day_name = DAYS_OF_WEEK[day_index]
         await m.answer(fmt_day(day_name, s.get(day_name, []), s, data.get("target_type")), parse_mode="HTML")
 
 @dp.message(F.text.in_({"📅 Сегодня", "📆 Завтра"}))
 async def days(m: Message, state: FSMContext):
-    await display_schedule(m, state, is_week=False, wo_offset=1 if m.text == "📆 Завтра" else 0)
+    wo = 1 if m.text == "📆 Завтра" else 0
+    await display_schedule(m, state, is_week=False, wo_offset=wo)
 
 @dp.message(F.text.in_({"🗓 Эта неделя", "➡️ След. неделя"}))
 async def weeks(m: Message, state: FSMContext):
-    await display_schedule(m, state, is_week=True, wo_offset=1 if m.text == "➡️ След. неделя" else 0)
+    wo = 1 if m.text == "➡️ След. неделя" else 0
+    await display_schedule(m, state, is_week=True, wo_offset=wo)
 
 @dp.message(F.text == "🧹 Очистить")
 async def clear(m: Message, state: FSMContext):
     await state.clear()
     chat_id = m.chat.id
     
+    # Добавляем ID команды "Очистить"
     if chat_id in sent_messages:
         sent_messages[chat_id].append(m.message_id)
     
-    message_ids_to_delete = list(sent_messages.get(chat_id, []))
+    message_ids = list(sent_messages.get(chat_id, []))
     
-    for i in range(0, len(message_ids_to_delete), 100):
+    # Удаляем сообщения пачками
+    for i in range(0, len(message_ids), 100):
         try:
-            await m.bot.delete_messages(chat_id, message_ids_to_delete[i:i+100])
-        except Exception as e:
-            logger.error(f"Partial clear failed: {e}")
-
+            await bot.delete_messages(chat_id, message_ids[i:i+100])
+        except Exception:
+            # Пытаемся удалить по одному, если пачка не удалилась
+            for msg_id in message_ids[i:i+100]:
+                try: await bot.delete_message(chat_id, msg_id)
+                except: continue
+    
     sent_messages[chat_id] = []
-    new_msg = await m.answer("🧹 Чат очищен, фильтры сброшены.", reply_markup=get_main_menu())
-    sent_messages[chat_id].append(new_msg.message_id)
+    await m.answer("🧹 Чат очищен.", reply_markup=get_main_menu())
 
 @dp.message(F.text == "🔄 Сбросить")
 async def reset(m: Message, state: FSMContext):
