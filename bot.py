@@ -137,8 +137,7 @@ def get_day_pagination_kb(target_date: date):
 
 def format_lesson(lesson: dict, target_type: str) -> str:
     subject, time, room, group, teacher = (lesson.get(k, 'Н/Д') for k in ['subject', 'time', 'room', 'group', 'teacher'])
-    text = f"📖 <b>{subject}</b>
-"
+    text = f"📖 <b>{subject}</b>\n"
     text += f"   └ <code>{time}</code> | 🚪 <code>{room}</code> | "
     text += f"👥 {group}" if target_type in ["teacher", "classroom"] else f"👨‍🏫 {teacher}"
     return text
@@ -146,17 +145,12 @@ def format_lesson(lesson: dict, target_type: str) -> str:
 def fmt_day(day_date: date, lessons: list, target_type: str) -> str:
     day_name = DAYS_OF_WEEK[day_date.weekday()]
     date_str = day_date.strftime("%d.%m.%Y")
-    header = f"<b>🗓 {day_name.upper()}</b> ({date_str})
-"
-    text = header + "─" * 24 + "
-
-"
+    header = f"<b>🗓 {day_name.upper()}</b> ({date_str})\n"
+    text = header + "─" * 24 + "\n\n"
     if not lessons: return text + "😴 Нет занятий"
     
     sorted_lessons = sorted(lessons, key=lambda x: x.get('time', '00:00'))
-    text += "
-
-".join([format_lesson(lesson, target_type) for lesson in sorted_lessons])
+    text += "\n\n".join([format_lesson(lesson, target_type) for lesson in sorted_lessons])
     return text
 
 def fmt_week(week_schedule: dict, target_type: str) -> str:
@@ -167,11 +161,7 @@ def fmt_week(week_schedule: dict, target_type: str) -> str:
             day_date = datetime.strptime(date_str, "%d.%m.%Y").date()
             day_lessons = week_schedule.get(day_name, [])
             full_text += fmt_day(day_date, day_lessons, target_type)
-            full_text += "
-
-" + "═" * 24 + "
-
-"
+            full_text += "\n\n" + "═" * 24 + "\n\n"
     return full_text if full_text.strip() else "😴 На этой неделе занятий нет."
 
 # --- HANDLERS ---
