@@ -35,7 +35,7 @@ if not BOT_TOKEN:
     raise ValueError("⚠️ BOT_TOKEN не найден! Убедитесь, что он указан в .env файле или переменных окружения.")
 
 DATA_DIR, CACHE_DIR, USERS_FILE = "data", "cache", os.path.join("data", "users.json")
-CACHE_LIFETIME, CACHE_VERSION = 86400, 33
+CACHE_LIFETIME, CACHE_VERSION = 86400, 34
 MSG_STORE_LIMIT = 172800 # 48 часов
 ADMIN_IDS = [474095004] 
 
@@ -170,9 +170,28 @@ def get_day_pagination_kb(target_date: date):
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Пред. день", callback_data=f"day_nav:{prev}"), InlineKeyboardButton(text="След. день ➡️", callback_data=f"day_nav:{next}")]])
 
 def format_lesson(l: dict, t_type: str) -> str:
-    subj, time, room, grp, teach = (l.get(k, 'Н/Д') for k in ['subject', 'time', 'room', 'group', 'teacher'])
-    text = f"📖 <b>{subj}</b>\n   └ <code>{time}</code> | 🚪 <code>{room}</code> | "
-    return text + (f"👥 {grp}" if t_type in ["teacher", "classroom"] else f"👨‍🏫 {teach}")
+    subj, l_type, time, room, grp, teach = (l.get(k, 'Н/Д') for k in ['subject', 'type', 'time', 'room', 'group', 'teacher'])
+    
+    # Header with subject
+    text = f"📖 <b>{subj}</b>\n"
+    
+    # Lesson type (if exists)
+    if l_type and l_type != 'Н/Д':
+        text += f"   📝 <i>{l_type}</i>\n"
+        
+    # Time and Room
+    text += f"   └ <code>{time}</code> | 🚪 <code>{room}</code>\n"
+    
+    # Detailed info (Group and Teacher)
+    # Highlight the one that isn't the current filter
+    if t_type == "group":
+        text += f"   └ 👨‍🏫 {teach}"
+    elif t_type == "teacher":
+        text += f"   └ 👥 {grp}"
+    else: # classroom
+        text += f"   └ 👥 {grp} | 👨‍🏫 {teach}"
+        
+    return text
 
 def fmt_day(day_date: date, lessons: list, t_type: str) -> str:
     day_name, date_str = DAYS_OF_WEEK[day_date.weekday()], day_date.strftime("%d.%m.%Y")

@@ -103,11 +103,25 @@ class ScheduleParser:
             for row in table.find_all("tr"):
                 cells = row.find_all("td")
                 if len(cells) < 5: continue
-                disc = cells[1].get_text(strip=True)
-                if not disc: continue
+                disc_cell = cells[1]
+                # Extract text with separator to avoid merging discipline and type
+                disc_text = disc_cell.get_text(separator=" ", strip=True)
+                if not disc_text: continue
+                
+                # Try to extract lesson type separately if it exists in the span
+                l_type_span = disc_cell.find("span", class_="lesson-type")
+                l_type = l_type_span.get_text(strip=True) if l_type_span else ""
+                
+                # Remove lesson type from discipline text to avoid duplication
+                subject = disc_text.replace(l_type, "").strip() if l_type else disc_text
+                
                 schedule[day].append({
-                    "time": cells[0].get_text(strip=True), "subject": disc, "room": cells[2].get_text(strip=True),
-                    "group": cells[3].get_text(strip=True), "teacher": cells[4].get_text(strip=True),
+                    "time": cells[0].get_text(strip=True), 
+                    "subject": subject,
+                    "type": l_type,
+                    "room": cells[2].get_text(strip=True),
+                    "group": cells[3].get_text(strip=True), 
+                    "teacher": cells[4].get_text(strip=True),
                 })
         schedule["_dates"] = dates
         return schedule
