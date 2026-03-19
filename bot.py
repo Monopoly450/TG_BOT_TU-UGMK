@@ -310,17 +310,20 @@ async def handle_weeks(m: Message, state: FSMContext):
         for i in range(0, len(text), 4096): await m.answer(text[i:i+4096], parse_mode="HTML") # type: ignore
     else: await m.answer(text, parse_mode="HTML")    
 
-@dp.message(F.text == "🧹 Очистить")
-async def clear(m: Message, state: FSMContext):      
-    ids = list(set(await dao.smembers(f"msg_history:{m.chat.id}")))
+async def clear_chat_history(chat_id: int):
+    ids = list(set(await dao.smembers(f"msg_history:{chat_id}")))
     ids = [int(x) for x in ids]
     for i in range(0, len(ids), 100):
-        try: await bot.delete_messages(m.chat.id, ids[i:i+100]) # type: ignore
+        try: await bot.delete_messages(chat_id, ids[i:i+100]) # type: ignore
         except:
             for mid in ids[i:i+100]: # type: ignore
-                try: await bot.delete_message(m.chat.id, mid)
+                try: await bot.delete_message(chat_id, mid)
                 except: continue
-    await dao.delete(f"msg_history:{m.chat.id}")     
+    await dao.delete(f"msg_history:{chat_id}")
+
+@dp.message(F.text == "🧹 Очистить")
+async def clear(m: Message, state: FSMContext):      
+    await clear_chat_history(m.chat.id)
     await m.answer("🧹 Чат очищен.", reply_markup=get_main_menu())
 
 @dp.callback_query(F.data == "cancel_menu")
@@ -331,7 +334,8 @@ async def cb_cancel_menu(c: CallbackQuery):
     except: pass
 
 @dp.message(F.text.in_({"🔄 Сбросить", "🔙 Назад"}))
-async def reset(m: Message, state: FSMContext):      
+async def reset(m: Message, state: FSMContext):
+    await clear_chat_history(m.chat.id)
     await state.clear(), await m.answer("🔙 Возврат в главное меню.", reply_markup=get_main_menu())
 
 @dp.message(ScheduleStates.viewing)
