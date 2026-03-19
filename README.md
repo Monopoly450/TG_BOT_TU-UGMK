@@ -43,8 +43,8 @@ sudo apt-get install -y docker-compose-plugin
 
 ### 1. Клонирование репозитория
 ```bash
-git clone https://github.com/Monopoly450/TG_Test.git
-cd TG_Test
+git clone https://github.com/Monopoly450/TG_BOT_TU-UGMK.git
+cd TG_BOT_TU-UGMK
 ```
 
 ### 2. Настройка переменных окружения (`.env`)
