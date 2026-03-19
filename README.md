@@ -18,6 +18,27 @@
 *   ОС с поддержкой Docker (Ubuntu, Debian, Windows и др.)
 *   Docker и Docker Compose
 
+## 🛠 Подготовка сервера (Ubuntu/Debian)
+
+Перед установкой проекта убедитесь, что ваш сервер обновлен и на нем установлены все необходимые инструменты.
+
+### 1. Обновление пакетов
+```bash
+sudo apt update && sudo apt upgrade -y
+```
+
+### 2. Установка утилит (Git, Nano)
+```bash
+sudo apt install -y git nano curl
+```
+
+### 3. Установка Docker и Docker Compose
+```bash
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
+sudo apt-get install -y docker-compose-plugin
+```
+
 ## 🚀 Установка и настройка
 
 ### 1. Клонирование репозитория
