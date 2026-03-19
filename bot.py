@@ -178,7 +178,7 @@ def get_main_menu(val=None):
         kb = [
             [KeyboardButton(text="📅 Сегодня"), KeyboardButton(text="📆 Завтра")],
             [KeyboardButton(text="🗓 Эта неделя"), KeyboardButton(text="➡️ След. неделя")],
-            [KeyboardButton(text="🔄 Сбросить"), KeyboardButton(text="🧹 Очистить")]
+            [KeyboardButton(text="🔙 Назад"), KeyboardButton(text="🧹 Очистить")]
         ]
     else:
         kb = [[
@@ -190,7 +190,7 @@ def get_main_menu(val=None):
 
 def get_day_pagination_kb(target_date: date):        
     prev, next = (target_date - timedelta(days=1)).isoformat(), (target_date + timedelta(days=1)).isoformat()
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Пред. день", callback_data=f"day_nav:{prev}"), InlineKeyboardButton(text="След. день ➡️", callback_data=f"day_nav:{next}")]])       
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Пред. день", callback_data=f"day_nav:{prev}"), InlineKeyboardButton(text="След. день ➡️", callback_data=f"day_nav:{next}")], [InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")]])       
 
 def format_lesson(l: dict, t_type: str) -> str:      
     subj, l_type, time, room, grp, teach = (l.get(k, 'Н/Д') for k in ['subject', 'type', 'time', 'room', 'group', 'teacher'])
@@ -248,7 +248,7 @@ async def show_filter_menu(m: Message):
     t_type = "group" if m.text == "👥 Группы" else "teacher" if m.text == "👩‍🏫 Преподаватели" else "classroom"
     db = {"group": GROUPS_DB, "teacher": TEACHERS_DB, "classroom": CLASSROOMS_DB}[t_type]
     btns = [InlineKeyboardButton(text=n, callback_data=f"fsel:{t_type}:{i}") for i, n in enumerate(db)]   
-    kb = InlineKeyboardMarkup(inline_keyboard=[[btn] for btn in btns])
+    kb = InlineKeyboardMarkup(inline_keyboard=[[btn] for btn in btns] + [[InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")]])
     await m.answer("👇 Выберите:", reply_markup=kb)  
 
 @dp.callback_query(F.data.startswith("fsel:"))       
@@ -323,9 +323,16 @@ async def clear(m: Message, state: FSMContext):
     await dao.delete(f"msg_history:{m.chat.id}")     
     await m.answer("🧹 Чат очищен.", reply_markup=get_main_menu())
 
-@dp.message(F.text == "🔄 Сбросить")
+@dp.callback_query(F.data == "cancel_menu")
+async def cb_cancel_menu(c: CallbackQuery):
+    try: await c.message.delete()
+    except: pass
+    try: await c.answer()
+    except: pass
+
+@dp.message(F.text.in_({"🔄 Сбросить", "🔙 Назад"}))
 async def reset(m: Message, state: FSMContext):      
-    await state.clear(), await m.answer("🔄 Фильтры сброшены.", reply_markup=get_main_menu())
+    await state.clear(), await m.answer("🔙 Возврат в главное меню.", reply_markup=get_main_menu())
 
 @dp.message(ScheduleStates.viewing)
 async def require_filter_message(m: Message):        
