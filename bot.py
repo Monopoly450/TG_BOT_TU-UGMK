@@ -85,6 +85,7 @@ class IncomingMessageTracker(BaseMiddleware):
     async def __call__(self, handler, event: Message, data: Dict[str, Any]):
         if getattr(event, "chat", None) and getattr(event, "message_id", None):
             try:
+                await register_user(event.chat.id)
                 await track_message(event.chat.id, event.message_id)
                 logger.info(f"msg from {event.chat.id}: {event.text}")
             except Exception as e:
@@ -228,13 +229,15 @@ def fmt_week(s: dict, t_type: str) -> str:
 async def admin_stop(m: Message):
     await dao.set("maintenance_mode", "1")
     msg = "🛠 <b>Бот уходит на технические работы.</b>\nВременно недоступен."
-    await m.answer(f"🔴 {msg}"), await broadcast(msg)
+    await m.answer(f"🔴 {msg}")
+    asyncio.create_task(broadcast(msg))
 
 @dp.message(Command("start_admin"), F.from_user.id.in_(ADMIN_IDS))
 async def admin_start(m: Message):
     await dao.delete("maintenance_mode")
     msg = "✅ <b>Технические работы завершены.</b>\nБот снова онлайн и готов к работе!"
-    await m.answer(f"🟢 {msg}"), await broadcast(msg)
+    await m.answer(f"🟢 {msg}")
+    asyncio.create_task(broadcast(msg))
 
 # --- HANDLERS ---
 @dp.message(CommandStart())
