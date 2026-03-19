@@ -244,16 +244,8 @@ async def admin_start(m: Message):
 async def start(m: Message, state: FSMContext):      
     await register_user(m.from_user.id)
     await state.clear()
-    subbed_group = await dao.hget("user_subs", str(m.from_user.id))
-    text = "👋 Бот расписания готов!\n\n"
-    if subbed_group:
-        group_name = next((k for k, v in GROUPS_DB.items() if v == subbed_group), "Неизвестно")
-        text += f"✅ Вы подписаны на утреннюю рассылку группы: <b>{group_name}</b>"
-        await m.answer(text, reply_markup=get_main_menu(), parse_mode="HTML")
-    else:
-        text += "🔔 Вы можете подписаться на утреннюю рассылку расписания (каждый день в 08:00)."
-        await m.answer(text, reply_markup=get_main_menu(), parse_mode="HTML")
-        await show_subscription_menu(m)
+    await m.answer("👋 <b>Бот расписания готов к работе!</b>", reply_markup=get_main_menu(), parse_mode="HTML")
+    await show_subscription_menu(m)
 
 @dp.message(F.text == "🔔 Моя подписка")
 async def show_subscription_menu(m: Message):
