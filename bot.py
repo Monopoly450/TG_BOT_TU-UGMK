@@ -6,7 +6,7 @@ import asyncio
 import urllib.parse
 import collections
 from contextlib import asynccontextmanager
-from datetime import datetime, date, timedelta       
+from datetime import datetime, date, timedelta, timezone
 from typing import Dict, Any, AsyncGenerator
 
 from dotenv import load_dotenv # type: ignore
@@ -181,11 +181,10 @@ def get_main_menu(val=None):
             [KeyboardButton(text="🔙 Назад"), KeyboardButton(text="🧹 Очистить")]
         ]
     else:
-        kb = [[
-            KeyboardButton(text="👥 Группы"),        
-            KeyboardButton(text="👩‍🏫 Преподаватели"),
-            KeyboardButton(text="🏫 Аудитории")      
-        ]]
+        kb = [
+            [KeyboardButton(text="👥 Группы"), KeyboardButton(text="👩‍🏫 Преподаватели"), KeyboardButton(text="🏫 Аудитории")],
+            [KeyboardButton(text="🔔 Моя подписка")]
+        ]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
 def get_day_pagination_kb(target_date: date):        
@@ -241,7 +240,54 @@ async def admin_start(m: Message):
 @dp.message(CommandStart())
 async def start(m: Message, state: FSMContext):      
     await register_user(m.from_user.id)
-    await state.clear(), await m.answer("👋 Бот расписания готов!", reply_markup=get_main_menu())
+    await state.clear()
+    subbed_group = await dao.hget("user_subs", str(m.from_user.id))
+    text = "👋 Бот расписания готов!\n\n"
+    if subbed_group:
+        group_name = next((k for k, v in GROUPS_DB.items() if v == subbed_group), "Неизвестно")
+        text += f"✅ Вы подписаны на утреннюю рассылку группы: <b>{group_name}</b>"
+        await m.answer(text, reply_markup=get_main_menu(), parse_mode="HTML")
+    else:
+        text += "🔔 Вы можете подписаться на утреннюю рассылку расписания (каждый день в 08:00)."
+        await m.answer(text, reply_markup=get_main_menu(), parse_mode="HTML")
+        await show_subscription_menu(m)
+
+@dp.message(F.text == "🔔 Моя подписка")
+async def show_subscription_menu(m: Message):
+    subbed_group = await dao.hget("user_subs", str(m.from_user.id))
+    db = GROUPS_DB
+    btns = [InlineKeyboardButton(text=n, callback_data=f"sub:{i}") for i, n in enumerate(db)]
+    
+    inline_kb = []
+    for i in range(0, len(btns), 2):
+        inline_kb.append(btns[i:i+2])
+    inline_kb.append([InlineKeyboardButton(text="🔕 Отписаться", callback_data="sub:unsubscribe")])
+    inline_kb.append([InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")])
+    kb = InlineKeyboardMarkup(inline_keyboard=inline_kb)
+    
+    text = "🗓 <b>Утренняя рассылка (08:00 МСК+2)</b>\n\n"
+    if subbed_group:
+        group_name = next((k for k, v in db.items() if v == subbed_group), "Неизвестно")
+        text += f"✅ Текущая подписка: <b>{group_name}</b>\n\nВыберите новую или нажмите Отписаться:"
+    else:
+        text += "❌ Вы не подписаны.\nВыберите группу из списка ниже:"
+        
+    await m.answer(text, parse_mode="HTML", reply_markup=kb)
+
+@dp.callback_query(F.data.startswith("sub:"))
+async def cb_sub(c: CallbackQuery):
+    idx = c.data.split(":")[1]
+    if idx == "unsubscribe":
+        await dao.hdel("user_subs", str(c.from_user.id))
+        await c.message.edit_text("🔕 Вы отписались от утренней рассылки.")
+    else:
+        db = GROUPS_DB
+        gid = list(db.keys())[int(idx)]
+        gval = db[gid]
+        await dao.hset("user_subs", str(c.from_user.id), gval)
+        await c.message.edit_text(f"✅ Вы успешно подписались на утреннюю рассылку для группы <b>{gid}</b>!\nКаждое утро в 08:00 бот будет присылать вам расписание на день.", parse_mode="HTML")
+    try: await c.answer()
+    except: pass
 
 @dp.message(F.text.in_({"👥 Группы", "👩‍🏫 Преподаватели", "🏫 Аудитории"}))
 async def show_filter_menu(m: Message):
@@ -342,8 +388,50 @@ async def reset(m: Message, state: FSMContext):
 async def require_filter_message(m: Message):        
     await m.answer("⚠️ Пожалуйста, сначала выберите один из фильтров.", reply_markup=get_main_menu())     
 
+async def daily_scheduler():
+    tz = timezone(timedelta(hours=5))
+    while True:
+        now = datetime.now(tz)
+        target = now.replace(hour=8, minute=0, second=0, microsecond=0)
+        if now >= target:
+            target += timedelta(days=1)
+        wait_seconds = (target - now).total_seconds()
+        
+        await asyncio.sleep(wait_seconds)
+        
+        try:
+            subs = await dao.hgetall("user_subs")
+            groups_to_users = collections.defaultdict(list)
+            for uid, gid in subs.items():
+                groups_to_users[gid].append(uid)
+            
+            today = datetime.now(tz).date()
+            wo = 0
+            
+            for gid, uids in groups_to_users.items():
+                week_s = await sm.fetch_schedule(wo, "group", gid)
+                day_name = DAYS_OF_WEEK[today.weekday()]
+                day_lessons = week_s.get(day_name, [])
+                is_error = not week_s or "_error" in week_s
+                
+                if is_error:
+                    continue
+                
+                text = f"🌅 <b>Доброе утро! Расписание на сегодня:</b>\n\n"
+                text += fmt_day(today, day_lessons, "group")
+                
+                for uid in uids:
+                    try:
+                        await bot.send_message(uid, text, parse_mode="HTML")
+                        await asyncio.sleep(0.05)
+                    except:
+                        pass
+        except Exception as e:
+            logger.error(f"Scheduler failed: {e}")
+
 async def main():
     if PROXY_URL: logger.info(f"🌐 Используется прокси: {PROXY_URL}")
+    asyncio.create_task(daily_scheduler())
     await bot.delete_webhook(drop_pending_updates=True), await dp.start_polling(bot)
 
 if __name__ == "__main__":
