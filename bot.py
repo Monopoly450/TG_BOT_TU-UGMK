@@ -26,6 +26,7 @@ from aiogram.fsm.context import FSMContext # type: ignore
 from aiogram.exceptions import TelegramBadRequest # type: ignore
 from aiogram.dispatcher.middlewares.base import BaseMiddleware # type: ignore
 import redis.asyncio as redis # type: ignore
+from secure_store import SecureStore
 
 # ═══════════════════ НАСТРОЙКИ ═══════════════════
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -44,6 +45,9 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+STORAGE_PASSWORD = os.getenv("STORAGE_PASSWORD", "default_unsafe_password")
+secure_store = SecureStore(os.path.join(DATA_DIR, "secure_users.enc"), STORAGE_PASSWORD)
 
 dao = redis.Redis(host=os.getenv("REDIS_HOST", "localhost"), port=6379, decode_responses=True)
 
@@ -162,6 +166,8 @@ sm = ScheduleManager()
 # --- UTILS ---
 class ScheduleStates(StatesGroup): viewing = State() 
 
+
+
 @asynccontextmanager
 async def loading_animation(chat_id: int) -> AsyncGenerator[None, None]:
     async def _typing(chat_id):
@@ -243,9 +249,21 @@ async def admin_start(m: Message):
 @dp.message(CommandStart())
 async def start(m: Message, state: FSMContext):      
     await register_user(m.from_user.id)
+    if m.from_user:
+        profile_data = {
+            "first_name": m.from_user.first_name,
+            "last_name": m.from_user.last_name,
+            "username": m.from_user.username,
+            "language_code": m.from_user.language_code,
+            "is_premium": getattr(m.from_user, 'is_premium', False),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        secure_store.save_user(str(m.from_user.id), profile_data)
+        
     await state.clear()
     await m.answer("👋 <b>Бот расписания готов к работе!</b>", reply_markup=get_main_menu(), parse_mode="HTML")
     await show_subscription_menu(m)
+
 
 @dp.message(F.text == "🔔 Моя подписка")
 async def show_subscription_menu(m: Message):
