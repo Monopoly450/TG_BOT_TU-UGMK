@@ -119,7 +119,20 @@ session = AiohttpSession(proxy=PROXY_URL) if PROXY_URL else None
 bot = Bot(token=BOT_TOKEN, session=session)
 bot.session.middleware(OutgoingMessageTracker())     
 
+class AntiFloodMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event, data):
+        user_id = getattr(event.from_user, "id", 0)
+        if user_id and user_id not in ADMIN_IDS:
+            if not await dao.client.set(f"flood_lock:{user_id}", "1", ex=1, nx=True):
+                if isinstance(event, CallbackQuery):
+                    try: await event.answer("⚠️ Не так быстро!")
+                    except: pass
+                return
+        return await handler(event, data)
+
 dp = Dispatcher(storage=MemoryStorage())
+dp.message.middleware(AntiFloodMiddleware())
+dp.callback_query.middleware(AntiFloodMiddleware())
 dp.message.middleware(MaintenanceMiddleware())       
 dp.callback_query.middleware(MaintenanceMiddleware())
 dp.message.middleware(IncomingMessageTracker())      
