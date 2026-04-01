@@ -72,18 +72,30 @@ class ScheduleParser:
     async def _login(self, page):
         try:
             logger.info(f"Attempting login as {LOGIN}...")
-            await page.wait_for_selector('input[name="LoginForm[login]"], #openid-auth-user', timeout=10000)
-            await page.fill('input[name="LoginForm[login]"], #openid-auth-user', LOGIN)
-            await page.fill('input[name="LoginForm[password]"], #openid-auth-pwd', PASSWORD)
+            await page.wait_for_selector('input[name="LoginForm[login]"], #openid-auth-user, input[type="text"]', timeout=15000)
+            
+            # Заполняем форму логина (1C или локальную)
+            user_input = await page.query_selector('input[name="LoginForm[login]"]') or await page.query_selector('#openid-auth-user') or await page.query_selector('input[type="text"]')
+            pwd_input = await page.query_selector('input[name="LoginForm[password]"]') or await page.query_selector('#openid-auth-pwd') or await page.query_selector('input[type="password"]')
+            
+            if user_input: await user_input.fill(LOGIN)
+            if pwd_input: await pwd_input.fill(PASSWORD)
             
             # Нажимаем кнопку входа
-            await page.click('#login-submit, button[type="submit"]')
-            # Ждем завершения загрузки страницы
+            submit_btn = await page.query_selector('#login-submit, button[type="submit"], input[type="submit"], .btn-primary, button:has-text("Войти")')
+            if submit_btn:
+                await submit_btn.click()
+            else:
+                await page.keyboard.press("Enter")
+                
+            # Ждем завершения редиректов (важно для OAuth и SSO)
+            logger.info("Waiting for SSO redirect to finish...")
+            await asyncio.sleep(5)
             await page.wait_for_load_state("domcontentloaded", timeout=30000)
             
             logger.info(f"Login submitted. Final URL: {page.url}")
-            if "login" in page.url.lower():
-                logger.error("Login failed: Still on login page. Check credentials!")
+            if "login" in page.url.lower() or "auth" in page.url.lower():
+                logger.error("Login failed: Still on auth/login page. Check credentials!")
                 await page.screenshot(path="debug_login_error.png")
                 return False
             return True
@@ -115,8 +127,10 @@ class ScheduleParser:
             url = self._build_url(wo, t_type, t_val)
             logger.info(f"[{t_type}] Fetching: {url}")
             await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            if "login" in page.url.lower():
+            if "login" in page.url.lower() or "auth" in page.url.lower():
                 if not await self._login(page): return {"_error": "Login failed"}
+                # Wait for any post-login redirects
+                await asyncio.sleep(3)
                 if page.url != url: await page.goto(url, wait_until="domcontentloaded", timeout=60000)
             
             # Ждем появления контейнеров с расписанием или сообщения об ошибке
