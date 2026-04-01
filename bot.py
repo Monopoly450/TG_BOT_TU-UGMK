@@ -402,11 +402,18 @@ async def cb_course(c: CallbackQuery):
             filtered_groups.append((i, name))
             
     if not filtered_groups:
-        await c.message.answer("😔 Группы для этого курса не найдены.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")]]))
+        await c.message.answer("😔 Группы не найдены.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_courses")]]))
     else:
         btns = [InlineKeyboardButton(text=n, callback_data=f"fsel:group:{i}") for i, n in filtered_groups]
-        kb = InlineKeyboardMarkup(inline_keyboard=[[btn] for btn in btns] + [[InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")]])
+        kb = InlineKeyboardMarkup(inline_keyboard=[[btn] for btn in btns] + [[InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_courses")]])
         await c.message.answer("👇 Выберите группу:", reply_markup=kb)
+    try: await c.answer()
+    except: pass
+
+@dp.callback_query(F.data == "back_to_courses")
+async def cb_back_to_courses(c: CallbackQuery):
+    await c.message.delete()
+    await show_courses_menu(c.message)
     try: await c.answer()
     except: pass
 
@@ -507,18 +514,43 @@ async def clear(m: Message, state: FSMContext):
 
 @dp.callback_query(F.data == "cancel_menu")
 async def cb_cancel_menu(c: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    tt = data.get("target_type")
     await state.clear()
     try: await c.message.delete()
     except: pass
-    await c.message.answer("🔙 Главное меню", reply_markup=get_main_menu())
+    
+    if tt == "group":
+        await show_courses_menu(c.message)
+    elif tt == "teacher":
+        c.message.text = "👩‍🏫 Преподаватели"
+        await show_filter_menu(c.message)
+    elif tt == "classroom":
+        c.message.text = "🏫 Аудитории"
+        await show_filter_menu(c.message)
+    else:
+        await c.message.answer("🔙 Главное меню", reply_markup=get_main_menu())
     try: await c.answer()
     except: pass
 
 @dp.message(F.text.in_({"🔄 Сбросить", "🔙 Назад"}))
 async def reset(m: Message, state: FSMContext):
+    data = await state.get_data()
+    tt = data.get("target_type")
     await state.clear()
-    msg = await m.answer("🔙 Главное меню", reply_markup=get_main_menu())
+    msg = await m.answer("🔙 Возвращаюсь...", reply_markup=get_main_menu())
     await clear_chat_history(m.chat.id, exclude_ids=[msg.message_id])
+    
+    if tt == "group":
+        await show_courses_menu(m)
+    elif tt == "teacher":
+        m.text = "👩‍🏫 Преподаватели"
+        await show_filter_menu(m)
+    elif tt == "classroom":
+        m.text = "🏫 Аудитории"
+        await show_filter_menu(m)
+    else:
+        await msg.edit_text("🔙 Главное меню", reply_markup=get_main_menu())
 
 @dp.message(F.text)
 async def fallback_message(m: Message, state: FSMContext):        
