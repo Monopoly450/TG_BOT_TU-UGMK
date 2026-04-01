@@ -9,8 +9,8 @@ cd "$(dirname "$0")"
 chmod +x update.sh
 
 while true; do
-    # Пингуем редис (добавлен sudo на случай отсутствия прав, убран /dev/null для дебага)
-    TRIGGER=$(sudo docker exec redis_db redis-cli get bot_update_trigger || docker exec redis_db redis-cli get bot_update_trigger)
+    # Пингуем редис
+    TRIGGER=$(docker exec redis_db redis-cli get bot_update_trigger)
     
     # Очищаем ответ от переносов строк
     TRIGGER=$(echo "$TRIGGER" | tr -d '\r\n')
@@ -21,7 +21,7 @@ while true; do
         echo "========================================="
         
         # Сбрасываем триггер
-        sudo docker exec redis_db redis-cli del bot_update_trigger || docker exec redis_db redis-cli del bot_update_trigger
+        docker exec redis_db redis-cli del bot_update_trigger > /dev/null
         
         # Запускаем штатный скрипт
         ./update.sh
