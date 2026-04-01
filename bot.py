@@ -491,9 +491,8 @@ async def clear_chat_history(chat_id: int, exclude_ids: list = None):
 @dp.message(F.text == "🧹 Очистить")
 async def clear(m: Message, state: FSMContext):      
     await state.clear()
-    msg = await m.answer("🧹 Очищаю историю чата...")
+    msg = await m.answer("✨ Чат успешно очищен.", reply_markup=get_main_menu())
     await clear_chat_history(m.chat.id, exclude_ids=[msg.message_id])
-    await msg.edit_text("✨ Чат успешно очищен.", reply_markup=get_main_menu())
 
 @dp.callback_query(F.data == "cancel_menu")
 async def cb_cancel_menu(c: CallbackQuery, state: FSMContext):
@@ -507,9 +506,8 @@ async def cb_cancel_menu(c: CallbackQuery, state: FSMContext):
 @dp.message(F.text.in_({"🔄 Сбросить", "🔙 Назад"}))
 async def reset(m: Message, state: FSMContext):
     await state.clear()
-    msg = await m.answer("🔙 Возврат в главное меню...")
+    msg = await m.answer("🔙 Главное меню", reply_markup=get_main_menu())
     await clear_chat_history(m.chat.id, exclude_ids=[msg.message_id])
-    await msg.edit_text("🔙 Главное меню", reply_markup=get_main_menu())
 
 @dp.message(ScheduleStates.viewing)
 async def require_filter_message(m: Message, state: FSMContext):        
