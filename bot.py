@@ -199,9 +199,8 @@ def get_main_menu(val=None):
         ]
     else:
         kb = [
-            [KeyboardButton(text="🎓 Курс"), KeyboardButton(text="👥 Группы")],
-            [KeyboardButton(text="👩‍🏫 Преподаватели"), KeyboardButton(text="🏫 Аудитории")],
-            [KeyboardButton(text="🔔 Моя подписка")]
+            [KeyboardButton(text="🎓 Курс"), KeyboardButton(text="🔔 Моя подписка")],
+            [KeyboardButton(text="👩‍🏫 Преподаватели"), KeyboardButton(text="🏫 Аудитории")]
         ]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
@@ -361,10 +360,10 @@ async def cb_sub(c: CallbackQuery):
     try: await c.answer()
     except: pass
 
-@dp.message(F.text.in_({"👥 Группы", "👩‍🏫 Преподаватели", "🏫 Аудитории"}))
+@dp.message(F.text.in_({"👩‍🏫 Преподаватели", "🏫 Аудитории"}))
 async def show_filter_menu(m: Message):
-    t_type = "group" if m.text == "👥 Группы" else "teacher" if m.text == "👩‍🏫 Преподаватели" else "classroom"
-    db = {"group": GROUPS_DB, "teacher": TEACHERS_DB, "classroom": CLASSROOMS_DB}[t_type]
+    t_type = "teacher" if m.text == "👩‍🏫 Преподаватели" else "classroom"
+    db = {"teacher": TEACHERS_DB, "classroom": CLASSROOMS_DB}[t_type]
     btns = [InlineKeyboardButton(text=n, callback_data=f"fsel:{t_type}:{i}") for i, n in enumerate(db)]   
     kb = InlineKeyboardMarkup(inline_keyboard=[[btn] for btn in btns] + [[InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")]])
     await m.answer("👇 Выберите:", reply_markup=kb)  
@@ -494,9 +493,11 @@ async def clear(m: Message, state: FSMContext):
     await m.answer("🧹 Чат очищен.", reply_markup=get_main_menu())
 
 @dp.callback_query(F.data == "cancel_menu")
-async def cb_cancel_menu(c: CallbackQuery):
+async def cb_cancel_menu(c: CallbackQuery, state: FSMContext):
+    await state.clear()
     try: await c.message.delete()
     except: pass
+    await c.message.answer("🔙 Главное меню", reply_markup=get_main_menu())
     try: await c.answer()
     except: pass
 
