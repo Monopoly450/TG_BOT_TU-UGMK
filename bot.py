@@ -65,11 +65,13 @@ async def track_message(chat_id: int, message_id: int):
     await dao.sadd(key, message_id)
     await dao.expire(key, MSG_STORE_LIMIT)
 
-async def broadcast(text: str):
+async def broadcast(text: str, save_key: str = None):
     users = await dao.smembers("bot_users")
     for user_id in users:
         try:
-            await bot.send_message(int(user_id), text, parse_mode="HTML")
+            msg = await bot.send_message(int(user_id), text, parse_mode="HTML")
+            if save_key:
+                await dao.hset(save_key, user_id, msg.message_id)
             await asyncio.sleep(0.05) # Anti-flood   
         except Exception as e:
             logger.error(f"Failed to send broadcast to {user_id}: {e}")
@@ -79,8 +81,13 @@ class MaintenanceMiddleware(BaseMiddleware):
         try:
             user_id = event.from_user.id if event.from_user else 0
             if await is_maintenance() and user_id not in ADMIN_IDS:
-                if isinstance(event, Message):       
-                    await event.answer("🛠 <b>Ведутся технические работы.</b>\nБот временно недоступен. Пожалуйста, попробуйте позже.", parse_mode="HTML")      
+                if isinstance(event, Message):
+                    old_mid = await dao.get(f"maint_msg:{user_id}")
+                    if old_mid:
+                        try: await bot.delete_message(user_id, int(old_mid))
+                        except: pass
+                    msg = await event.answer("🛠 <b>Ведутся технические работы.</b>\nБот временно недоступен. Пожалуйста, попробуйте позже.", parse_mode="HTML")      
+                    await dao.setex(f"maint_msg:{user_id}", 3600, msg.message_id)
                 return
         except Exception as e:
             logger.error(f"Maintenance check failed: {e}")
@@ -292,7 +299,8 @@ async def admin_actions(c: CallbackQuery):
         async def run_update_sequence():
             await dao.set("update_in_progress", "1")
             await dao.set("update_admin_id", str(c.from_user.id))
-            await broadcast("⚙️ <b>Внимание!</b>\nСервер обновляется. Бот будет недоступен несколько минут.")
+            await dao.delete("update_msgs")
+            await broadcast("⚙️ <b>Внимание!</b>\nСервер обслуживается. Бот будет недоступен несколько минут.", save_key="update_msgs")
             await dao.set("bot_update_trigger", "1")
             
         asyncio.create_task(run_update_sequence())
@@ -566,6 +574,14 @@ async def notify_on_startup():
                 try: await bot.send_message(int(admin_id), "🛠 <b>ОТЧЕТ:</b> Сервер успешно обновлен и запущен!", parse_mode="HTML")
                 except: pass
                 await dao.delete("update_admin_id")
+            
+            msgs = await dao.hgetall("update_msgs")
+            for uid, mid in msgs.items():
+                try: 
+                    await bot.delete_message(int(uid), int(mid))
+                    await asyncio.sleep(0.05)
+                except: pass
+            await dao.delete("update_msgs")
             
             await broadcast("✅ <b>Сервер обновлен и снова работает!</b>\nВсе системы в норме.")
     except Exception as e:
