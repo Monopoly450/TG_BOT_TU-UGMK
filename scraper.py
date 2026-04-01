@@ -16,7 +16,7 @@ SCHEDULE_URL = "https://up.corp.tu-ugmk.com/student/schedule"
 LOGIN = os.getenv("LOGIN", "uvybhjhhv@gmail.com")
 PASSWORD = os.getenv("PASSWORD", "qazwsxedcip60000OP")
 
-CACHE_LIFETIME, CACHE_VERSION = 86400, 37
+CACHE_LIFETIME, CACHE_VERSION = 86400, 38
 
 # ════════════ БАЗЫ ДАННЫХ ID ═════════════════════
 GROUPS_DB = {
@@ -145,11 +145,14 @@ class ScheduleParser:
             html = await page.content()
             with open("debug_last_fetch.html", "w", encoding="utf-8") as f: f.write(html)
             res = self._parse(html, t_type, t_val)
-            if not res or not res.get("_dates"):
+            
+            has_lessons = any(isinstance(v, list) and len(v) > 0 for k, v in res.items() if k != "_dates")
+            
+            if not res or (not res.get("_dates") and not has_lessons):
                 if "ошибка" in html.lower(): 
                     return {"_error": "Site error message"}
                 if "не найден" in html.lower() or "нет данных" in html.lower():
-                    return {"_empty": True} # Расписание просто пустое
+                    return {"_empty": True}
                 return {"_error": "No data parsed"}
             return res
         except Exception as e: 

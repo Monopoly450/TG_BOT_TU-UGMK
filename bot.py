@@ -36,7 +36,7 @@ if not BOT_TOKEN:
     raise ValueError("⚠️ BOT_TOKEN не найден! Убедитесь, что он указан в .env файле или переменных окружения.")
 
 DATA_DIR, CACHE_DIR, USERS_FILE = "data", "cache", os.path.join("data", "users.json")
-CACHE_LIFETIME, CACHE_VERSION = 86400, 37
+CACHE_LIFETIME, CACHE_VERSION = 86400, 38
 MSG_STORE_LIMIT = 172800 # 48 часов
 ADMIN_IDS = [474095004]
 
