@@ -496,6 +496,8 @@ async def clear_chat_history(chat_id: int, exclude_ids: list = None):
                 try: await bot.delete_message(chat_id, mid)
                 except: continue
     await dao.delete(f"msg_history:{chat_id}")
+    for ex_id in exclude_ids:
+        await dao.sadd(f"msg_history:{chat_id}", ex_id)
 
 @dp.message(F.text == "🧹 Очистить")
 async def clear(m: Message, state: FSMContext):      
