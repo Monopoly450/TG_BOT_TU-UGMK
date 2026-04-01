@@ -16,7 +16,7 @@ SCHEDULE_URL = "https://up.corp.tu-ugmk.com/student/schedule"
 LOGIN = os.getenv("LOGIN", "uvybhjhhv@gmail.com")
 PASSWORD = os.getenv("PASSWORD", "qazwsxedcip60000OP")
 
-CACHE_LIFETIME, CACHE_VERSION = 86400, 35
+CACHE_LIFETIME, CACHE_VERSION = 86400, 36
 
 # ════════════ БАЗЫ ДАННЫХ ID ═════════════════════
 GROUPS_DB = {
