@@ -127,6 +127,14 @@ GROUPS_DB = {
     "Эн-24103": "171f74fb-3d19-11ef-b448-00155d7f1420%3A19692d41-3ead-11ef-b448-00155d7f1420",
     "ГД-24104": "14064fbf-4335-11ef-b448-00155d7f1420%3A148d5959-4376-11ef-b448-00155d7f1420",
     "Гэм-24106": "d53322fa-4338-11ef-b448-00155d7f1420%3A629425ac-4375-11ef-b448-00155d7f1420",
+    "Эк-25109": "c52cf4a3-1542-11f0-b44a-00155d7f1420%3A06321270-5d88-11f0-b44a-00155d7f1420",
+    "А-25101": "64345217-d3ec-11ef-b449-00155d7f1420%3A87999d48-5d7f-11f0-b44a-00155d7f1420",
+    "Ит-25107": "4e6528d3-d3ef-11ef-b449-00155d7f1420%3A9a9bd9dc-5d84-11f0-b44a-00155d7f1420",
+    "М-25102": "efdd4827-d3fb-11ef-b449-00155d7f1420%3Aa7f635af-5d85-11f0-b44a-00155d7f1420",
+    "Т-25105": "8dd0b75a-d400-11ef-b449-00155d7f1420%3A690b7f2d-5d87-11f0-b44a-00155d7f1420",
+    "Эн-25103": "3d685fd3-d402-11ef-b449-00155d7f1420%3A5dfec504-5d88-11f0-b44a-00155d7f1420",
+    "Гд-25104": "8e4c58f1-d40a-11ef-b449-00155d7f1420%3A11b10f9e-5d82-11f0-b44a-00155d7f1420",
+    "Гэм-25106": "ef68433a-d40c-11ef-b449-00155d7f1420%3A14e87d8c-5d84-11f0-b44a-00155d7f1420",
 }
 
 TEACHERS_DB = {
@@ -189,7 +197,8 @@ def get_main_menu(val=None):
         ]
     else:
         kb = [
-            [KeyboardButton(text="👥 Группы"), KeyboardButton(text="👩‍🏫 Преподаватели"), KeyboardButton(text="🏫 Аудитории")],
+            [KeyboardButton(text="🎓 Курс"), KeyboardButton(text="👥 Группы")],
+            [KeyboardButton(text="👩‍🏫 Преподаватели"), KeyboardButton(text="🏫 Аудитории")],
             [KeyboardButton(text="🔔 Моя подписка")]
         ]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
@@ -310,6 +319,38 @@ async def show_filter_menu(m: Message):
     kb = InlineKeyboardMarkup(inline_keyboard=[[btn] for btn in btns] + [[InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")]])
     await m.answer("👇 Выберите:", reply_markup=kb)  
 
+@dp.message(F.text == "🎓 Курс")
+async def show_courses_menu(m: Message):
+    btns = [
+        [InlineKeyboardButton(text="1️⃣ Первый курс", callback_data="course:25")],
+        [InlineKeyboardButton(text="2️⃣ Второй курс", callback_data="course:24")],
+        [InlineKeyboardButton(text="3️⃣ Третий курс", callback_data="course:23")],
+        [InlineKeyboardButton(text="4️⃣ Четвертый курс", callback_data="course:22")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")]
+    ]
+    await m.answer("🎓 Выберите курс:", reply_markup=InlineKeyboardMarkup(inline_keyboard=btns))
+
+@dp.callback_query(F.data.startswith("course:"))
+async def cb_course(c: CallbackQuery):
+    await c.message.delete()
+    prefix = c.data.split(":")[1]
+    
+    filtered_groups = []
+    for i, name in enumerate(GROUPS_DB.keys()):
+        # Ищем числа в названии группы (например, Ит-24107 -> 24)
+        match = re.search(r'\d+', name)
+        if match and match.group(0).startswith(prefix):
+            filtered_groups.append((i, name))
+            
+    if not filtered_groups:
+        await c.message.answer("😔 Группы для этого курса не найдены.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")]]))
+    else:
+        btns = [InlineKeyboardButton(text=n, callback_data=f"fsel:group:{i}") for i, n in filtered_groups]
+        kb = InlineKeyboardMarkup(inline_keyboard=[[btn] for btn in btns] + [[InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")]])
+        await c.message.answer("👇 Выберите группу:", reply_markup=kb)
+    try: await c.answer()
+    except: pass
+
 @dp.callback_query(F.data.startswith("fsel:"))       
 async def cb_sel(c: CallbackQuery, state: FSMContext):
     await c.message.delete()
@@ -365,9 +406,25 @@ async def handle_weeks(m: Message, state: FSMContext):
     async with loading_animation(m.chat.id):
         s = await sm.fetch_schedule(wo, data.get("target_type"), data.get("target_value"))
     text = fmt_week(s, data.get("target_type")) # type: ignore      
-    if len(text) > 4096:
-        for i in range(0, len(text), 4096): await m.answer(text[i:i+4096], parse_mode="HTML") # type: ignore
-    else: await m.answer(text, parse_mode="HTML")    
+    
+    messages = []
+    current_msg = ""
+    for chunk in text.split("═" * 24 + "\n\n"):
+        if not chunk.strip(): continue
+        if len(current_msg) + len(chunk) + 26 > 4096:
+            if current_msg:
+                messages.append(current_msg)
+            current_msg = chunk
+        else:
+            if current_msg:
+                current_msg += "═" * 24 + "\n\n" + chunk
+            else:
+                current_msg = chunk
+    if current_msg:
+        messages.append(current_msg)
+        
+    for msg in messages:
+        await m.answer(msg, parse_mode="HTML")
 
 async def clear_chat_history(chat_id: int):
     ids = list(set(await dao.smembers(f"msg_history:{chat_id}")))
@@ -383,6 +440,7 @@ async def clear_chat_history(chat_id: int):
 @dp.message(F.text == "🧹 Очистить")
 async def clear(m: Message, state: FSMContext):      
     await clear_chat_history(m.chat.id)
+    await state.clear()
     await m.answer("🧹 Чат очищен.", reply_markup=get_main_menu())
 
 @dp.callback_query(F.data == "cancel_menu")
@@ -398,8 +456,10 @@ async def reset(m: Message, state: FSMContext):
     await state.clear(), await m.answer("🔙 Возврат в главное меню.", reply_markup=get_main_menu())
 
 @dp.message(ScheduleStates.viewing)
-async def require_filter_message(m: Message):        
-    await m.answer("⚠️ Пожалуйста, сначала выберите один из фильтров.", reply_markup=get_main_menu())     
+async def require_filter_message(m: Message, state: FSMContext):        
+    data = await state.get_data()
+    val = data.get("target_value")
+    await m.answer("⚠️ Пожалуйста, используйте кнопки меню для навигации.", reply_markup=get_main_menu(val))     
 
 async def daily_scheduler():
     tz = timezone(timedelta(hours=5))
