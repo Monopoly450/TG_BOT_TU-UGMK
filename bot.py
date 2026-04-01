@@ -69,7 +69,7 @@ async def broadcast(text: str):
     users = await dao.smembers("bot_users")
     for user_id in users:
         try:
-            await bot.send_message(user_id, text, parse_mode="HTML")
+            await bot.send_message(int(user_id), text, parse_mode="HTML")
             await asyncio.sleep(0.05) # Anti-flood   
         except Exception as e:
             logger.error(f"Failed to send broadcast to {user_id}: {e}")
