@@ -8,6 +8,7 @@ import collections
 from contextlib import asynccontextmanager
 from datetime import datetime, date, timedelta, timezone
 from typing import Dict, Any, AsyncGenerator
+import psutil
 
 from dotenv import load_dotenv # type: ignore
 load_dotenv()
@@ -253,6 +254,47 @@ async def admin_start(m: Message):
     msg = "✅ <b>Технические работы завершены.</b>\nБот снова онлайн и готов к работе!"
     await m.answer(f"🟢 {msg}")
     asyncio.create_task(broadcast(msg))
+
+@dp.message(Command("admin"), F.from_user.id.in_(ADMIN_IDS))
+async def admin_panel(m: Message):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📊 Статус системы", callback_data="admin:status")],
+        [InlineKeyboardButton(text="🔄 Обновить бота (git pull)", callback_data="admin:update")]
+    ])
+    await m.answer("🔧 <b>Панель администратора</b>", reply_markup=kb, parse_mode="HTML")
+
+@dp.callback_query(F.data.startswith("admin:"), F.from_user.id.in_(ADMIN_IDS))
+async def admin_actions(c: CallbackQuery):
+    action = c.data.split(":")[1]
+    if action == "status":
+        cpu = psutil.cpu_percent()
+        ram = psutil.virtual_memory().percent
+        try:
+            redis_ping = await dao.ping()
+            redis_status = "✅ Работает" if redis_ping else "❌ Сбой"
+        except:
+            redis_status = "❌ Сбой"
+            
+        workers = await dao.llen('schedule_jobs')
+        
+        text = (f"📊 <b>Статус контейнера:</b>\n\n"
+                f"<b>CPU:</b> {cpu}%\n"
+                f"<b>RAM:</b> {ram}%\n"
+                f"<b>Redis БД:</b> {redis_status}\n"
+                f"<b>Кэш версия:</b> {CACHE_VERSION}\n"
+                f"<b>Очередь воркеров:</b> {workers} задач")
+        await c.message.edit_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
+    elif action == "update":
+        await dao.set("bot_update_trigger", "1")
+        await c.message.edit_text("🔄 Отправлен сигнал хост-серверу на вызов скрипта update.sh. Ожидайте скорой перезагрузки...", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
+    elif action == "back":
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📊 Статус системы", callback_data="admin:status")],
+            [InlineKeyboardButton(text="🔄 Обновить бота (git pull)", callback_data="admin:update")]
+        ])
+        await c.message.edit_text("🔧 <b>Панель администратора</b>", reply_markup=kb, parse_mode="HTML")
+    try: await c.answer()
+    except: pass
 
 # --- HANDLERS ---
 @dp.message(CommandStart())
