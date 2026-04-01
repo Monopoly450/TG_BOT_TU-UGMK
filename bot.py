@@ -131,11 +131,11 @@ class AntiFloodMiddleware(BaseMiddleware):
         return await handler(event, data)
 
 dp = Dispatcher(storage=MemoryStorage())
-dp.message.middleware(AntiFloodMiddleware())
-dp.callback_query.middleware(AntiFloodMiddleware())
+dp.message.middleware(IncomingMessageTracker())      
 dp.message.middleware(MaintenanceMiddleware())       
 dp.callback_query.middleware(MaintenanceMiddleware())
-dp.message.middleware(IncomingMessageTracker())      
+dp.message.middleware(AntiFloodMiddleware())
+dp.callback_query.middleware(AntiFloodMiddleware())      
 
 # --- DATABASES ---
 GROUPS_DB = {
