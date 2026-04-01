@@ -195,12 +195,13 @@ def get_main_menu(val=None):
         kb = [
             [KeyboardButton(text="📅 Сегодня"), KeyboardButton(text="📆 Завтра")],
             [KeyboardButton(text="🗓 Эта неделя"), KeyboardButton(text="➡️ След. неделя")],
-            [KeyboardButton(text="🔙 Назад"), KeyboardButton(text="🧹 Очистить")]
+            [KeyboardButton(text="🔙 Назад")]
         ]
     else:
         kb = [
             [KeyboardButton(text="🎓 Курс"), KeyboardButton(text="🔔 Моя подписка")],
-            [KeyboardButton(text="👩‍🏫 Преподаватели"), KeyboardButton(text="🏫 Аудитории")]
+            [KeyboardButton(text="👩‍🏫 Преподаватели"), KeyboardButton(text="🏫 Аудитории")],
+            [KeyboardButton(text="🧹 Очистить")]
         ]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
