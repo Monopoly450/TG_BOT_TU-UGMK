@@ -286,8 +286,15 @@ async def admin_actions(c: CallbackQuery):
                 f"<b>Очередь воркеров:</b> {workers} задач")
         await c.message.edit_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
     elif action == "update":
-        await dao.set("bot_update_trigger", "1")
-        await c.message.edit_text("🔄 Отправлен сигнал хост-серверу на вызов скрипта update.sh. Ожидайте скорой перезагрузки...", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
+        await c.message.edit_text("🔄 Начинаю оповещение пользователей и подготовку к обновлению...", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
+        
+        async def run_update_sequence():
+            await dao.set("update_in_progress", "1")
+            await dao.set("update_admin_id", str(c.from_user.id))
+            await broadcast("⚙️ <b>Внимание!</b>\nСервер обновляется. Бот будет недоступен несколько минут.")
+            await dao.set("bot_update_trigger", "1")
+            
+        asyncio.create_task(run_update_sequence())
     elif action == "back":
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📊 Статус системы", callback_data="admin:status")],
@@ -545,9 +552,24 @@ async def daily_scheduler():
         except Exception as e:
             logger.error(f"Scheduler failed: {e}")
 
+async def notify_on_startup():
+    try:
+        if await dao.get("update_in_progress") == "1":
+            await dao.delete("update_in_progress")
+            admin_id = await dao.get("update_admin_id")
+            if admin_id:
+                try: await bot.send_message(int(admin_id), "🛠 <b>ОТЧЕТ:</b> Сервер успешно обновлен и запущен!", parse_mode="HTML")
+                except: pass
+                await dao.delete("update_admin_id")
+            
+            await broadcast("✅ <b>Сервер обновлен и снова работает!</b>\nВсе системы в норме.")
+    except Exception as e:
+        logger.error(f"Notify on startup failed: {e}")
+
 async def main():
     if PROXY_URL: logger.info(f"🌐 Используется прокси: {PROXY_URL}")
     asyncio.create_task(daily_scheduler())
+    asyncio.create_task(notify_on_startup())
     await bot.delete_webhook(drop_pending_updates=True), await dp.start_polling(bot)
 
 if __name__ == "__main__":
