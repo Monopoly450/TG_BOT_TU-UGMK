@@ -510,11 +510,11 @@ async def reset(m: Message, state: FSMContext):
     msg = await m.answer("🔙 Главное меню", reply_markup=get_main_menu())
     await clear_chat_history(m.chat.id, exclude_ids=[msg.message_id])
 
-@dp.message(ScheduleStates.viewing)
-async def require_filter_message(m: Message, state: FSMContext):        
+@dp.message(F.text)
+async def fallback_message(m: Message, state: FSMContext):        
     data = await state.get_data()
     val = data.get("target_value")
-    await m.answer("⚠️ Пожалуйста, используйте кнопки меню для навигации.", reply_markup=get_main_menu(val))     
+    await m.answer("👇 Пожалуйста, воспользуйтесь кнопками меню внизу.", reply_markup=get_main_menu(val))     
 
 async def daily_scheduler():
     tz = timezone(timedelta(hours=5))
