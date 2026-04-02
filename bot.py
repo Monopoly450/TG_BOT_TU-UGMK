@@ -123,7 +123,7 @@ class AntiFloodMiddleware(BaseMiddleware):
     async def __call__(self, handler, event, data):
         user_id = getattr(event.from_user, "id", 0)
         if user_id and user_id not in ADMIN_IDS:
-            if not await dao.client.set(f"flood_lock:{user_id}", "1", ex=1, nx=True):
+            if not await dao.set(f"flood_lock:{user_id}", "1", ex=1, nx=True):
                 if isinstance(event, CallbackQuery):
                     try: await event.answer("⚠️ Не так быстро!")
                     except: pass
