@@ -74,13 +74,99 @@ STORAGE_PASSWORD=your_secure_password
 ### 3. Настройка прокси (Опционально)
 Если вам нужно изменить внешний прокси-сервер, отредактируйте `docker compose.yml` в секции `proxy` (команда запуска `gost`).
 
-### 4. Запуск проекта
+### 4. Автоматическое обновление и перезапуск (Рекомендуется)
+
+Теперь бот поддерживает полностью автоматическое обновление прямо из Telegram. Один раз настройте службу на сервере, и вам больше не нужно будет заходить в консоль.
+
+#### 1. Настройка прав доступа
+Сделайте скрипты исполняемыми:
+```bash
+chmod +x update.sh auto_updater.sh
+```
+
+#### 2. Настройка Git (Чтобы не запрашивал пароль)
+Если ваш репозиторий приватный или вы не хотите вводить данные при каждом обновлении, выполните:
+```bash
+git config --global credential.helper store
+git pull origin main
+```
+*После этого введите логин и пароль (или Token) один раз. Система их запомнит навсегда.*
+
+#### 3. Настройка системной службы (Systemd)
+Это позволит обновлению работать в фоне и запускаться само после перезагрузки сервера:
+
+```bash
+# 1. Скопируйте файл службы в систему
+sudo cp /home/user/TG_BOT_TU-UGMK/tg_bot_updater.service /etc/systemd/system/
+
+# 2. Перезагрузите конфигурацию системных служб
+sudo systemctl daemon-reload
+
+# 3. Включите автозапуск при старте сервера
+sudo systemctl enable tg_bot_updater.service
+
+# 4. Запустите службу прямо сейчас
+sudo systemctl start tg_bot_updater.service
+```
+
+#### 4. Как пользоваться
+1. Напишите боту `/admin` (вы должны быть администратором).
+2. Нажмите кнопку **«🚀 Обновить бота»**.
+3. Бот оповестит пользователей о техработах, сам скачает новый код, пересоберет контейнеры и вернется в строй через 1-2 минуты.
+
+#### 5. Мониторинг обновлений
+Если вы хотите увидеть, что делает «апдейтер» прямо сейчас (логи скачивания, ошибки и т.д.):
+```bash
+sudo journalctl -u tg_bot_updater.service -f
+```
+*(Для выхода нажмите `Ctrl + C`)*
+
+#### 6. Устранение неполадок (Если обновление сломалось)
+Если сервер перестал обновляться или кнопка в Telegram не работает, возможно старые скрипты заблокировали процесс.
+Зайдите на сервер Ubuntu и выполните эту команду целиком:
+
+```bash
+# 1. Записываем правильный update.sh
+cat << 'EOF' > /home/user/TG_BOT_TU-UGMK/update.sh
+#!/bin/bash
+cd /home/user/TG_BOT_TU-UGMK
+echo "🔄 Начинаю ПРИНУДИТЕЛЬНОЕ обновление..."
+git fetch --all
+git reset --hard origin/main
+docker compose up -d --build --remove-orphans
+echo "✅ Обновление успешно завершено!"
+EOF
+
+# 2. Записываем правильный auto_updater.sh
+cat << 'EOF' > /home/user/TG_BOT_TU-UGMK/auto_updater.sh
+#!/bin/bash
+cd /home/user/TG_BOT_TU-UGMK
+chmod +x update.sh
+while true; do
+    TRIGGER=$(docker exec redis_db redis-cli get bot_update_trigger 2>/dev/null)
+    if [ $? -eq 0 ]; then
+        TRIGGER=$(echo "$TRIGGER" | tr -d '\r\n' | tr -d '"')
+        if [ "$TRIGGER" = "1" ]; then
+            docker exec redis_db redis-cli del bot_update_trigger > /dev/null 2>&1
+            bash ./update.sh
+        fi
+    fi
+    sleep 5
+done
+EOF
+
+# 3. Выдаем права и перезапускаем службу
+chmod +x /home/user/TG_BOT_TU-UGMK/*.sh
+sudo systemctl restart tg_bot_updater.service
+```
+
+### 5. Запуск проекта
 Соберите и запустите все сервисы одной командой:
 ```bash
 docker compose up -d --build
 ```
 
-### 5. Мониторинг и управление
+### 6. Мониторинг и управление
 
 **Проверка статуса запущенных контейнеров:**
 ```bash
@@ -139,91 +225,7 @@ docker compose down
 docker compose stop bot
 ```
 
-## 🔄 Автоматическое обновление (Рекомендуется)
 
-Теперь бот поддерживает полностью автоматическое обновление прямо из Telegram. Один раз настройте службу на сервере, и вам больше не нужно будет заходить в консоль.
-
-### 1. Настройка прав доступа
-Сделайте скрипты исполняемыми:
-```bash
-chmod +x update.sh auto_updater.sh
-```
-
-### 2. Настройка Git (Чтобы не запрашивал пароль)
-Если ваш репозиторий приватный или вы не хотите вводить данные при каждом обновлении, выполните:
-```bash
-git config --global credential.helper store
-git pull origin main
-```
-*После этого введите логин и пароль (или Token) один раз. Система их запомнит навсегда.*
-
-### 3. Настройка системной службы (Systemd)
-Это позволит обновлению работать в фоне и запускаться само после перезагрузки сервера:
-
-```bash
-# 1. Скопируйте файл службы в систему
-sudo cp /home/user/TG_BOT_TU-UGMK/tg_bot_updater.service /etc/systemd/system/
-
-# 2. Перезагрузите конфигурацию системных служб
-sudo systemctl daemon-reload
-
-# 3. Включите автозапуск при старте сервера
-sudo systemctl enable tg_bot_updater.service
-
-# 4. Запустите службу прямо сейчас
-sudo systemctl start tg_bot_updater.service
-```
-
-### 4. Как пользоваться
-1. Напишите боту `/admin` (вы должны быть администратором).
-2. Нажмите кнопку **«🚀 Обновить бота»**.
-3. Бот оповестит пользователей о техработах, сам скачает новый код, пересоберет контейнеры и вернется в строй через 1-2 минуты.
-
-### 5. Мониторинг обновлений
-Если вы хотите увидеть, что делает «апдейтер» прямо сейчас (логи скачивания, ошибки и т.д.):
-```bash
-sudo journalctl -u tg_bot_updater.service -f
-```
-*(Для выхода нажмите `Ctrl + C`)*
-
-### 6. Устранение неполадок (Если обновление сломалось)
-Если сервер перестал обновляться или кнопка в Telegram не работает, возможно старые скрипты заблокировали процесс.
-Зайдите на сервер Ubuntu и выполните эту команду целиком:
-
-```bash
-# 1. Записываем правильный update.sh
-cat << 'EOF' > /home/user/TG_BOT_TU-UGMK/update.sh
-#!/bin/bash
-cd /home/user/TG_BOT_TU-UGMK
-echo "🔄 Начинаю ПРИНУДИТЕЛЬНОЕ обновление..."
-git fetch --all
-git reset --hard origin/main
-docker compose up -d --build --remove-orphans
-echo "✅ Обновление успешно завершено!"
-EOF
-
-# 2. Записываем правильный auto_updater.sh
-cat << 'EOF' > /home/user/TG_BOT_TU-UGMK/auto_updater.sh
-#!/bin/bash
-cd /home/user/TG_BOT_TU-UGMK
-chmod +x update.sh
-while true; do
-    TRIGGER=$(docker exec redis_db redis-cli get bot_update_trigger 2>/dev/null)
-    if [ $? -eq 0 ]; then
-        TRIGGER=$(echo "$TRIGGER" | tr -d '\r\n' | tr -d '"')
-        if [ "$TRIGGER" = "1" ]; then
-            docker exec redis_db redis-cli del bot_update_trigger > /dev/null 2>&1
-            bash ./update.sh
-        fi
-    fi
-    sleep 5
-done
-EOF
-
-# 3. Выдаем права и перезапускаем службу
-chmod +x /home/user/TG_BOT_TU-UGMK/*.sh
-sudo systemctl restart tg_bot_updater.service
-```
 
 ## 🔒 Безопасное хранилище профилей
 Бот автоматически собирает открытые данные профилей пользователей (имя, юзернейм, наличие Telegram Premium) при команде `/start`. 
