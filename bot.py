@@ -668,6 +668,8 @@ async def notify_on_startup():
             await dao.delete("update_msgs")
             
             await broadcast("✅ <b>Сервер обновлен и снова работает!</b>\nВсе системы в норме.")
+        else:
+            await broadcast("🚀 <b>Бот запущен и снова в строю!</b>\nВсе системы работают в штатном режиме.")
     except Exception as e:
         logger.error(f"Notify on startup failed: {e}")
 
