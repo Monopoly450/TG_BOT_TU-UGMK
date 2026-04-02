@@ -342,6 +342,17 @@ async def admin_actions(c: CallbackQuery):
                     await dao.rpush("schedule_jobs", json.dumps(job))
                     count += 1
             await c.message.edit_text(f"✅ <b>Отправлено в очередь: {count}</b>\nВоркеры в фоновом режиме загрузят все расписания в кэш! (Около 1 минуты)", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]), parse_mode="HTML")
+            
+            async def notify_when_done(admin_id: int):
+                await asyncio.sleep(3) # Ждем, чтобы воркеры точно подхватили список
+                while True:
+                    left = await dao.llen("schedule_jobs")
+                    if left == 0: break
+                    await asyncio.sleep(2)
+                try: await bot.send_message(admin_id, "✅ <b>Фуух, готово!</b>\nАбсолютно все расписания кэшированы и готовы к молниеносной выдаче. ⚡", parse_mode="HTML")
+                except: pass
+            
+            asyncio.create_task(notify_when_done(c.from_user.id))
         except Exception as e:
             await c.message.edit_text(f"❌ Ошибка прогрева: {e}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
     elif action == "back":

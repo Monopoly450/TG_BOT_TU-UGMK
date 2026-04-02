@@ -143,7 +143,7 @@ class ScheduleParser:
             
             # Ждем появления контейнеров с расписанием или сообщения об ошибке
             try:
-                await self.page.wait_for_selector(".day-container, .alert-danger, .empty-result, table.table", timeout=15000)
+                await self.page.wait_for_selector(".day-container, .alert-danger, .empty-result, table.table, h3", timeout=3000)
                 # Даем немного времени на отрисовку JS если нужно
                 await asyncio.sleep(0.5)
             except:
