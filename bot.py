@@ -335,10 +335,9 @@ async def admin_actions(c: CallbackQuery):
             for t_type, db in data_dbs:
                 for name, tid in db.items():
                     job = {
-                        "type": "schedule",
+                        "week_offset": 0,
                         "target_type": t_type,
-                        "target_id": tid,
-                        "timestamp": now
+                        "target_value": name
                     }
                     await dao.rpush("schedule_jobs", json.dumps(job))
                     count += 1
