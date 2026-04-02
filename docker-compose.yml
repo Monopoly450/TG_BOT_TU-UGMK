@@ -36,7 +36,7 @@ services:
       - redis
       - proxy
     deploy:
-      replicas: 3
+      replicas: 5
     command: python scraper.py
 
   # 🌐 Прокси-сервер - туннель через внешний SOCKS5

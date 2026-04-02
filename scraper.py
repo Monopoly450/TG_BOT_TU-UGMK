@@ -76,6 +76,11 @@ class ScheduleParser:
         l_kwargs = {"headless": True}
         if PROXY_URL: l_kwargs["proxy"] = {"server": PROXY_URL}
         self.browser = await self.playwright.chromium.launch(**l_kwargs)
+        self.ctx = await self.browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            viewport={"width": 1920, "height": 1080}
+        )
+        self.page = await self.ctx.new_page()
         self._initialized = True
     async def _login(self, page):
         try:
@@ -126,31 +131,26 @@ class ScheduleParser:
         return url
 
     async def fetch(self, wo=0, t_type=None, t_val=None):
-        ctx = await self.browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            viewport={"width": 1920, "height": 1080}
-        )
-        page = await ctx.new_page()
         try:
             url = self._build_url(wo, t_type, t_val)
             logger.info(f"[{t_type}] Fetching: {url}")
-            await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            if "login" in page.url.lower() or "auth" in page.url.lower():
-                if not await self._login(page): return {"_error": "Login failed"}
+            await self.page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            if "login" in self.page.url.lower() or "auth" in self.page.url.lower():
+                if not await self._login(self.page): return {"_error": "Login failed"}
                 # Wait for any post-login redirects
                 await asyncio.sleep(3)
-                if page.url != url: await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                if self.page.url != url: await self.page.goto(url, wait_until="domcontentloaded", timeout=60000)
             
             # Ждем появления контейнеров с расписанием или сообщения об ошибке
             try:
-                await page.wait_for_selector(".day-container, .alert-danger, .empty-result, table.table", timeout=15000)
+                await self.page.wait_for_selector(".day-container, .alert-danger, .empty-result, table.table", timeout=15000)
                 # Даем немного времени на отрисовку JS если нужно
                 await asyncio.sleep(0.5)
             except:
                 logger.warning("Timeout waiting for specific selectors, proceeding to parse anyway.")
             
-            logger.info(f"Page title: {await page.title()}")
-            html = await page.content()
+            logger.info(f"Page title: {await self.page.title()}")
+            html = await self.page.content()
             with open("debug_last_fetch.html", "w", encoding="utf-8") as f: f.write(html)
             res = self._parse(html, t_type, t_val)
             
@@ -166,9 +166,6 @@ class ScheduleParser:
         except Exception as e: 
             logger.error(f"Fetch error: {e}")
             return {"_error": str(e)}
-        finally: 
-            await page.close()
-            await ctx.close()
 
     def _parse(self, html, t_type=None, t_val=None):
         soup, schedule, dates = BeautifulSoup(html, "lxml"), {}, {}
