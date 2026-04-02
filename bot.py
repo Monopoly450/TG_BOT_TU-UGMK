@@ -288,7 +288,8 @@ async def admin_start(m: Message):
 async def admin_panel(m: Message):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📊 Статус системы", callback_data="admin:status")],
-        [InlineKeyboardButton(text="🔄 Обновить бота (git pull)", callback_data="admin:update")]
+        [InlineKeyboardButton(text="🔄 Обновить бота (git pull)", callback_data="admin:update")],
+        [InlineKeyboardButton(text="🔥 Прогреть весь кэш расписаний", callback_data="admin:preload_cache")]
     ])
     await m.answer("🔧 <b>Панель администратора</b>", reply_markup=kb, parse_mode="HTML")
 
@@ -324,10 +325,31 @@ async def admin_actions(c: CallbackQuery):
             await dao.set("bot_update_trigger", "1")
             
         asyncio.create_task(run_update_sequence())
+    elif action == "preload_cache":
+        await c.message.edit_text("⏳ <b>Добавляю все расписания в очередь парсеров...</b>", parse_mode="HTML")
+        try:
+            import time
+            count = 0
+            now = time.time()
+            data_dbs = [("group", GROUPS_DB), ("teacher", TEACHERS_DB), ("classroom", CLASSROOMS_DB)]
+            for t_type, db in data_dbs:
+                for name, tid in db.items():
+                    job = {
+                        "type": "schedule",
+                        "target_type": t_type,
+                        "target_id": tid,
+                        "timestamp": now
+                    }
+                    await dao.rpush("schedule_jobs", json.dumps(job))
+                    count += 1
+            await c.message.edit_text(f"✅ <b>Отправлено в очередь: {count}</b>\nВоркеры в фоновом режиме загрузят все расписания в кэш! (Около 1 минуты)", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]), parse_mode="HTML")
+        except Exception as e:
+            await c.message.edit_text(f"❌ Ошибка прогрева: {e}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
     elif action == "back":
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📊 Статус системы", callback_data="admin:status")],
-            [InlineKeyboardButton(text="🔄 Обновить бота (git pull)", callback_data="admin:update")]
+            [InlineKeyboardButton(text="🔄 Обновить бота (git pull)", callback_data="admin:update")],
+            [InlineKeyboardButton(text="🔥 Прогреть весь кэш расписаний", callback_data="admin:preload_cache")]
         ])
         await c.message.edit_text("🔧 <b>Панель администратора</b>", reply_markup=kb, parse_mode="HTML")
     try: await c.answer()
