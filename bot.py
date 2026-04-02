@@ -671,10 +671,17 @@ async def notify_on_startup():
     except Exception as e:
         logger.error(f"Notify on startup failed: {e}")
 
+async def notify_on_shutdown():
+    try:
+        await broadcast("📴 <b>Бот временно отключается...</b>\nВ данный момент происходит перезагрузка сервера или технические работы. Пожалуйста, подождите!")
+    except Exception as e:
+        logger.error(f"Notify on shutdown failed: {e}")
+
 async def main():
     if PROXY_URL: logger.info(f"🌐 Используется прокси: {PROXY_URL}")
+    dp.startup.register(notify_on_startup)
+    dp.shutdown.register(notify_on_shutdown)
     asyncio.create_task(daily_scheduler())
-    asyncio.create_task(notify_on_startup())
     await bot.delete_webhook(drop_pending_updates=True), await dp.start_polling(bot)
 
 if __name__ == "__main__":
