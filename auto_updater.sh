@@ -9,19 +9,25 @@ cd "$(dirname "$0")"
 chmod +x update.sh
 
 while true; do
-    # Пингуем редис
-    TRIGGER=$(docker exec redis_db redis-cli get bot_update_trigger)
+    # Пытаемся получить триггер, игнорируя ошибки если контейнер в рестарте
+    TRIGGER=$(docker exec redis_db redis-cli get bot_update_trigger 2>/dev/null)
     
-    # Очищаем ответ от переносов строк
-    TRIGGER=$(echo "$TRIGGER" | tr -d '\r\n')
+    # Если команда завершилась с ошибкой (например, контейнер выключен), просто ждем
+    if [ $? -ne 0 ]; then
+        sleep 5
+        continue
+    fi
     
-    if [ "$TRIGGER" = "\"1\"" ] || [ "$TRIGGER" = "1" ]; then
+    # Очищаем ответ
+    TRIGGER=$(echo "$TRIGGER" | tr -d '\r\n' | tr -d '"')
+    
+    if [ "$TRIGGER" = "1" ]; then
         echo "========================================="
         echo "🔄 [$(date)] ПРИНЯТ ЗАПРОС НА ОБНОВЛЕНИЕ ИЗ TG!"
         echo "========================================="
         
-        # Сбрасываем триггер
-        docker exec redis_db redis-cli del bot_update_trigger > /dev/null
+        # Сбрасываем триггер ПЕРЕД обновлением, чтобы не уйти в цикл
+        docker exec redis_db redis-cli del bot_update_trigger > /dev/null 2>&1
         
         # Запускаем штатный скрипт
         ./update.sh

@@ -1,0 +1,15 @@
+[Unit]
+Description=Telegram Bot Auto Updater Service
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/user/TG_BOT_TU-UGMK
+ExecStart=/bin/bash /home/user/TG_BOT_TU-UGMK/auto_updater.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
