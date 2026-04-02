@@ -423,8 +423,8 @@ async def cb_sub(c: CallbackQuery):
     except: pass
 
 @dp.message(F.text.in_({"👩‍🏫 Преподаватели", "🏫 Аудитории"}))
-async def show_filter_menu(m: Message):
-    t_type = "teacher" if m.text == "👩‍🏫 Преподаватели" else "classroom"
+async def show_filter_menu(m: Message, explicit_type: str = None):
+    t_type = explicit_type if explicit_type else ("teacher" if m.text == "👩‍🏫 Преподаватели" else "classroom")
     db = {"teacher": TEACHERS_DB, "classroom": CLASSROOMS_DB}[t_type]
     btns = [InlineKeyboardButton(text=n, callback_data=f"fsel:{t_type}:{i}") for i, n in enumerate(db)]   
     kb = InlineKeyboardMarkup(inline_keyboard=[[btn] for btn in btns] + [[InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")]])
@@ -596,11 +596,9 @@ async def reset(m: Message, state: FSMContext):
     if tt == "group":
         await show_courses_menu(m)
     elif tt == "teacher":
-        m.text = "👩‍🏫 Преподаватели"
-        await show_filter_menu(m)
+        await show_filter_menu(m, explicit_type="teacher")
     elif tt == "classroom":
-        m.text = "🏫 Аудитории"
-        await show_filter_menu(m)
+        await show_filter_menu(m, explicit_type="classroom")
     else:
         await msg.edit_text("🔙 Главное меню", reply_markup=get_main_menu())
 
