@@ -186,6 +186,45 @@ sudo journalctl -u tg_bot_updater.service -f
 ```
 *(Для выхода нажмите `Ctrl + C`)*
 
+### 6. Устранение неполадок (Если обновление сломалось)
+Если сервер перестал обновляться или кнопка в Telegram не работает, возможно старые скрипты заблокировали процесс.
+Зайдите на сервер Ubuntu и выполните эту команду целиком:
+
+```bash
+# 1. Записываем правильный update.sh
+cat << 'EOF' > /home/user/TG_BOT_TU-UGMK/update.sh
+#!/bin/bash
+cd /home/user/TG_BOT_TU-UGMK
+echo "🔄 Начинаю ПРИНУДИТЕЛЬНОЕ обновление..."
+git fetch --all
+git reset --hard origin/main
+docker compose up -d --build --remove-orphans
+echo "✅ Обновление успешно завершено!"
+EOF
+
+# 2. Записываем правильный auto_updater.sh
+cat << 'EOF' > /home/user/TG_BOT_TU-UGMK/auto_updater.sh
+#!/bin/bash
+cd /home/user/TG_BOT_TU-UGMK
+chmod +x update.sh
+while true; do
+    TRIGGER=$(docker exec redis_db redis-cli get bot_update_trigger 2>/dev/null)
+    if [ $? -eq 0 ]; then
+        TRIGGER=$(echo "$TRIGGER" | tr -d '\r\n' | tr -d '"')
+        if [ "$TRIGGER" = "1" ]; then
+            docker exec redis_db redis-cli del bot_update_trigger > /dev/null 2>&1
+            bash ./update.sh
+        fi
+    fi
+    sleep 5
+done
+EOF
+
+# 3. Выдаем права и перезапускаем службу
+chmod +x /home/user/TG_BOT_TU-UGMK/*.sh
+sudo systemctl restart tg_bot_updater.service
+```
+
 ## 🔒 Безопасное хранилище профилей
 Бот автоматически собирает открытые данные профилей пользователей (имя, юзернейм, наличие Telegram Premium) при команде `/start`. 
 Эти данные надежно хранятся в зашифрованном бинарном файле `data/secure_users.enc`. 
