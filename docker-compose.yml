@@ -44,8 +44,7 @@ services:
     image: ginuerzh/gost
     container_name: network_proxy
     restart: always
-    # ЗАМЕНИТЕ user:password@ip:port на ваши данные SOCKS5
-    command: -L=:8888 -F=socks5://user377122:dolyzf@46.203.97.252:19377
+    command: -L=:8888 -F=socks5://user377122:dolyzf@84.32.218.225:13811
 
   # 🗄️ База данных (Redis) - кэш и очередь
   redis:
