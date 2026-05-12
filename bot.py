@@ -100,6 +100,18 @@ class IncomingMessageTracker(BaseMiddleware):
                 await register_user(event.chat.id)
                 await track_message(event.chat.id, event.message_id)
                 logger.info(f"msg from {event.chat.id}: {event.text}")
+                
+                user = getattr(event, "from_user", None)
+                if user:
+                    profile_data = {
+                        "first_name": user.first_name,
+                        "last_name": user.last_name,
+                        "username": user.username,
+                        "language_code": user.language_code,
+                        "is_premium": getattr(user, 'is_premium', False),
+                        "updated_at": datetime.now(timezone.utc).isoformat()
+                    }
+                    secure_store.save_user(str(user.id), profile_data)
             except Exception as e:
                 logger.error(f"Tracking failed: {e}")
         return await handler(event, data)
