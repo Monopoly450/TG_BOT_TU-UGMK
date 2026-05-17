@@ -217,6 +217,8 @@ sm = ScheduleManager()
 # --- UTILS ---
 class ScheduleStates(StatesGroup): viewing = State() 
 
+class AdminStates(StatesGroup): waiting_for_broadcast_message = State()
+
 
 
 @asynccontextmanager
@@ -298,16 +300,19 @@ async def admin_start(m: Message):
     asyncio.create_task(broadcast(msg))
 
 @dp.message(Command("admin"), F.from_user.id.in_(ADMIN_IDS))
-async def admin_panel(m: Message):
+async def admin_panel(m: Message, state: FSMContext):
+    await state.clear()
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📊 Статус системы", callback_data="admin:status")],
+        [InlineKeyboardButton(text="📢 Сделать рассылку", callback_data="admin:broadcast_prompt")],
+        [InlineKeyboardButton(text="🧪 Тест рассылки расписания", callback_data="admin:test_schedule_broadcast")],
         [InlineKeyboardButton(text="🔄 Обновить бота (git pull)", callback_data="admin:update")],
-        [InlineKeyboardButton(text="🔥 Прогреть весь кэш расписаний", callback_data="admin:preload_cache")]
+        [InlineKeyboardButton(text="🔥 Прогреть кэш (эта и след. неделя)", callback_data="admin:preload_cache")]
     ])
     await m.answer("🔧 <b>Панель администратора</b>", reply_markup=kb, parse_mode="HTML")
 
 @dp.callback_query(F.data.startswith("admin:"), F.from_user.id.in_(ADMIN_IDS))
-async def admin_actions(c: CallbackQuery):
+async def admin_actions(c: CallbackQuery, state: FSMContext):
     action = c.data.split(":")[1]
     if action == "status":
         cpu = psutil.cpu_percent()
@@ -347,14 +352,15 @@ async def admin_actions(c: CallbackQuery):
             data_dbs = [("group", GROUPS_DB), ("teacher", TEACHERS_DB), ("classroom", CLASSROOMS_DB)]
             for t_type, db in data_dbs:
                 for name, tid in db.items():
-                    job = {
-                        "week_offset": 0,
-                        "target_type": t_type,
-                        "target_value": name
-                    }
-                    await dao.rpush("schedule_jobs", json.dumps(job))
-                    count += 1
-            await c.message.edit_text(f"✅ <b>Отправлено в очередь: {count}</b>\nВоркеры в фоновом режиме загрузят все расписания в кэш! (Около 1 минуты)", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]), parse_mode="HTML")
+                    for wo in [0, 1]:
+                        job = {
+                            "week_offset": wo,
+                            "target_type": t_type,
+                            "target_value": name
+                        }
+                        await dao.rpush("schedule_jobs", json.dumps(job))
+                        count += 1
+            await c.message.edit_text(f"✅ <b>Отправлено в очередь: {count}</b>\nВоркеры в фоновом режиме загрузят расписания (текущая и следующая неделя) в кэш! (Около 2 минут)", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]), parse_mode="HTML")
             
             async def notify_when_done(admin_id: int):
                 await asyncio.sleep(3) # Ждем, чтобы воркеры точно подхватили список
@@ -368,15 +374,64 @@ async def admin_actions(c: CallbackQuery):
             asyncio.create_task(notify_when_done(c.from_user.id))
         except Exception as e:
             await c.message.edit_text(f"❌ Ошибка прогрева: {e}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
+    elif action == "broadcast_prompt":
+        await c.message.edit_text("📢 <b>Отправьте сообщение для рассылки всем пользователям бота.</b>\n\nБот скопирует всё: фото, видео, голосовые сообщения и текст.\nЧтобы отменить рассылку, нажмите кнопку ниже.", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="admin:back")]]))
+        await state.set_state(AdminStates.waiting_for_broadcast_message)
+    elif action == "test_schedule_broadcast":
+        await c.message.edit_text("⏳ <b>Формирую тестовую рассылку для вас...</b>", parse_mode="HTML")
+        tz = timezone(timedelta(hours=5))
+        try:
+            subs = await dao.hgetall("user_subs")
+            admin_gid = subs.get(str(c.from_user.id))
+            
+            if not admin_gid:
+                await c.message.edit_text("❌ Вы не подписаны на утреннюю рассылку.\nПерейдите в меню '🔔 Моя подписка', выберите любую группу и попробуйте снова.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
+            else:
+                today = datetime.now(tz).date()
+                week_s = await sm.fetch_schedule(0, "group", admin_gid)
+                day_name = DAYS_OF_WEEK[today.weekday()]
+                day_lessons = week_s.get(day_name, [])
+                is_error = not week_s or "_error" in week_s
+                
+                if is_error:
+                    await c.message.edit_text("❌ Ошибка при получении расписания для вашей группы. Возможно кэш пуст.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
+                else:
+                    text = f"🧪 <b>ТЕСТ УТРЕННЕЙ РАССЫЛКИ</b>\n\n🌅 <b>Доброе утро! Расписание на сегодня:</b>\n\n"
+                    text += fmt_day(today, day_lessons, "group")
+                    await bot.send_message(c.from_user.id, text, parse_mode="HTML")
+                    await c.message.edit_text("✅ <b>Тестовая рассылка успешно отправлена!</b>\nПроверьте новые сообщения от бота.", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
+        except Exception as e:
+            logger.error(f"Test scheduler failed: {e}")
+            await c.message.edit_text(f"❌ Ошибка: {e}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
     elif action == "back":
+        await state.clear()
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📊 Статус системы", callback_data="admin:status")],
+            [InlineKeyboardButton(text="📢 Сделать рассылку", callback_data="admin:broadcast_prompt")],
+            [InlineKeyboardButton(text="🧪 Тест рассылки расписания", callback_data="admin:test_schedule_broadcast")],
             [InlineKeyboardButton(text="🔄 Обновить бота (git pull)", callback_data="admin:update")],
-            [InlineKeyboardButton(text="🔥 Прогреть весь кэш расписаний", callback_data="admin:preload_cache")]
+            [InlineKeyboardButton(text="🔥 Прогреть кэш (эта и след. неделя)", callback_data="admin:preload_cache")]
         ])
         await c.message.edit_text("🔧 <b>Панель администратора</b>", reply_markup=kb, parse_mode="HTML")
     try: await c.answer()
     except: pass
+
+async def copy_message_broadcast(from_chat_id: int, message_id: int):
+    users = await dao.smembers("bot_users")
+    for user_id in users:
+        try:
+            await bot.copy_message(chat_id=int(user_id), from_chat_id=from_chat_id, message_id=message_id)
+            await asyncio.sleep(0.05) # Anti-flood
+        except Exception as e:
+            logger.error(f"Failed to copy broadcast to {user_id}: {e}")
+
+@dp.message(AdminStates.waiting_for_broadcast_message, F.from_user.id.in_(ADMIN_IDS))
+async def admin_broadcast_process(m: Message, state: FSMContext):
+    await state.clear()
+    await m.answer("⏳ <b>Начинаю рассылку...</b>", parse_mode="HTML")
+    asyncio.create_task(copy_message_broadcast(m.chat.id, m.message_id))
+    await m.answer("✅ <b>Рассылка запущена в фоновом режиме!</b>", parse_mode="HTML")
+
 
 # --- HANDLERS ---
 @dp.message(CommandStart())
@@ -622,22 +677,31 @@ async def fallback_message(m: Message, state: FSMContext):
     await m.answer("👇 Пожалуйста, воспользуйтесь кнопками меню внизу.", reply_markup=get_main_menu(val))     
 
 async def daily_scheduler():
+    # Екатеринбургское время (UTC+5)
     tz = timezone(timedelta(hours=5))
     while True:
         now = datetime.now(tz)
         target = now.replace(hour=8, minute=0, second=0, microsecond=0)
+        
+        # Если сейчас уже после 8:00, планируем на следующий день
         if now >= target:
             target += timedelta(days=1)
+            
         wait_seconds = (target - now).total_seconds()
+        logger.info(f"Следующая утренняя рассылка запланирована на {target} (через {wait_seconds} сек)")
         
         await asyncio.sleep(wait_seconds)
         
         try:
             subs = await dao.hgetall("user_subs")
+            if not subs:
+                continue
+                
             groups_to_users = collections.defaultdict(list)
             for uid, gid in subs.items():
                 groups_to_users[gid].append(uid)
             
+            # Обновляем `today` сразу после пробуждения
             today = datetime.now(tz).date()
             wo = 0
             
@@ -655,10 +719,11 @@ async def daily_scheduler():
                 
                 for uid in uids:
                     try:
-                        await bot.send_message(uid, text, parse_mode="HTML")
+                        # Важно: uid из redis возвращается как строка, нужно привести к int
+                        await bot.send_message(int(uid), text, parse_mode="HTML")
                         await asyncio.sleep(0.05)
-                    except:
-                        pass
+                    except Exception as e:
+                        logger.error(f"Failed to send scheduled msg to {uid}: {e}")
         except Exception as e:
             logger.error(f"Scheduler failed: {e}")
 
