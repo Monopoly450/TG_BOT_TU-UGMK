@@ -485,8 +485,7 @@ async def cb_sub(c: CallbackQuery):
     else:
         db = GROUPS_DB
         gid = list(db.keys())[int(idx)]
-        gval = db[gid]
-        await dao.hset("user_subs", str(c.from_user.id), gval)
+        await dao.hset("user_subs", str(c.from_user.id), gid)
         await c.message.edit_text(f"✅ Вы успешно подписались на утреннюю рассылку для группы <b>{gid}</b>!\nКаждое утро в 08:00 бот будет присылать вам расписание на день.", parse_mode="HTML")
     try: await c.answer()
     except: pass
@@ -730,6 +729,15 @@ async def daily_scheduler():
 
 async def notify_on_startup():
     try:
+        # --- MIGRATION: Convert ID strings in user_subs to group names ---
+        subs = await dao.hgetall("user_subs")
+        if subs:
+            id_to_name = {v: k for k, v in GROUPS_DB.items()}
+            for uid, val in subs.items():
+                if val in id_to_name:
+                    await dao.hset("user_subs", uid, id_to_name[val])
+        # -----------------------------------------------------------------
+        
         if await dao.get("update_in_progress") == "1":
             await dao.delete("update_in_progress")
             admin_id = await dao.get("update_admin_id")
