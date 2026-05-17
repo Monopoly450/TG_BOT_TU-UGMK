@@ -62,8 +62,8 @@ class RedisDAO:
         try: await self.client.ping(); self.ok = True
         except Exception as e: logger.error(f"Redis error: {e}")
     async def get(self, key): return json.loads(await self.client.get(key)) if self.ok and await self.client.exists(key) else None
-    async def set(self, key, value):
-        if self.ok: await self.client.set(key, json.dumps(value, ensure_ascii=False), ex=CACHE_LIFETIME)
+    async def set(self, key, value, ex=CACHE_LIFETIME):
+        if self.ok: await self.client.set(key, json.dumps(value, ensure_ascii=False), ex=ex)
     async def blpop(self, key, timeout=0): return await self.client.blpop(key, timeout) if self.ok else None
 
 dao = RedisDAO()
@@ -264,8 +264,10 @@ async def main():
             wo, tt, tv = job.get('week_offset', 0), job.get('target_type'), job.get('target_value')
             key = f"data:v{CACHE_VERSION}:{tt}:{tv}:w{wo}"
             res = await p.fetch(wo, tt, tv)
-            # Даже если расписание пустое, сохраняем пустой словарь, чтобы бот не висел
-            await dao.set(key, res if res else {"_empty": True})
+            if res and "_error" in res:
+                await dao.set(key, res, ex=60)
+            else:
+                await dao.set(key, res if res else {"_empty": True})
         except Exception as e: logger.error(f"Loop error: {e}"); await asyncio.sleep(5)
 
 if __name__ == "__main__":

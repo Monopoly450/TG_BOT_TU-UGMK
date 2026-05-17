@@ -394,7 +394,8 @@ async def admin_actions(c: CallbackQuery, state: FSMContext):
                 is_error = not week_s or "_error" in week_s
                 
                 if is_error:
-                    await c.message.edit_text("❌ Ошибка при получении расписания для вашей группы. Возможно кэш пуст.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
+                    error_msg = week_s.get('_error', 'Таймаут ожидания (очередь перегружена)') if week_s else 'Таймаут ожидания'
+                    await c.message.edit_text(f"❌ Ошибка при получении расписания.\nПричина: <b>{error_msg}</b>", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
                 else:
                     text = f"🧪 <b>ТЕСТ УТРЕННЕЙ РАССЫЛКИ</b>\n\n🌅 <b>Доброе утро! Расписание на сегодня:</b>\n\n"
                     text += fmt_day(today, day_lessons, "group")
