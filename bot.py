@@ -244,7 +244,7 @@ def get_main_menu(val=None):
         kb = [
             [KeyboardButton(text="🎓 Курс"), KeyboardButton(text="🔔 Моя подписка")],
             [KeyboardButton(text="👩‍🏫 Преподаватели"), KeyboardButton(text="🏫 Аудитории")],
-            [KeyboardButton(text="🧹 Очистить")]
+            [KeyboardButton(text="🧹 Очистить"), KeyboardButton(text="💻 Толк")]
         ]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
@@ -456,8 +456,18 @@ async def admin_broadcast_process(m: Message, state: FSMContext):
     asyncio.create_task(copy_message_broadcast(m.chat.id, m.message_id))
     await m.answer("✅ <b>Рассылка запущена в фоновом режиме!</b>", parse_mode="HTML")
 
-
 # --- HANDLERS ---
+@dp.message(F.text.in_(["💻 Толк", "Толк"]))
+async def talk_links(m: Message):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Толк 1", url="https://tu-ugmk.ktalk.ru/jiydkhlxmj94")],
+        [InlineKeyboardButton(text="Толк 2", url="https://tu-ugmk.ktalk.ru/uiwmi2bn1khb")],
+        [InlineKeyboardButton(text="Толк 3", url="https://tu-ugmk.ktalk.ru/gwj9tt76y0ow")],
+        [InlineKeyboardButton(text="Толк 4", url="https://tu-ugmk.ktalk.ru/djkdcyfdh198")],
+        [InlineKeyboardButton(text="Толк 5", url="https://tu-ugmk.ktalk.ru/n3us6a2ekxli")]
+    ])
+    await m.answer("🎥 <b>Ссылки на онлайн-комнаты Толк:</b>\nВыберите нужную комнату для подключения:", reply_markup=kb, parse_mode="HTML")
+
 @dp.message(CommandStart())
 async def start(m: Message, state: FSMContext):      
     await register_user(m.from_user.id)
