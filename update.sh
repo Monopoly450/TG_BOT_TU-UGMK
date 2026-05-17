@@ -1,5 +1,5 @@
 #!/bin/bash
-cd /home/user/TG_BOT_TU-UGMK
+cd "$(dirname "$0")"
 echo "🔄 Начинаю ПРИНУДИТЕЛЬНОЕ обновление..."
 git fetch --all
 git reset --hard origin/main

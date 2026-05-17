@@ -1,5 +1,5 @@
 #!/bin/bash
-cd /home/user/TG_BOT_TU-UGMK
+cd "$(dirname "$0")"
 chmod +x update.sh
 while true; do
     TRIGGER=$(docker exec redis_db redis-cli get bot_update_trigger 2>/dev/null)
