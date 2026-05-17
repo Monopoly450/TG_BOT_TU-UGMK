@@ -304,9 +304,11 @@ async def admin_panel(m: Message, state: FSMContext):
     await state.clear()
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📊 Статус системы", callback_data="admin:status")],
+        [InlineKeyboardButton(text="🕒 Время сервера", callback_data="admin:server_time")],
         [InlineKeyboardButton(text="📢 Сделать рассылку", callback_data="admin:broadcast_prompt")],
         [InlineKeyboardButton(text="🧪 Тест рассылки расписания", callback_data="admin:test_schedule_broadcast")],
         [InlineKeyboardButton(text="🚀 Запустить утреннюю рассылку (ВСЕМ)", callback_data="admin:force_broadcast")],
+        [InlineKeyboardButton(text="⏳ Отложенная рассылка (через 1 мин)", callback_data="admin:delayed_broadcast")],
         [InlineKeyboardButton(text="🔄 Обновить бота (git pull)", callback_data="admin:update")],
         [InlineKeyboardButton(text="🔥 Прогреть кэш (эта и след. неделя)", callback_data="admin:preload_cache")]
     ])
@@ -411,12 +413,26 @@ async def admin_actions(c: CallbackQuery, state: FSMContext):
         count = await run_morning_broadcast()
         await c.message.edit_text(f"✅ <b>Рассылка завершена!</b>\nОтправлено сообщений: <b>{count}</b>", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
         
+    elif action == "delayed_broadcast":
+        await c.message.edit_text("⏳ <b>Таймер запущен.</b>\nМассовая рассылка начнется ровно через 60 секунд...", parse_mode="HTML")
+        await asyncio.sleep(60)
+        count = await run_morning_broadcast()
+        await c.message.edit_text(f"✅ <b>Отложенная рассылка завершена!</b>\nОтправлено сообщений: <b>{count}</b>", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
+        
+    elif action == "server_time":
+        tz = timezone(timedelta(hours=5))
+        now = datetime.now(tz)
+        await c.message.edit_text(f"🕒 <b>Текущее время на сервере (Екатеринбург):</b>\n<code>{now.strftime('%Y-%m-%d %H:%M:%S')}</code>", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
+
     elif action == "back":
         await state.clear()
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📊 Статус системы", callback_data="admin:status")],
+            [InlineKeyboardButton(text="🕒 Время сервера", callback_data="admin:server_time")],
             [InlineKeyboardButton(text="📢 Сделать рассылку", callback_data="admin:broadcast_prompt")],
             [InlineKeyboardButton(text="🧪 Тест рассылки расписания", callback_data="admin:test_schedule_broadcast")],
+            [InlineKeyboardButton(text="🚀 Запустить утреннюю рассылку (ВСЕМ)", callback_data="admin:force_broadcast")],
+            [InlineKeyboardButton(text="⏳ Отложенная рассылка (через 1 мин)", callback_data="admin:delayed_broadcast")],
             [InlineKeyboardButton(text="🔄 Обновить бота (git pull)", callback_data="admin:update")],
             [InlineKeyboardButton(text="🔥 Прогреть кэш (эта и след. неделя)", callback_data="admin:preload_cache")]
         ])
@@ -442,9 +458,6 @@ async def admin_broadcast_process(m: Message, state: FSMContext):
 
 
 # --- HANDLERS ---
-@dp.message(Command("status_test"))
-async def status_test_cmd(m: Message):
-    await m.answer("✅ <b>Тест успешен!</b>\nНовый код загрузился на сервер, бот обновлен и работает штатно.", parse_mode="HTML")
 @dp.message(CommandStart())
 async def start(m: Message, state: FSMContext):      
     await register_user(m.from_user.id)
