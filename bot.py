@@ -306,6 +306,7 @@ async def admin_panel(m: Message, state: FSMContext):
         [InlineKeyboardButton(text="📊 Статус системы", callback_data="admin:status")],
         [InlineKeyboardButton(text="📢 Сделать рассылку", callback_data="admin:broadcast_prompt")],
         [InlineKeyboardButton(text="🧪 Тест рассылки расписания", callback_data="admin:test_schedule_broadcast")],
+        [InlineKeyboardButton(text="🚀 Запустить утреннюю рассылку (ВСЕМ)", callback_data="admin:force_broadcast")],
         [InlineKeyboardButton(text="🔄 Обновить бота (git pull)", callback_data="admin:update")],
         [InlineKeyboardButton(text="🔥 Прогреть кэш (эта и след. неделя)", callback_data="admin:preload_cache")]
     ])
@@ -404,6 +405,12 @@ async def admin_actions(c: CallbackQuery, state: FSMContext):
         except Exception as e:
             logger.error(f"Test scheduler failed: {e}")
             await c.message.edit_text(f"❌ Ошибка: {e}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
+            
+    elif action == "force_broadcast":
+        await c.message.edit_text("🚀 <b>Запускаю массовую рассылку расписания...</b>\nПожалуйста, подождите. Это может занять некоторое время.", parse_mode="HTML")
+        count = await run_morning_broadcast()
+        await c.message.edit_text(f"✅ <b>Рассылка завершена!</b>\nОтправлено сообщений: <b>{count}</b>", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
+        
     elif action == "back":
         await state.clear()
         kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -676,14 +683,51 @@ async def fallback_message(m: Message, state: FSMContext):
     val = data.get("target_value")
     await m.answer("👇 Пожалуйста, воспользуйтесь кнопками меню внизу.", reply_markup=get_main_menu(val))     
 
+async def run_morning_broadcast():
+    tz = timezone(timedelta(hours=5))
+    try:
+        subs = await dao.hgetall("user_subs")
+        if not subs:
+            return 0
+            
+        groups_to_users = collections.defaultdict(list)
+        for uid, gid in subs.items():
+            groups_to_users[gid].append(uid)
+        
+        today = datetime.now(tz).date()
+        wo = 0
+        
+        count = 0
+        for gid, uids in groups_to_users.items():
+            week_s = await sm.fetch_schedule(wo, "group", gid)
+            day_name = DAYS_OF_WEEK[today.weekday()]
+            day_lessons = week_s.get(day_name, [])
+            is_error = not week_s or "_error" in week_s
+            
+            if is_error:
+                continue
+            
+            text = f"🌅 <b>Доброе утро! Расписание на сегодня:</b>\n\n"
+            text += fmt_day(today, day_lessons, "group")
+            
+            for uid in uids:
+                try:
+                    await bot.send_message(int(uid), text, parse_mode="HTML")
+                    count += 1
+                    await asyncio.sleep(0.05)
+                except Exception as e:
+                    logger.error(f"Failed to send scheduled msg to {uid}: {e}")
+        return count
+    except Exception as e:
+        logger.error(f"Scheduler failed: {e}")
+        return 0
+
 async def daily_scheduler():
-    # Екатеринбургское время (UTC+5)
     tz = timezone(timedelta(hours=5))
     while True:
         now = datetime.now(tz)
         target = now.replace(hour=8, minute=0, second=0, microsecond=0)
         
-        # Если сейчас уже после 8:00, планируем на следующий день
         if now >= target:
             target += timedelta(days=1)
             
@@ -691,41 +735,7 @@ async def daily_scheduler():
         logger.info(f"Следующая утренняя рассылка запланирована на {target} (через {wait_seconds} сек)")
         
         await asyncio.sleep(wait_seconds)
-        
-        try:
-            subs = await dao.hgetall("user_subs")
-            if not subs:
-                continue
-                
-            groups_to_users = collections.defaultdict(list)
-            for uid, gid in subs.items():
-                groups_to_users[gid].append(uid)
-            
-            # Обновляем `today` сразу после пробуждения
-            today = datetime.now(tz).date()
-            wo = 0
-            
-            for gid, uids in groups_to_users.items():
-                week_s = await sm.fetch_schedule(wo, "group", gid)
-                day_name = DAYS_OF_WEEK[today.weekday()]
-                day_lessons = week_s.get(day_name, [])
-                is_error = not week_s or "_error" in week_s
-                
-                if is_error:
-                    continue
-                
-                text = f"🌅 <b>Доброе утро! Расписание на сегодня:</b>\n\n"
-                text += fmt_day(today, day_lessons, "group")
-                
-                for uid in uids:
-                    try:
-                        # Важно: uid из redis возвращается как строка, нужно привести к int
-                        await bot.send_message(int(uid), text, parse_mode="HTML")
-                        await asyncio.sleep(0.05)
-                    except Exception as e:
-                        logger.error(f"Failed to send scheduled msg to {uid}: {e}")
-        except Exception as e:
-            logger.error(f"Scheduler failed: {e}")
+        await run_morning_broadcast()
 
 async def notify_on_startup():
     try:
