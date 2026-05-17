@@ -442,6 +442,9 @@ async def admin_broadcast_process(m: Message, state: FSMContext):
 
 
 # --- HANDLERS ---
+@dp.message(Command("ping"))
+async def ping_cmd(m: Message):
+    await m.answer("🏓 <b>Понг!</b>\nЕсли вы видите это сообщение, значит автообновление через GitHub работает идеально!", parse_mode="HTML")
 @dp.message(CommandStart())
 async def start(m: Message, state: FSMContext):      
     await register_user(m.from_user.id)
