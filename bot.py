@@ -502,7 +502,7 @@ async def show_subscription_menu(m: Message):
     
     text = "🗓 <b>Утренняя рассылка (08:00 МСК+2)</b>\n\n"
     if subbed_group:
-        group_name = next((k for k, v in db.items() if v == subbed_group), "Неизвестно")
+        group_name = subbed_group if subbed_group in db else next((k for k, v in db.items() if v == subbed_group), "Неизвестно")
         text += f"✅ Текущая подписка: <b>{group_name}</b>\n\nВыберите новую или нажмите Отписаться:"
     else:
         text += "❌ Вы не подписаны.\nВыберите группу из списка ниже:"
