@@ -16,7 +16,7 @@ SCHEDULE_URL = "https://up.corp.tu-ugmk.com/student/schedule"
 LOGIN = os.getenv("LOGIN", "uvybhjhhv@gmail.com")
 PASSWORD = os.getenv("PASSWORD", "qazwsxedcip60000OP")
 
-CACHE_LIFETIME, CACHE_VERSION = 86400, 38
+CACHE_LIFETIME, CACHE_VERSION = 86400, 39
 
 # ════════════ БАЗЫ ДАННЫХ ID ═════════════════════
 GROUPS_DB = {
@@ -276,7 +276,7 @@ async def main():
             if res and "_error" in res:
                 await dao.set(key, res, ex=60)
             else:
-                await dao.set(key, res if res else {"_empty": True})
+                await dao.set(key, res if res else {"_empty": True}, ex=3600)
         except Exception as e: logger.error(f"Loop error: {e}"); await asyncio.sleep(5)
 
 if __name__ == "__main__":
