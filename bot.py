@@ -676,11 +676,9 @@ async def cb_cancel_menu(c: CallbackQuery, state: FSMContext):
     if tt == "group":
         await show_courses_menu(c.message)
     elif tt == "teacher":
-        c.message.text = "👩‍🏫 Преподаватели"
-        await show_filter_menu(c.message)
+        await show_filter_menu(c.message, explicit_type="teacher")
     elif tt == "classroom":
-        c.message.text = "🏫 Аудитории"
-        await show_filter_menu(c.message)
+        await show_filter_menu(c.message, explicit_type="classroom")
     else:
         await c.message.answer("🔙 Главное меню", reply_markup=get_main_menu())
     try: await c.answer()
