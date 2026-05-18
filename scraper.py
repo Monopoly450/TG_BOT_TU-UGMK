@@ -202,7 +202,7 @@ class ScheduleParser:
             if table:
                 for row in table.find_all("tr"):
                     cells = row.find_all("td")
-                    if len(cells) < 5: continue
+                    if len(cells) < 3: continue
                     
                     disc_cell = cells[1]
                     disc_text = disc_cell.get_text(separator=" ", strip=True)
@@ -216,9 +216,9 @@ class ScheduleParser:
                         "time": cells[0].get_text(strip=True), 
                         "subject": subject,
                         "type": l_type,
-                        "room": cells[2].get_text(strip=True),
-                        "group": cells[3].get_text(strip=True), 
-                        "teacher": cells[4].get_text(strip=True),
+                        "room": cells[2].get_text(strip=True) if len(cells) > 2 else "",
+                        "group": cells[3].get_text(strip=True) if len(cells) > 4 else "", 
+                        "teacher": cells[-1].get_text(strip=True) if len(cells) > 3 else "",
                     })
             schedule[day_name] = lessons
             
@@ -238,15 +238,15 @@ class ScheduleParser:
             lessons = []
             for row in table.find_all("tr"):
                 cells = row.find_all("td")
-                if len(cells) < 5: continue
+                if len(cells) < 3: continue
                 disc_text = cells[1].get_text(strip=True)
                 if not disc_text: continue
                 lessons.append({
                     "time": cells[0].get_text(strip=True), 
                     "subject": disc_text,
-                    "room": cells[2].get_text(strip=True),
-                    "group": cells[3].get_text(strip=True), 
-                    "teacher": cells[4].get_text(strip=True),
+                    "room": cells[2].get_text(strip=True) if len(cells) > 2 else "",
+                    "group": cells[3].get_text(strip=True) if len(cells) > 4 else "", 
+                    "teacher": cells[-1].get_text(strip=True) if len(cells) > 3 else "",
                 })
             schedule[day] = lessons
         schedule["_dates"] = dates
