@@ -179,16 +179,19 @@ class ScheduleParser:
             return self._parse_legacy(soup, t_type, t_val)
 
         for container in day_containers:
-            header = container.find("strong", class_="day-name")
-            if not header: continue
-            
-            header_text = header.get_text(separator=" ", strip=True)
-            # Упрощенный поиск дня
+            # Находим заголовок или любой тег, содержащий день недели
             day_name = None
-            for d in DAYS_OF_WEEK:
-                if d.lower() in header_text.lower():
-                    day_name = d
-                    break
+            header_text = ""
+            
+            # Ищем сначала явные заголовки, если нет - любые элементы с текстом
+            for tag in container.find_all(["h3", "h4", "strong", "span", "div", "p"]):
+                txt = tag.get_text(separator=" ", strip=True)
+                for d in DAYS_OF_WEEK:
+                    if txt.lower().startswith(d.lower()) or f" {d.lower()} " in f" {txt.lower()} ":
+                        day_name = d
+                        header_text = txt
+                        break
+                if day_name: break
             
             if not day_name: continue
             
@@ -233,9 +236,10 @@ class ScheduleParser:
                 if text.startswith(d) and (m := re.search(r"(\d{2}\.\d{2}\.\d{4})", text)): dates[d] = m.group(1)
         
         tables = soup.find_all("table")
-        for i, table in enumerate(tables[:7]):
-            day = DAYS_OF_WEEK[i] if i < len(DAYS_OF_WEEK) else f"Extra_{i}"
+        day_idx = 0
+        for table in tables:
             lessons = []
+            has_data_rows = False
             for row in table.find_all("tr"):
                 cells = row.find_all("td")
                 if len(cells) < 3: continue
@@ -248,7 +252,12 @@ class ScheduleParser:
                     "group": cells[3].get_text(strip=True) if len(cells) > 4 else "", 
                     "teacher": cells[-1].get_text(strip=True) if len(cells) > 3 else "",
                 })
-            schedule[day] = lessons
+                has_data_rows = True
+            
+            if has_data_rows:
+                day = DAYS_OF_WEEK[day_idx] if day_idx < len(DAYS_OF_WEEK) else f"Extra_{day_idx}"
+                schedule[day] = lessons
+                day_idx += 1
         schedule["_dates"] = dates
         return schedule
 
