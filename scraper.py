@@ -271,12 +271,15 @@ async def main():
             if not job_data: continue
             job = json.loads(job_data[1])
             wo, tt, tv = job.get('week_offset', 0), job.get('target_type'), job.get('target_value')
-            key = f"data:v{CACHE_VERSION}:{tt}:{tv}:w{wo}"
+            tz = timezone(timedelta(hours=5))
+            mon = datetime.now(tz).date() - timedelta(days=datetime.now(tz).weekday()) + timedelta(weeks=wo)
+            sd = mon.strftime("%d.%m.%Y")
+            key = f"data:v{CACHE_VERSION}:{sd}:{tt}:{tv}"
             res = await p.fetch(wo, tt, tv)
             if res and "_error" in res:
                 await dao.set(key, res, ex=60)
             else:
-                await dao.set(key, res if res else {"_empty": True}, ex=3600)
+                await dao.set(key, res if res else {"_empty": True}, ex=CACHE_LIFETIME)
         except Exception as e: logger.error(f"Loop error: {e}"); await asyncio.sleep(5)
 
 if __name__ == "__main__":

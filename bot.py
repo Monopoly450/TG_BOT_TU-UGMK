@@ -199,7 +199,10 @@ DAYS_OF_WEEK = ["Понедельник", "Вторник", "Среда", "Че�
 # --- SCHEDULE MANAGER ---
 class ScheduleManager:
     async def fetch_schedule(self, wo=0, t_type=None, t_val=None) -> dict:
-        key = f"data:v{CACHE_VERSION}:{t_type}:{t_val}:w{wo}"
+        tz = timezone(timedelta(hours=5))
+        mon = datetime.now(tz).date() - timedelta(days=datetime.now(tz).weekday()) + timedelta(weeks=wo)
+        sd = mon.strftime("%d.%m.%Y")
+        key = f"data:v{CACHE_VERSION}:{sd}:{t_type}:{t_val}"
         try:
             if await dao.exists(key): return json.loads(await dao.get(key))
         except Exception as e: logger.error(f"Redis get error: {e}")
