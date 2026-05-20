@@ -6,8 +6,8 @@ Requires=docker.service
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/home/user/TG_BOT_TU-UGMK
-ExecStart=/bin/bash /home/user/TG_BOT_TU-UGMK/auto_updater.sh
+WorkingDirectory=/root/TG_BOT_TU-UGMK
+ExecStart=/bin/bash /root/TG_BOT_TU-UGMK/auto_updater.sh
 Restart=always
 RestartSec=10
 

@@ -97,7 +97,7 @@ git pull origin main
 
 ```bash
 # 1. Скопируйте файл службы в систему
-sudo cp /home/user/TG_BOT_TU-UGMK/tg_bot_updater.service /etc/systemd/system/
+sudo cp /root/TG_BOT_TU-UGMK/tg_bot_updater.service /etc/systemd/system/
 
 # 2. Перезагрузите конфигурацию системных служб
 sudo systemctl daemon-reload
@@ -127,9 +127,9 @@ sudo journalctl -u tg_bot_updater.service -f
 
 ```bash
 # 1. Записываем правильный update.sh
-cat << 'EOF' > /home/user/TG_BOT_TU-UGMK/update.sh
+cat << 'EOF' > /root/TG_BOT_TU-UGMK/update.sh
 #!/bin/bash
-cd /home/user/TG_BOT_TU-UGMK
+cd /root/TG_BOT_TU-UGMK
 echo "🔄 Начинаю ПРИНУДИТЕЛЬНОЕ обновление..."
 git fetch --all
 git reset --hard origin/main
@@ -138,9 +138,9 @@ echo "✅ Обновление успешно завершено!"
 EOF
 
 # 2. Записываем правильный auto_updater.sh
-cat << 'EOF' > /home/user/TG_BOT_TU-UGMK/auto_updater.sh
+cat << 'EOF' > /root/TG_BOT_TU-UGMK/auto_updater.sh
 #!/bin/bash
-cd /home/user/TG_BOT_TU-UGMK
+cd /root/TG_BOT_TU-UGMK
 chmod +x update.sh
 while true; do
     TRIGGER=$(docker exec redis_db redis-cli get bot_update_trigger 2>/dev/null)
@@ -156,7 +156,7 @@ done
 EOF
 
 # 3. Выдаем права и перезапускаем службу
-chmod +x /home/user/TG_BOT_TU-UGMK/*.sh
+chmod +x /root/TG_BOT_TU-UGMK/*.sh
 sudo systemctl restart tg_bot_updater.service
 ```
 
