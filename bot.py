@@ -219,6 +219,7 @@ class ScheduleStates(StatesGroup): viewing = State()
 
 class UserStates(StatesGroup):
     waiting_for_evening_time = State()
+    waiting_for_morning_time = State()
 
 class AdminStates(StatesGroup):
     waiting_for_broadcast_message = State()
@@ -444,6 +445,37 @@ async def admin_actions(c: CallbackQuery, state: FSMContext):
     try: await c.answer()
     except: pass
 
+@dp.callback_query(F.data == "sub:morning_time")
+async def cb_sub_morning_time(c: CallbackQuery, state: FSMContext):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔕 Отключить", callback_data="set_morn:off")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")]
+    ])
+    await c.message.edit_text("🌅 <b>Утренняя рассылка (на сегодня)</b>\n\nНапишите желаемое время в формате <b>ЧЧ:ММ</b> (например, <code>07:00</code>) прямо в чат:", reply_markup=kb, parse_mode="HTML")
+    await state.set_state(UserStates.waiting_for_morning_time)
+    try: await c.answer()
+    except: pass
+
+@dp.message(UserStates.waiting_for_morning_time)
+async def user_set_morning_time(m: Message, state: FSMContext):
+    if re.match(r'^([0-1][0-9]|2[0-3]):[0-5][0-9]$', m.text):
+        await dao.hset("user_morning_time", str(m.from_user.id), m.text)
+        await state.clear()
+        await m.answer(f"✅ Время рассылки на сегодня успешно установлено на <b>{m.text}</b>!", parse_mode="HTML")
+        await show_subscription_menu(m)
+    else:
+        await m.answer("❌ <b>Неверный формат!</b>\nПожалуйста, введите время в формате <b>ЧЧ:ММ</b>.", parse_mode="HTML")
+
+@dp.callback_query(F.data.startswith("set_morn:"))
+async def cb_set_morning_time_save(c: CallbackQuery, state: FSMContext):
+    time_val = c.data.split(":")[1]
+    if time_val == "off":
+        await dao.hset("user_morning_time", str(c.from_user.id), "Отключено")
+        await c.answer("Рассылка на сегодня отключена")
+    await state.clear()
+    await c.message.delete()
+    await show_subscription_menu(c.message)
+
 @dp.callback_query(F.data == "sub:evening_time")
 async def cb_sub_evening_time(c: CallbackQuery, state: FSMContext):
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -494,10 +526,13 @@ async def run_evening_broadcast(target_time: str):
         except: pass
     return count
 
-async def evening_scheduler():
+async def main_scheduler():
     while True:
         now = datetime.now(timezone(timedelta(hours=5))).strftime("%H:%M")
-        await run_evening_broadcast(now)
+        await asyncio.gather(
+            run_morning_broadcast(now),
+            run_evening_broadcast(now)
+        )
         # Sleep for exactly 60 seconds to avoid multiple triggers within the same minute
         await asyncio.sleep(60)
 
@@ -768,15 +803,19 @@ async def fallback_message(m: Message, state: FSMContext):
     val = data.get("target_value")
     await m.answer("👇 Пожалуйста, воспользуйтесь кнопками меню внизу.", reply_markup=get_main_menu(val))     
 
-async def run_morning_broadcast():
+async def run_morning_broadcast(target_time: str = None):
     tz = timezone(timedelta(hours=5))
     try:
         subs = await dao.hgetall("user_subs")
+        user_mornings = await dao.hgetall("user_morning_time")
         if not subs:
             return 0
             
         groups_to_users = collections.defaultdict(list)
         for uid, gid in subs.items():
+            u_time = user_mornings.get(uid, "08:00")
+            if target_time and u_time != target_time:
+                continue
             groups_to_users[gid].append(uid)
         
         today = datetime.now(tz).date()
@@ -807,20 +846,7 @@ async def run_morning_broadcast():
         logger.error(f"Scheduler failed: {e}")
         return 0
 
-async def daily_scheduler():
-    tz = timezone(timedelta(hours=5))
-    while True:
-        now = datetime.now(tz)
-        target = now.replace(hour=8, minute=0, second=0, microsecond=0)
-        
-        if now >= target:
-            target += timedelta(days=1)
-            
-        wait_seconds = (target - now).total_seconds()
-        logger.info(f"Следующая утренняя рассылка запланирована на {target} (через {wait_seconds} сек)")
-        
-        await asyncio.sleep(wait_seconds)
-        await run_morning_broadcast()
+
 
 async def notify_on_startup():
     try:
@@ -865,8 +891,7 @@ async def main():
     if PROXY_URL: logger.info(f"🌐 Используется прокси: {PROXY_URL}")
     dp.startup.register(notify_on_startup)
     dp.shutdown.register(notify_on_shutdown)
-    asyncio.create_task(daily_scheduler())
-    asyncio.create_task(evening_scheduler())
+    asyncio.create_task(main_scheduler())
     await bot.delete_webhook(drop_pending_updates=True), await dp.start_polling(bot)
 
 if __name__ == "__main__":
