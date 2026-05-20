@@ -503,7 +503,7 @@ async def cb_set_morning_time_save(c: CallbackQuery, state: FSMContext):
         await c.answer(f"Время установлено на {time_val}")
     await state.clear()
     await c.message.delete()
-    await show_subscription_time_menu(c.message)
+    await show_subscription_time_menu(c.message, user_id=str(c.from_user.id))
 
 @dp.callback_query(F.data == "sub:evening_time")
 async def cb_sub_evening_time(c: CallbackQuery, state: FSMContext):
@@ -542,7 +542,7 @@ async def cb_set_evening_time_save(c: CallbackQuery, state: FSMContext):
         await c.answer(f"Время установлено на {time_val}")
     await state.clear()
     await c.message.delete()
-    await show_subscription_time_menu(c.message)
+    await show_subscription_time_menu(c.message, user_id=str(c.from_user.id))
 
 async def run_evening_broadcast(target_time: str):
     users = await dao.hgetall("user_subs")
@@ -621,14 +621,15 @@ async def start(m: Message, state: FSMContext):
 
 
 @dp.message(F.text == "🔔 Моя подписка")
-async def show_subscription_time_menu(m: Message):
-    subbed_group = await dao.hget("user_subs", str(m.from_user.id))
+async def show_subscription_time_menu(m: Message, user_id: str = None):
+    uid = user_id or str(m.from_user.id)
+    subbed_group = await dao.hget("user_subs", uid)
     if not subbed_group:
         await m.answer("❌ Сначала выберите вашу группу в меню <b>«🎓 Моя группа»</b>, чтобы настроить время автоматической рассылки.", parse_mode="HTML")
         return
         
-    morn_time = await dao.hget("user_morning_time", str(m.from_user.id)) or "08:00"
-    eve_time = await dao.hget("user_evening_time", str(m.from_user.id)) or "Отключено"
+    morn_time = await dao.hget("user_morning_time", uid) or "08:00"
+    eve_time = await dao.hget("user_evening_time", uid) or "Отключено"
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"🌅 Утром ({morn_time})", callback_data="sub:morning_time"),
