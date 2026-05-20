@@ -224,6 +224,14 @@ class UserStates(StatesGroup):
 class AdminStates(StatesGroup):
     waiting_for_broadcast_message = State()
 
+def get_greeting() -> str:
+    tz = timezone(timedelta(hours=5))
+    h = datetime.now(tz).hour
+    if 5 <= h < 12: return "🌅 <b>Доброе утро!</b>"
+    elif 12 <= h < 17: return "☀️ <b>Добрый день!</b>"
+    elif 17 <= h < 22: return "🌆 <b>Добрый вечер!</b>"
+    else: return "🌙 <b>Доброй ночи!</b>"
+
 
 
 @asynccontextmanager
@@ -405,7 +413,7 @@ async def admin_actions(c: CallbackQuery, state: FSMContext):
                     error_msg = week_s.get('_error', 'Таймаут ожидания (очередь перегружена)') if week_s else 'Таймаут ожидания'
                     await c.message.edit_text(f"❌ Ошибка при получении расписания.\nПричина: <b>{error_msg}</b>", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
                 else:
-                    text = f"🧪 <b>ТЕСТ УТРЕННЕЙ РАССЫЛКИ</b>\n\n🌅 <b>Доброе утро! Расписание на сегодня:</b>\n\n"
+                    text = f"🧪 <b>ТЕСТ УТРЕННЕЙ РАССЫЛКИ</b>\n\n{get_greeting()} <b>Расписание на сегодня:</b>\n\n"
                     text += fmt_day(today, day_lessons, "group")
                     await bot.send_message(c.from_user.id, text, parse_mode="HTML")
                     await c.message.edit_text("✅ <b>Тестовая рассылка успешно отправлена!</b>\nПроверьте новые сообщения от бота.", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
@@ -535,7 +543,7 @@ async def run_evening_broadcast(target_time: str):
             week_s = await sm.fetch_schedule(0, "group", group_name)
             day_lessons = week_s.get(DAYS_OF_WEEK[tomorrow.weekday()], [])
             if day_lessons:
-                text = f"🌅 <b>Завтра, {tomorrow.strftime('%d.%m')}</b>\n\n" + fmt_day(tomorrow, day_lessons, "group")
+                text = f"{get_greeting()} <b>Расписание на завтра, {tomorrow.strftime('%d.%m')}:</b>\n\n" + fmt_day(tomorrow, day_lessons, "group")
                 await bot.send_message(int(user_id), text, parse_mode="HTML")
                 count += 1
             await asyncio.sleep(0.05)
@@ -854,7 +862,7 @@ async def run_morning_broadcast(target_time: str = None):
             if is_error:
                 continue
             
-            text = f"🌅 <b>Доброе утро! Расписание на сегодня:</b>\n\n"
+            text = f"{get_greeting()} <b>Расписание на сегодня:</b>\n\n"
             text += fmt_day(today, day_lessons, "group")
             
             for uid in uids:
