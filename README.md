@@ -59,7 +59,10 @@ nano .env
 # Токен вашего телеграм-бота от @BotFather
 BOT_TOKEN=your_bot_token_here
 
-# Данные для авторизации в системе расписания (по умолчанию используются стандартые)
+# Пароль для доступа старост к команде /starost_admin
+STAROSTA_PASS=ugmk2026
+
+# Данные для авторизации в системе расписания (по умолчанию используются стандартные)
 LOGIN=your_email@gmail.com
 PASSWORD=your_password
 

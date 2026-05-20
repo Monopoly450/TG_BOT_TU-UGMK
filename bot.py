@@ -224,6 +224,13 @@ class UserStates(StatesGroup):
     waiting_for_evening_time = State()
     waiting_for_morning_time = State()
 
+class StarostStates(StatesGroup):
+    waiting_for_password = State()
+    waiting_for_name = State()
+    waiting_for_course = State()
+    waiting_for_group = State()
+    waiting_for_message = State()
+
 class AdminStates(StatesGroup):
     waiting_for_broadcast_message = State()
 
@@ -258,9 +265,10 @@ def get_main_menu(val=None):
         ]
     else:
         kb = [
-            [KeyboardButton(text="🎓 Курс"), KeyboardButton(text="🔔 Моя подписка")],
-            [KeyboardButton(text="👩‍🏫 Преподаватели"), KeyboardButton(text="🏫 Аудитории")],
-            [KeyboardButton(text="🧹 Очистить"), KeyboardButton(text="💻 Толк")]
+            [KeyboardButton(text="🎓 Выбор группы"), KeyboardButton(text="🔔 Моя подписка")],
+            [KeyboardButton(text="🎓 Курс"), KeyboardButton(text="👩‍🏫 Преподаватели")],
+            [KeyboardButton(text="🏫 Аудитории"), KeyboardButton(text="💻 Толк")],
+            [KeyboardButton(text="🧹 Очистить")]
         ]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
@@ -610,7 +618,7 @@ async def start(m: Message, state: FSMContext):
     await show_subscription_menu(m)
 
 
-@dp.message(F.text == "🔔 Моя подписка")
+@dp.message(F.text.in_(["🔔 Моя подписка", "🎓 Выбор группы"]))
 async def show_subscription_menu(m: Message):
     subbed_group = await dao.hget("user_subs", str(m.from_user.id))
     db = GROUPS_DB
@@ -927,6 +935,96 @@ async def main():
     dp.shutdown.register(notify_on_shutdown)
     asyncio.create_task(main_scheduler())
     await bot.delete_webhook(drop_pending_updates=True), await dp.start_polling(bot)
+
+@dp.message(Command("starost_admin"))
+async def starost_admin_cmd(m: Message, state: FSMContext):
+    await m.answer("🎓 <b>Панель старосты</b>\n\nВведите пароль доступа:", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_menu")]]))
+    await state.set_state(StarostStates.waiting_for_password)
+
+@dp.message(StarostStates.waiting_for_password)
+async def starost_password(m: Message, state: FSMContext):
+    correct_pass = os.getenv("STAROSTA_PASS", "ugmk2026")
+    if m.text != correct_pass:
+        await m.answer("❌ <b>Неверный пароль.</b>\nПопробуйте еще раз или нажмите Отмена.", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_menu")]]))
+        return
+        
+    await m.answer("✅ <b>Доступ разрешен.</b>\n\nВведите ваше <b>Имя и Фамилию</b> (так студенты вашей группы увидят, от кого пришло сообщение):", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_menu")]]))
+    await state.set_state(StarostStates.waiting_for_name)
+
+@dp.message(StarostStates.waiting_for_name)
+async def starost_name(m: Message, state: FSMContext):
+    await state.update_data(starosta_name=m.text)
+    
+    courses = set()
+    for grp in GROUPS_DB.keys():
+        parts = grp.split('-')
+        if len(parts) > 1 and len(parts[1]) >= 2:
+            year = parts[1][:2]
+            courses.add(year)
+            
+    courses = sorted(list(courses), reverse=True)
+    kb_rows = []
+    for i, year in enumerate(courses):
+        kb_rows.append([InlineKeyboardButton(text=f"{i+1} курс (набор 20{year})", callback_data=f"st_course:{year}")])
+    kb_rows.append([InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_menu")])
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+    await m.answer(f"👤 Принято, <b>{m.text}</b>.\n\n📚 Выберите ваш курс:", reply_markup=kb, parse_mode="HTML")
+    await state.set_state(StarostStates.waiting_for_course)
+
+@dp.callback_query(F.data.startswith("st_course:"), StarostStates.waiting_for_course)
+async def starost_course(c: CallbackQuery, state: FSMContext):
+    year = c.data.split(":")[1]
+    
+    groups = [g for g in GROUPS_DB.keys() if g.split('-')[1].startswith(year)]
+    
+    kb_rows = []
+    for i in range(0, len(groups), 2):
+        row = [InlineKeyboardButton(text=g, callback_data=f"st_group:{g}") for g in groups[i:i+2]]
+        kb_rows.append(row)
+    kb_rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")])
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+    await c.message.edit_text(f"🏫 Выберите вашу группу (набор 20{year}):", reply_markup=kb)
+    await state.set_state(StarostStates.waiting_for_group)
+
+@dp.callback_query(F.data.startswith("st_group:"), StarostStates.waiting_for_group)
+async def starost_group(c: CallbackQuery, state: FSMContext):
+    group = c.data.split(":")[1]
+    await state.update_data(starosta_group=group)
+    
+    await c.message.edit_text(f"📝 <b>Написание сообщения</b>\nГруппа: <b>{group}</b>\n\nНапишите текст, который будет разослан всем подписчикам этой группы:", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_menu")]]))
+    await state.set_state(StarostStates.waiting_for_message)
+
+@dp.message(StarostStates.waiting_for_message)
+async def starost_broadcast(m: Message, state: FSMContext):
+    data = await state.get_data()
+    starosta_name = data.get("starosta_name")
+    group = data.get("starosta_group")
+    
+    await state.clear()
+    
+    subs = await dao.hgetall("user_subs")
+    target_users = [uid for uid, gid in subs.items() if gid == group]
+    
+    if not target_users:
+        await m.answer(f"😔 К сожалению, на группу <b>{group}</b> в боте еще никто не подписан.", parse_mode="HTML")
+        return
+        
+    await m.answer(f"🚀 <b>Рассылка запущена!</b>\nОтправляю сообщение {len(target_users)} студентам из группы {group}...", parse_mode="HTML")
+    
+    text = f"📢 <b>Сообщение от старосты ({starosta_name}):</b>\n\n{m.text}"
+    
+    success = 0
+    for uid in target_users:
+        try:
+            await bot.send_message(int(uid), text, parse_mode="HTML")
+            success += 1
+            await asyncio.sleep(0.05)
+        except Exception as e:
+            logger.error(f"Failed to send to {uid}: {e}")
+            
+    await m.answer(f"✅ <b>Рассылка завершена!</b>\nУспешно доставлено: <b>{success} из {len(target_users)}</b>.", parse_mode="HTML")
 
 if __name__ == "__main__":
     try: asyncio.run(main())
