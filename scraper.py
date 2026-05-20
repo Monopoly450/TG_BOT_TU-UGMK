@@ -4,7 +4,7 @@ import json
 import logging
 import asyncio
 import urllib.parse
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 import redis.asyncio as redis
