@@ -217,7 +217,9 @@ sm = ScheduleManager()
 # --- UTILS ---
 class ScheduleStates(StatesGroup): viewing = State() 
 
-class AdminStates(StatesGroup): waiting_for_broadcast_message = State()
+class AdminStates(StatesGroup):
+    waiting_for_broadcast_message = State()
+    waiting_for_evening_time = State()
 
 
 
@@ -309,10 +311,11 @@ async def admin_panel(m: Message, state: FSMContext):
         [InlineKeyboardButton(text="🧪 Тест рассылки расписания", callback_data="admin:test_schedule_broadcast")],
         [InlineKeyboardButton(text="🚀 Запустить утреннюю рассылку (ВСЕМ)", callback_data="admin:force_broadcast")],
         [InlineKeyboardButton(text="⏳ Отложенная рассылка (через 1 мин)", callback_data="admin:delayed_broadcast")],
+        [InlineKeyboardButton(text="🕒 Время рассылки (на завтра)", callback_data="admin:set_evening_time")],
         [InlineKeyboardButton(text="🔄 Обновить бота (git pull)", callback_data="admin:update")],
         [InlineKeyboardButton(text="🔥 Прогреть кэш (эта и след. неделя)", callback_data="admin:preload_cache")]
     ])
-    await m.answer("🔧 <b>Панель администратора</b>", reply_markup=kb, parse_mode="HTML")
+    await m.answer("🛠 <b>Панель управления</b>", reply_markup=kb, parse_mode="HTML")
 
 @dp.callback_query(F.data.startswith("admin:"), F.from_user.id.in_(ADMIN_IDS))
 async def admin_actions(c: CallbackQuery, state: FSMContext):
@@ -419,6 +422,11 @@ async def admin_actions(c: CallbackQuery, state: FSMContext):
         count = await run_morning_broadcast()
         await c.message.edit_text(f"✅ <b>Отложенная рассылка завершена!</b>\nОтправлено сообщений: <b>{count}</b>", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
         
+    elif action == "set_evening_time":
+        current_time = await dao.get("evening_broadcast_time") or "20:00"
+        await c.message.edit_text(f"🕒 <b>Текущее время рассылки:</b> <code>{current_time}</code>\n\nВведите новое время в формате ЧЧ:ММ:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="admin:back")]]), parse_mode="HTML")
+        await state.set_state(AdminStates.waiting_for_evening_time)
+
     elif action == "server_time":
         tz = timezone(timedelta(hours=5))
         now = datetime.now(tz)
@@ -433,12 +441,47 @@ async def admin_actions(c: CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text="🧪 Тест рассылки расписания", callback_data="admin:test_schedule_broadcast")],
             [InlineKeyboardButton(text="🚀 Запустить утреннюю рассылку (ВСЕМ)", callback_data="admin:force_broadcast")],
             [InlineKeyboardButton(text="⏳ Отложенная рассылка (через 1 мин)", callback_data="admin:delayed_broadcast")],
-            [InlineKeyboardButton(text="🔄 Обновить бота (git pull)", callback_data="admin:update")],
-            [InlineKeyboardButton(text="🔥 Прогреть кэш (эта и след. неделя)", callback_data="admin:preload_cache")]
+            [InlineKeyboardButton(text="🕒 Время рассылки (на завтра)", callback_data="admin:set_evening_time")],
+            [InlineKeyboardButton(text="🔄 Сбросить кэш и обновить (git pull)", callback_data="admin:update")],
+            [InlineKeyboardButton(text="⚡ Предзагрузить кэш (на эту и след. неделю)", callback_data="admin:preload_cache")]
         ])
-        await c.message.edit_text("🔧 <b>Панель администратора</b>", reply_markup=kb, parse_mode="HTML")
+        await c.message.edit_text("🛠 <b>Панель управления</b>", reply_markup=kb, parse_mode="HTML")
     try: await c.answer()
     except: pass
+
+async def run_evening_broadcast():
+    users = await dao.hgetall("user_subs")
+    tomorrow = datetime.now(timezone(timedelta(hours=5))).date() + timedelta(days=1)
+    count = 0
+    for user_id, group_name in users.items():
+        try:
+            week_s = await sm.fetch_schedule(0, "group", group_name)
+            day_lessons = week_s.get(DAYS_OF_WEEK[tomorrow.weekday()], [])
+            if day_lessons:
+                text = f"🌅 <b>Завтра, {tomorrow.strftime('%d.%m')}</b>\n\n" + fmt_day(tomorrow, day_lessons, "group")
+                await bot.send_message(int(user_id), text, parse_mode="HTML")
+                count += 1
+            await asyncio.sleep(0.05)
+        except: pass
+    return count
+
+async def evening_scheduler():
+    while True:
+        target = await dao.get("evening_broadcast_time") or "20:00"
+        now = datetime.now(timezone(timedelta(hours=5))).strftime("%H:%M")
+        if now == target:
+            await run_evening_broadcast()
+            await asyncio.sleep(60)
+        await asyncio.sleep(20)
+
+@dp.message(AdminStates.waiting_for_evening_time, F.from_user.id.in_(ADMIN_IDS))
+async def admin_set_evening_time(m: Message, state: FSMContext):
+    if re.match(r'^\d{2}:\d{2}$', m.text):
+        await dao.set("evening_broadcast_time", m.text)
+        await m.answer(f"✅ Время рассылки обновлено на {m.text}")
+        await state.clear()
+    else:
+        await m.answer("❌ Неверный формат! Введите ЧЧ:ММ")
 
 async def copy_message_broadcast(from_chat_id: int, message_id: int):
     users = await dao.smembers("bot_users")
@@ -805,6 +848,7 @@ async def main():
     dp.startup.register(notify_on_startup)
     dp.shutdown.register(notify_on_shutdown)
     asyncio.create_task(daily_scheduler())
+    asyncio.create_task(evening_scheduler())
     await bot.delete_webhook(drop_pending_updates=True), await dp.start_polling(bot)
 
 if __name__ == "__main__":
