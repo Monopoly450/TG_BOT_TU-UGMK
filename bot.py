@@ -1255,7 +1255,7 @@ async def starost_broadcast(m: Message, state: FSMContext):
         
     await m.answer(f"🚀 <b>Рассылка запущена!</b>\nОтправляю сообщение {len(target_users)} студентам из группы {group}...", parse_mode="HTML")
     
-    text = f"📢 <b>Сообщение от старосты ({starosta_name}):</b>\n\n{m.text}"
+    text = f"📢 <b>{starosta_name}:</b>\n\n{m.text}"
     
     success = 0
     for uid in target_users:
@@ -1283,7 +1283,7 @@ async def starost_broadcast_all(m: Message, state: FSMContext):
         return
         
     await m.answer(f"🌍 <b>Глобальная рассылка запущена!</b>\nОтправляю сообщение {len(target_users)} студентам...", parse_mode="HTML")
-    text = f"📢 <b>Важное сообщение от старосты ({starosta_name}):</b>\n\n{m.text}"
+    text = f"📢 <b>{starosta_name}:</b>\n\n{m.text}"
     
     success = 0
     for uid in target_users:
