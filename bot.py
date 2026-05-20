@@ -609,10 +609,17 @@ async def show_subscription_menu(m: Message):
     for i in range(0, len(btns), 2):
         inline_kb.append(btns[i:i+2])
     inline_kb.append([InlineKeyboardButton(text="🔕 Отписаться", callback_data="sub:unsubscribe")])
+    
+    morn_time = await dao.hget("user_morning_time", str(m.from_user.id)) or "08:00"
+    eve_time = await dao.hget("user_evening_time", str(m.from_user.id)) or "Отключено"
+    
+    inline_kb.append([InlineKeyboardButton(text=f"🌅 На сегодня: {morn_time}", callback_data="sub:morning_time")])
+    inline_kb.append([InlineKeyboardButton(text=f"🌙 На завтра: {eve_time}", callback_data="sub:evening_time")])
+    
     inline_kb.append([InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")])
     kb = InlineKeyboardMarkup(inline_keyboard=inline_kb)
     
-    text = "🗓 <b>Утренняя рассылка (08:00 МСК+2)</b>\n\n"
+    text = "🌅 <b>Настройки рассылки (УГМК, Екатеринбург)</b>\n\n"
     if subbed_group:
         group_name = subbed_group if subbed_group in db else next((k for k, v in db.items() if v == subbed_group), "Неизвестно")
         text += f"✅ Текущая подписка: <b>{group_name}</b>\n\nВыберите новую или нажмите Отписаться:"
