@@ -834,16 +834,205 @@ async def reset(m: Message, state: FSMContext):
         await show_courses_menu(m)
     elif tt == "teacher":
         await show_filter_menu(m, explicit_type="teacher")
+    if subbed_group:
+        group_name = subbed_group if subbed_group in db else next((k for k, v in db.items() if v == subbed_group), "Неизвестно")
+        text += f"✅ Текущая подписка: <b>{group_name}</b>\n\nВыберите новую или нажмите Отписаться:"
+    else:
+        text += "❌ Вы не подписаны.\nВыберите группу из списка ниже:"
+        
+    await m.answer(text, parse_mode="HTML", reply_markup=kb)
+
+@dp.callback_query(F.data.startswith("sub:"))
+async def cb_sub(c: CallbackQuery):
+    idx = c.data.split(":")[1]
+    if idx == "unsubscribe":
+        await dao.hdel("user_subs", str(c.from_user.id))
+        await c.message.edit_text("🔕 Вы отписались от утренней рассылки.")
+    else:
+        db = GROUPS_DB
+        gid = list(db.keys())[int(idx)]
+        await dao.hset("user_subs", str(c.from_user.id), gid)
+        await c.message.edit_text(f"✅ Вы успешно подписались на утреннюю рассылку для группы <b>{gid}</b>!\nКаждое утро в 08:00 бот будет присылать вам расписание на день.", parse_mode="HTML")
+    try: await c.answer()
+    except: pass
+
+@dp.message(F.text.in_({"👩‍🏫 Преподаватели", "🏫 Аудитории"}))
+async def show_filter_menu(m: Message, explicit_type: str = None):
+    t_type = explicit_type if explicit_type else ("teacher" if m.text == "👩‍🏫 Преподаватели" else "classroom")
+    db = {"teacher": TEACHERS_DB, "classroom": CLASSROOMS_DB}[t_type]
+    btns = [InlineKeyboardButton(text=n, callback_data=f"fsel:{t_type}:{i}") for i, n in enumerate(db)]   
+    kb = InlineKeyboardMarkup(inline_keyboard=[[btn] for btn in btns] + [[InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")]])
+    await m.answer("👇 Выберите:", reply_markup=kb)  
+
+@dp.message(F.text == "🎓 Курс")
+async def show_courses_menu(m: Message):
+    btns = [
+        [InlineKeyboardButton(text="1️⃣ Первый курс", callback_data="course:25")],
+        [InlineKeyboardButton(text="2️⃣ Второй курс", callback_data="course:24")],
+        [InlineKeyboardButton(text="3️⃣ Третий курс", callback_data="course:23")],
+        [InlineKeyboardButton(text="4️⃣ Четвертый курс", callback_data="course:22")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")]
+    ]
+    await m.answer("🎓 Выберите курс:", reply_markup=InlineKeyboardMarkup(inline_keyboard=btns))
+
+@dp.callback_query(F.data.startswith("course:"))
+async def cb_course(c: CallbackQuery):
+    await c.message.delete()
+    prefix = c.data.split(":")[1]
+    
+    filtered_groups = []
+    for i, name in enumerate(GROUPS_DB.keys()):
+        # Ищем числа в названии группы (например, Ит-24107 -> 24)
+        match = re.search(r'\d+', name)
+        if match and match.group(0).startswith(prefix):
+            filtered_groups.append((i, name))
+            
+    if not filtered_groups:
+        await c.message.answer("😔 Группы не найдены.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_courses")]]))
+    else:
+        btns = [InlineKeyboardButton(text=n, callback_data=f"fsel:group:{i}") for i, n in filtered_groups]
+        kb = InlineKeyboardMarkup(inline_keyboard=[[btn] for btn in btns] + [[InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_courses")]])
+        await c.message.answer("👇 Выберите группу:", reply_markup=kb)
+    try: await c.answer()
+    except: pass
+
+@dp.callback_query(F.data == "back_to_courses")
+async def cb_back_to_courses(c: CallbackQuery):
+    await c.message.delete()
+    await show_courses_menu(c.message)
+    try: await c.answer()
+    except: pass
+
+@dp.callback_query(F.data.startswith("fsel:"))       
+async def cb_sel(c: CallbackQuery, state: FSMContext):
+    await c.message.delete()
+    _, t_type, idx = c.data.split(":", 2)
+    db = {"group": GROUPS_DB, "teacher": TEACHERS_DB, "classroom": CLASSROOMS_DB}[t_type]
+    t_val = list(db.keys())[int(idx)]
+    await state.set_state(ScheduleStates.viewing), await state.update_data(target_type=t_type, target_value=t_val)
+    await c.message.answer(f"✅ Фильтр: <b>{t_val}</b>", parse_mode="HTML", reply_markup=get_main_menu(t_val)), await c.answer()
+
+async def display_day_schedule(message: Message | CallbackQuery, state: FSMContext, target_date: date):   
+    data = await state.get_data()
+    t_val, t_type = data.get("target_value"), data.get("target_type")
+    chat_id = message.chat.id if isinstance(message, Message) else message.message.chat.id
+    today = datetime.now().date()
+    wo = ((target_date - timedelta(days=target_date.weekday())) - (today - timedelta(days=today.weekday()))).days // 7
+
+    async with loading_animation(chat_id):
+        week_s = await sm.fetch_schedule(wo, t_type, t_val)
+
+    day_name = DAYS_OF_WEEK[target_date.weekday()]   
+    day_lessons = week_s.get(day_name, []) # type: ignore
+    is_error = not week_s or "_error" in week_s # type: ignore
+
+    if is_error:
+        text = "⚠️ <b>Ошибка загрузки.</b>\nУниверситетский сайт не ответил вовремя или произошла ошибка парсинга. Попробуйте еще раз."
+    else:
+        text = fmt_day(target_date, day_lessons, t_type)
+
+    kb = get_day_pagination_kb(target_date)
+
+    if isinstance(message, CallbackQuery):
+        try:
+            await message.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+        except TelegramBadRequest:
+            await message.message.answer(text, parse_mode="HTML", reply_markup=kb)
+        try: await message.answer()
+        except: pass
+    else:
+        await message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+@dp.callback_query(F.data.startswith("day_nav:"))    
+async def cb_day_nav(c: CallbackQuery, state: FSMContext):
+    await display_day_schedule(c, state, date.fromisoformat(c.data.split(":")[1]))
+
+@dp.message(F.text.in_({"📅 Сегодня", "📆 Завтра"}), ScheduleStates.viewing)
+async def handle_days(m: Message, state: FSMContext):
+    offset = 1 if m.text == "📆 Завтра" else 0       
+    await display_day_schedule(m, state, datetime.now().date() + timedelta(days=offset))
+
+@dp.message(F.text.in_({"🗓 Эта неделя", "➡️ След. неделя"}), ScheduleStates.viewing)
+async def handle_weeks(m: Message, state: FSMContext):
+    data, wo = await state.get_data(), 1 if m.text == "➡️ След. неделя" else 0
+    async with loading_animation(m.chat.id):
+        s = await sm.fetch_schedule(wo, data.get("target_type"), data.get("target_value"))
+    text = fmt_week(s, data.get("target_type")) # type: ignore      
+    
+    messages = []
+    current_msg = ""
+    for chunk in text.split("═" * 24 + "\n\n"):
+        if not chunk.strip(): continue
+        if len(current_msg) + len(chunk) + 26 > 4096:
+            if current_msg:
+                messages.append(current_msg)
+            current_msg = chunk
+        else:
+            if current_msg:
+                current_msg += "═" * 24 + "\n\n" + chunk
+            else:
+                current_msg = chunk
+    if current_msg:
+        messages.append(current_msg)
+        
+    for msg in messages:
+        await m.answer(msg, parse_mode="HTML")
+
+async def clear_chat_history(chat_id: int, exclude_ids: list = None):
+    exclude_ids = exclude_ids or []
+    ids = list(set(await dao.smembers(f"msg_history:{chat_id}")))
+    ids = [int(x) for x in ids if int(x) not in exclude_ids]
+    for i in range(0, len(ids), 100):
+        try: await bot.delete_messages(chat_id, ids[i:i+100]) # type: ignore
+        except:
+            for mid in ids[i:i+100]: # type: ignore
+                try: await bot.delete_message(chat_id, mid)
+                except: continue
+    await dao.delete(f"msg_history:{chat_id}")
+    for ex_id in exclude_ids:
+        await dao.sadd(f"msg_history:{chat_id}", ex_id)
+
+@dp.message(F.text == "🧹 Очистить")
+async def clear(m: Message, state: FSMContext):      
+    await state.clear()
+    msg = await m.answer("✨ Чат успешно очищен.", reply_markup=get_main_menu())
+    await clear_chat_history(m.chat.id, exclude_ids=[msg.message_id])
+
+@dp.callback_query(F.data == "cancel_menu")
+async def cb_cancel_menu(c: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    tt = data.get("target_type")
+    await state.clear()
+    try: await c.message.delete()
+    except: pass
+    
+    if tt == "group":
+        await show_courses_menu(c.message)
+    elif tt == "teacher":
+        await show_filter_menu(c.message, explicit_type="teacher")
+    elif tt == "classroom":
+        await show_filter_menu(c.message, explicit_type="classroom")
+    else:
+        await c.message.answer("🔙 Главное меню", reply_markup=get_main_menu())
+    try: await c.answer()
+    except: pass
+
+@dp.message(F.text.in_({"🔄 Сбросить", "🔙 Назад"}))
+async def reset(m: Message, state: FSMContext):
+    data = await state.get_data()
+    tt = data.get("target_type")
+    await state.clear()
+    msg = await m.answer("🔙 Возвращаюсь...", reply_markup=get_main_menu())
+    await clear_chat_history(m.chat.id, exclude_ids=[msg.message_id])
+    
+    if tt == "group":
+        await show_courses_menu(m)
+    elif tt == "teacher":
+        await show_filter_menu(m, explicit_type="teacher")
     elif tt == "classroom":
         await show_filter_menu(m, explicit_type="classroom")
     else:
         await msg.edit_text("🔙 Главное меню", reply_markup=get_main_menu())
-
-@dp.message(F.text)
-async def fallback_message(m: Message, state: FSMContext):        
-    data = await state.get_data()
-    val = data.get("target_value")
-    await m.answer("👇 Пожалуйста, воспользуйтесь кнопками меню внизу.", reply_markup=get_main_menu(val))     
 
 async def run_morning_broadcast(target_time: str = None):
     tz = timezone(timedelta(hours=5))
@@ -1025,6 +1214,12 @@ async def starost_broadcast(m: Message, state: FSMContext):
             logger.error(f"Failed to send to {uid}: {e}")
             
     await m.answer(f"✅ <b>Рассылка завершена!</b>\nУспешно доставлено: <b>{success} из {len(target_users)}</b>.", parse_mode="HTML")
+
+@dp.message(F.text)
+async def fallback_message(m: Message, state: FSMContext):        
+    data = await state.get_data()
+    val = data.get("target_value")
+    await m.answer("👇 Пожалуйста, воспользуйтесь кнопками меню внизу.", reply_markup=get_main_menu(val))     
 
 if __name__ == "__main__":
     try: asyncio.run(main())
