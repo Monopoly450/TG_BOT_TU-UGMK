@@ -1136,14 +1136,16 @@ async def starost_admin_cmd(m: Message, state: FSMContext):
 
 async def show_starosta_dashboard(m_or_c, user_id):
     name = await dao.hget("starosta_name", str(user_id))
+    group = await dao.hget("starosta_group_saved", str(user_id))
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📨 Написать сообщение группе", callback_data="st_dash:broadcast")],
+        [InlineKeyboardButton(text="🏫 Изменить свою группу", callback_data="st_dash:change_group")],
         [InlineKeyboardButton(text="🌍 Написать всем пользователям", callback_data="st_dash:broadcast_all")],
         [InlineKeyboardButton(text="👤 Изменить имя", callback_data="st_dash:name")],
         [InlineKeyboardButton(text="🔑 Изменить пароль", callback_data="st_dash:pass")],
         [InlineKeyboardButton(text="❌ Выйти", callback_data="cancel_menu")]
     ])
-    text = f"🎓 <b>Панель старосты</b>\n\n👤 Сохраненное имя: <b>{name}</b>\n\nВыберите действие:"
+    text = f"🎓 <b>Панель старосты</b>\n\n👤 Сохраненное имя: <b>{name}</b>\n🏫 Ваша группа: <b>{group or 'Не выбрана'}</b>\n\nВыберите действие:"
     
     if isinstance(m_or_c, CallbackQuery):
         await m_or_c.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
@@ -1181,6 +1183,15 @@ async def starost_dash_action(c: CallbackQuery, state: FSMContext):
         await c.message.edit_text("🌍 <b>Глобальная рассылка</b>\n\nНапишите текст, который будет разослан <b>ВСЕМ</b> подписчикам бота:", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="st_dash:back")]]))
         await state.set_state(StarostStates.waiting_for_message_all)
     elif action == "broadcast":
+        saved_group = await dao.hget("starosta_group_saved", str(c.from_user.id))
+        if saved_group:
+            await state.update_data(starosta_group=saved_group)
+            await c.message.edit_text(f"📝 <b>Написание сообщения</b>\nГруппа: <b>{saved_group}</b>\n\nНапишите текст, который будет разослан всем подписчикам этой группы:", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="st_dash:back")]]))
+            await state.set_state(StarostStates.waiting_for_message)
+        else:
+            action = "change_group" # fallback
+            
+    if action == "change_group":
         courses = set()
         for grp in GROUPS_DB.keys():
             parts = grp.split('-')
@@ -1234,9 +1245,10 @@ async def starost_course(c: CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data.startswith("st_group:"), StarostStates.waiting_for_group)
 async def starost_group(c: CallbackQuery, state: FSMContext):
     group = c.data.split(":")[1]
+    await dao.hset("starosta_group_saved", str(c.from_user.id), group)
     await state.update_data(starosta_group=group)
     
-    await c.message.edit_text(f"📝 <b>Написание сообщения</b>\nГруппа: <b>{group}</b>\n\nНапишите текст, который будет разослан всем подписчикам этой группы:", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="st_dash:back")]]))
+    await c.message.edit_text(f"✅ Ваша группа <b>{group}</b> сохранена!\n\n📝 <b>Написание сообщения</b>\n\nНапишите текст, который будет разослан всем подписчикам этой группы:", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="st_dash:back")]]))
     await state.set_state(StarostStates.waiting_for_message)
 
 @dp.message(StarostStates.waiting_for_message)
