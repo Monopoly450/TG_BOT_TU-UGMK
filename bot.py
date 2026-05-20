@@ -217,11 +217,11 @@ sm = ScheduleManager()
 # --- UTILS ---
 class ScheduleStates(StatesGroup): viewing = State() 
 
-class AdminStates(StatesGroup):
-    waiting_for_broadcast_message = State()
-
 class UserStates(StatesGroup):
     waiting_for_evening_time = State()
+
+class AdminStates(StatesGroup):
+    waiting_for_broadcast_message = State()
 
 
 
@@ -444,6 +444,37 @@ async def admin_actions(c: CallbackQuery, state: FSMContext):
     try: await c.answer()
     except: pass
 
+@dp.callback_query(F.data == "sub:evening_time")
+async def cb_sub_evening_time(c: CallbackQuery, state: FSMContext):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔕 Отключить", callback_data="set_ev:off")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")]
+    ])
+    await c.message.edit_text("🕒 <b>Настройка вечерней рассылки (на завтра)</b>\n\nНапишите желаемое время в формате <b>ЧЧ:ММ</b> (например, <code>20:30</code>) прямо в чат:", reply_markup=kb, parse_mode="HTML")
+    await state.set_state(UserStates.waiting_for_evening_time)
+    try: await c.answer()
+    except: pass
+
+@dp.message(UserStates.waiting_for_evening_time)
+async def user_set_evening_time(m: Message, state: FSMContext):
+    if re.match(r'^([0-1][0-9]|2[0-3]):[0-5][0-9]$', m.text):
+        await dao.hset("user_evening_time", str(m.from_user.id), m.text)
+        await state.clear()
+        await m.answer(f"✅ Время рассылки на завтра успешно установлено на <b>{m.text}</b>!", parse_mode="HTML")
+        await show_subscription_menu(m)
+    else:
+        await m.answer("❌ <b>Неверный формат!</b>\nПожалуйста, введите время в формате <b>ЧЧ:ММ</b> (например, <code>20:30</code>). Часы от 00 до 23, минуты от 00 до 59.", parse_mode="HTML")
+
+@dp.callback_query(F.data.startswith("set_ev:"))
+async def cb_set_evening_time_save(c: CallbackQuery, state: FSMContext):
+    time_val = c.data.split(":")[1]
+    if time_val == "off":
+        await dao.hdel("user_evening_time", str(c.from_user.id))
+        await c.answer("Рассылка на завтра отключена")
+    await state.clear()
+    await c.message.delete()
+    await show_subscription_menu(c.message)
+
 async def run_evening_broadcast(target_time: str):
     users = await dao.hgetall("user_subs")
     user_times = await dao.hgetall("user_evening_time")
@@ -527,65 +558,17 @@ async def show_subscription_menu(m: Message):
     for i in range(0, len(btns), 2):
         inline_kb.append(btns[i:i+2])
     inline_kb.append([InlineKeyboardButton(text="🔕 Отписаться", callback_data="sub:unsubscribe")])
-    
-    current_time = await dao.hget("user_evening_time", str(m.from_user.id)) or "Отключено"
-    inline_kb.append([InlineKeyboardButton(text=f"🕒 На завтра: {current_time}", callback_data="sub:evening_time")])
-    
     inline_kb.append([InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")])
     kb = InlineKeyboardMarkup(inline_keyboard=inline_kb)
     
-    text = "🌅 <b>Утренняя рассылка (08:00 UTC+5)</b>\n\n"
+    text = "🗓 <b>Утренняя рассылка (08:00 МСК+2)</b>\n\n"
     if subbed_group:
         group_name = subbed_group if subbed_group in db else next((k for k, v in db.items() if v == subbed_group), "Неизвестно")
-        text += f"✅ Вы подписаны на: <b>{group_name}</b>\n\nВыберите другую группу для изменения или отпишитесь:"
+        text += f"✅ Текущая подписка: <b>{group_name}</b>\n\nВыберите новую или нажмите Отписаться:"
     else:
-        text += "❌ <i>Вы не подписаны.\nВыберите группу из списка ниже:</i>"
+        text += "❌ Вы не подписаны.\nВыберите группу из списка ниже:"
         
     await m.answer(text, parse_mode="HTML", reply_markup=kb)
-
-@dp.callback_query(F.data == "sub:evening_time")
-async def cb_sub_evening_time(c: CallbackQuery):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="18:00", callback_data="set_ev:18:00"),
-         InlineKeyboardButton(text="19:00", callback_data="set_ev:19:00"),
-         InlineKeyboardButton(text="20:00", callback_data="set_ev:20:00")],
-        [InlineKeyboardButton(text="21:00", callback_data="set_ev:21:00"),
-         InlineKeyboardButton(text="22:00", callback_data="set_ev:22:00")],
-        [InlineKeyboardButton(text="✍️ Ввести свое время", callback_data="set_ev:custom")],
-        [InlineKeyboardButton(text="🔕 Отключить", callback_data="set_ev:off")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")]
-    ])
-    await c.message.edit_text("🕒 Выберите время для получения расписания <b>НА ЗАВТРА</b>:", reply_markup=kb, parse_mode="HTML")
-    try: await c.answer()
-    except: pass
-
-@dp.callback_query(F.data.startswith("set_ev:"))
-async def cb_set_evening_time_save(c: CallbackQuery, state: FSMContext):
-    time_val = c.data.split(":")[1]
-    if time_val == "off":
-        await dao.hdel("user_evening_time", str(c.from_user.id))
-        await c.answer("Рассылка на завтра отключена")
-    elif time_val == "custom":
-        await state.set_state(UserStates.waiting_for_evening_time)
-        await c.message.edit_text("✍️ <b>Введите желаемое время</b> для рассылки на завтра.\nФормат ЧЧ:ММ (например, 20:30 или 07:15):", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_menu")]]))
-        await c.answer()
-        return
-    else:
-        time_full = c.data.replace("set_ev:", "")
-        await dao.hset("user_evening_time", str(c.from_user.id), time_full)
-        await c.answer(f"Время установлено на {time_full}")
-    await c.message.delete()
-    await show_subscription_menu(c.message)
-
-@dp.message(UserStates.waiting_for_evening_time)
-async def process_custom_evening_time(m: Message, state: FSMContext):
-    if re.match(r'^(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$', m.text):
-        await dao.hset("user_evening_time", str(m.from_user.id), m.text)
-        await state.clear()
-        await m.answer(f"✅ Время рассылки на завтра установлено на <b>{m.text}</b>", parse_mode="HTML")
-        await show_subscription_menu(m)
-    else:
-        await m.answer("❌ Неверный формат времени!\nПожалуйста, введите время в формате <b>ЧЧ:ММ</b> (от 00:00 до 23:59).", parse_mode="HTML")
 
 @dp.callback_query(F.data.startswith("sub:"))
 async def cb_sub(c: CallbackQuery):
