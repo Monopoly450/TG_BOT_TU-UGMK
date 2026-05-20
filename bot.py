@@ -658,7 +658,18 @@ async def show_filter_menu(m: Message, explicit_type: str = None):
     await m.answer("👇 Выберите:", reply_markup=kb)  
 
 @dp.message(F.text == "🎓 Моя группа")
-async def show_courses_menu(m: Message):
+async def handle_my_group_menu(m: Message):
+    subbed_group = await dao.hget("user_subs", str(m.from_user.id))
+    if subbed_group:
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🏫 Изменить группу", callback_data="change_my_group")],
+            [InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")]
+        ])
+        await m.answer(f"✅ Ваша текущая сохраненная группа: <b>{subbed_group}</b>", parse_mode="HTML", reply_markup=kb)
+    else:
+        await show_courses_menu(m)
+
+async def show_courses_menu(m_or_c):
     btns = [
         [InlineKeyboardButton(text="1️⃣ Первый курс", callback_data="course:25")],
         [InlineKeyboardButton(text="2️⃣ Второй курс", callback_data="course:24")],
@@ -666,7 +677,18 @@ async def show_courses_menu(m: Message):
         [InlineKeyboardButton(text="4️⃣ Четвертый курс", callback_data="course:22")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")]
     ]
-    await m.answer("🎓 Выберите курс:", reply_markup=InlineKeyboardMarkup(inline_keyboard=btns))
+    text = "🎓 Выберите курс:"
+    kb = InlineKeyboardMarkup(inline_keyboard=btns)
+    if isinstance(m_or_c, CallbackQuery):
+        await m_or_c.message.edit_text(text, reply_markup=kb)
+    else:
+        await m_or_c.answer(text, reply_markup=kb)
+
+@dp.callback_query(F.data == "change_my_group")
+async def cb_change_my_group(c: CallbackQuery):
+    await show_courses_menu(c)
+    try: await c.answer()
+    except: pass
 
 @dp.callback_query(F.data.startswith("course:"))
 async def cb_course(c: CallbackQuery):
@@ -691,8 +713,7 @@ async def cb_course(c: CallbackQuery):
 
 @dp.callback_query(F.data == "back_to_courses")
 async def cb_back_to_courses(c: CallbackQuery):
-    await c.message.delete()
-    await show_courses_menu(c.message)
+    await show_courses_menu(c)
     try: await c.answer()
     except: pass
 
