@@ -488,7 +488,7 @@ async def user_set_morning_time(m: Message, state: FSMContext):
         await dao.hset("user_morning_time", str(m.from_user.id), m.text)
         await state.clear()
         await m.answer(f"✅ Время рассылки на сегодня успешно установлено на <b>{m.text}</b>!", parse_mode="HTML")
-        await show_subscription_menu(m)
+        await show_subscription_time_menu(m)
     else:
         await m.answer("❌ <b>Неверный формат!</b>\nПожалуйста, введите время в формате <b>ЧЧ:ММ</b>.", parse_mode="HTML")
 
@@ -503,7 +503,7 @@ async def cb_set_morning_time_save(c: CallbackQuery, state: FSMContext):
         await c.answer(f"Время установлено на {time_val}")
     await state.clear()
     await c.message.delete()
-    await show_subscription_menu(c.message)
+    await show_subscription_time_menu(c.message)
 
 @dp.callback_query(F.data == "sub:evening_time")
 async def cb_sub_evening_time(c: CallbackQuery, state: FSMContext):
@@ -527,7 +527,7 @@ async def user_set_evening_time(m: Message, state: FSMContext):
         await dao.hset("user_evening_time", str(m.from_user.id), m.text)
         await state.clear()
         await m.answer(f"✅ Время рассылки на завтра успешно установлено на <b>{m.text}</b>!", parse_mode="HTML")
-        await show_subscription_menu(m)
+        await show_subscription_time_menu(m)
     else:
         await m.answer("❌ <b>Неверный формат!</b>\nПожалуйста, введите время в формате <b>ЧЧ:ММ</b> (например, <code>20:30</code>). Часы от 00 до 23, минуты от 00 до 59.", parse_mode="HTML")
 
@@ -542,7 +542,7 @@ async def cb_set_evening_time_save(c: CallbackQuery, state: FSMContext):
         await c.answer(f"Время установлено на {time_val}")
     await state.clear()
     await c.message.delete()
-    await show_subscription_menu(c.message)
+    await show_subscription_time_menu(c.message)
 
 async def run_evening_broadcast(target_time: str):
     users = await dao.hgetall("user_subs")
@@ -617,7 +617,7 @@ async def start(m: Message, state: FSMContext):
         
     await state.clear()
     await m.answer("👋 <b>Бот расписания готов к работе!</b>", reply_markup=get_main_menu(), parse_mode="HTML")
-    await show_subscription_menu(m)
+    await show_subscription_time_menu(m)
 
 
 @dp.message(F.text == "🔔 Моя подписка")
