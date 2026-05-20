@@ -267,8 +267,8 @@ def get_main_menu(val=None):
         ]
     else:
         kb = [
-            [KeyboardButton(text="🎓 Выбор группы"), KeyboardButton(text="🔔 Моя подписка")],
-            [KeyboardButton(text="🎓 Курс"), KeyboardButton(text="👩‍🏫 Преподаватели")],
+            [KeyboardButton(text="🎓 Моя группа"), KeyboardButton(text="🔔 Моя подписка")],
+            [KeyboardButton(text="📅 Мое расписание"), KeyboardButton(text="👩‍🏫 Преподаватели")],
             [KeyboardButton(text="🏫 Аудитории"), KeyboardButton(text="💻 Толк")],
             [KeyboardButton(text="🧹 Очистить")]
         ]
@@ -620,48 +620,34 @@ async def start(m: Message, state: FSMContext):
     await show_subscription_menu(m)
 
 
-@dp.message(F.text.in_(["🔔 Моя подписка", "🎓 Выбор группы"]))
-async def show_subscription_menu(m: Message):
+@dp.message(F.text == "🔔 Моя подписка")
+async def show_subscription_time_menu(m: Message):
     subbed_group = await dao.hget("user_subs", str(m.from_user.id))
-    db = GROUPS_DB
-    btns = [InlineKeyboardButton(text=n, callback_data=f"sub:{i}") for i, n in enumerate(db)]
-    
-    inline_kb = []
-    for i in range(0, len(btns), 2):
-        inline_kb.append(btns[i:i+2])
-    inline_kb.append([InlineKeyboardButton(text="🔕 Отписаться", callback_data="sub:unsubscribe")])
-    
+    if not subbed_group:
+        await m.answer("❌ Сначала выберите вашу группу в меню <b>«🎓 Моя группа»</b>, чтобы настроить время автоматической рассылки.", parse_mode="HTML")
+        return
+        
     morn_time = await dao.hget("user_morning_time", str(m.from_user.id)) or "08:00"
     eve_time = await dao.hget("user_evening_time", str(m.from_user.id)) or "Отключено"
     
-    inline_kb.append([InlineKeyboardButton(text=f"🌅 На сегодня: {morn_time}", callback_data="sub:morning_time")])
-    inline_kb.append([InlineKeyboardButton(text=f"🌙 На завтра: {eve_time}", callback_data="sub:evening_time")])
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"🌅 Утром ({morn_time})", callback_data="sub:morning_time"),
+         InlineKeyboardButton(text=f"🌙 Вечером ({eve_time})", callback_data="sub:evening_time")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")]
+    ])
     
-    inline_kb.append([InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")])
-    kb = InlineKeyboardMarkup(inline_keyboard=inline_kb)
-    
-    text = "🌅 <b>Настройки рассылки (УГМК, Екатеринбург)</b>\n\n"
-    if subbed_group:
-        group_name = subbed_group if subbed_group in db else next((k for k, v in db.items() if v == subbed_group), "Неизвестно")
-        text += f"✅ Текущая подписка: <b>{group_name}</b>\n\nВыберите новую или нажмите Отписаться:"
-    else:
-        text += "❌ Вы не подписаны.\nВыберите группу из списка ниже:"
-        
-    await m.answer(text, parse_mode="HTML", reply_markup=kb)
+    await m.answer(f"🔔 <b>Настройка ежедневной рассылки</b>\nГруппа: <b>{subbed_group}</b>\n\nВы будете автоматически получать расписание каждый день (от рассылок старосты отписаться нельзя). Настройте удобное время:", parse_mode="HTML", reply_markup=kb)
 
-@dp.callback_query(F.data.startswith("sub:"))
-async def cb_sub(c: CallbackQuery):
-    idx = c.data.split(":")[1]
-    if idx == "unsubscribe":
-        await dao.hdel("user_subs", str(c.from_user.id))
-        await c.message.edit_text("🔕 Вы отписались от утренней рассылки.")
-    else:
-        db = GROUPS_DB
-        gid = list(db.keys())[int(idx)]
-        await dao.hset("user_subs", str(c.from_user.id), gid)
-        await c.message.edit_text(f"✅ Вы успешно подписались на утреннюю рассылку для группы <b>{gid}</b>!\nКаждое утро в 08:00 бот будет присылать вам расписание на день.", parse_mode="HTML")
-    try: await c.answer()
-    except: pass
+@dp.message(F.text == "📅 Мое расписание")
+async def show_my_schedule(m: Message, state: FSMContext):
+    subbed_group = await dao.hget("user_subs", str(m.from_user.id))
+    if not subbed_group:
+        await m.answer("❌ Сначала выберите вашу группу в меню <b>«🎓 Моя группа»</b>.", parse_mode="HTML")
+        return
+        
+    await state.set_state(ScheduleStates.viewing)
+    await state.update_data(target_type="group", target_value=subbed_group)
+    await m.answer(f"📅 Расписание для группы <b>{subbed_group}</b>\nВыберите день:", parse_mode="HTML", reply_markup=get_main_menu(subbed_group))
 
 @dp.message(F.text.in_({"👩‍🏫 Преподаватели", "🏫 Аудитории"}))
 async def show_filter_menu(m: Message, explicit_type: str = None):
@@ -671,7 +657,7 @@ async def show_filter_menu(m: Message, explicit_type: str = None):
     kb = InlineKeyboardMarkup(inline_keyboard=[[btn] for btn in btns] + [[InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")]])
     await m.answer("👇 Выберите:", reply_markup=kb)  
 
-@dp.message(F.text == "🎓 Курс")
+@dp.message(F.text == "🎓 Моя группа")
 async def show_courses_menu(m: Message):
     btns = [
         [InlineKeyboardButton(text="1️⃣ Первый курс", callback_data="course:25")],
@@ -716,8 +702,16 @@ async def cb_sel(c: CallbackQuery, state: FSMContext):
     _, t_type, idx = c.data.split(":", 2)
     db = {"group": GROUPS_DB, "teacher": TEACHERS_DB, "classroom": CLASSROOMS_DB}[t_type]
     t_val = list(db.keys())[int(idx)]
-    await state.set_state(ScheduleStates.viewing), await state.update_data(target_type=t_type, target_value=t_val)
-    await c.message.answer(f"✅ Фильтр: <b>{t_val}</b>", parse_mode="HTML", reply_markup=get_main_menu(t_val)), await c.answer()
+    
+    if t_type == "group":
+        await dao.hset("user_subs", str(c.from_user.id), t_val)
+        await c.message.answer(f"✅ Ваша группа успешно сохранена: <b>{t_val}</b>\nТеперь вы будете получать важные уведомления от старосты.\n\nБыстро посмотреть расписание можно по кнопке «📅 Мое расписание».", parse_mode="HTML", reply_markup=get_main_menu())
+        await c.answer()
+    else:
+        await state.set_state(ScheduleStates.viewing)
+        await state.update_data(target_type=t_type, target_value=t_val)
+        await c.message.answer(f"✅ Фильтр: <b>{t_val}</b>", parse_mode="HTML", reply_markup=get_main_menu(t_val))
+        await c.answer()
 
 async def display_day_schedule(message: Message | CallbackQuery, state: FSMContext, target_date: date):   
     data = await state.get_data()
@@ -911,8 +905,16 @@ async def cb_sel(c: CallbackQuery, state: FSMContext):
     _, t_type, idx = c.data.split(":", 2)
     db = {"group": GROUPS_DB, "teacher": TEACHERS_DB, "classroom": CLASSROOMS_DB}[t_type]
     t_val = list(db.keys())[int(idx)]
-    await state.set_state(ScheduleStates.viewing), await state.update_data(target_type=t_type, target_value=t_val)
-    await c.message.answer(f"✅ Фильтр: <b>{t_val}</b>", parse_mode="HTML", reply_markup=get_main_menu(t_val)), await c.answer()
+    
+    if t_type == "group":
+        await dao.hset("user_subs", str(c.from_user.id), t_val)
+        await c.message.answer(f"✅ Ваша группа успешно сохранена: <b>{t_val}</b>\nТеперь вы будете получать важные уведомления от старосты.\n\nБыстро посмотреть расписание можно по кнопке «📅 Мое расписание».", parse_mode="HTML", reply_markup=get_main_menu())
+        await c.answer()
+    else:
+        await state.set_state(ScheduleStates.viewing)
+        await state.update_data(target_type=t_type, target_value=t_val)
+        await c.message.answer(f"✅ Фильтр: <b>{t_val}</b>", parse_mode="HTML", reply_markup=get_main_menu(t_val))
+        await c.answer()
 
 async def display_day_schedule(message: Message | CallbackQuery, state: FSMContext, target_date: date):   
     data = await state.get_data()
