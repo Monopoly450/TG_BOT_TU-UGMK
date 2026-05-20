@@ -231,6 +231,7 @@ class StarostStates(StatesGroup):
     waiting_for_course = State()
     waiting_for_group = State()
     waiting_for_message = State()
+    waiting_for_message_all = State()
 
 class AdminStates(StatesGroup):
     waiting_for_broadcast_message = State()
@@ -1135,6 +1136,7 @@ async def show_starosta_dashboard(m_or_c, user_id):
     name = await dao.hget("starosta_name", str(user_id))
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📨 Написать сообщение группе", callback_data="st_dash:broadcast")],
+        [InlineKeyboardButton(text="🌍 Написать всем пользователям", callback_data="st_dash:broadcast_all")],
         [InlineKeyboardButton(text="👤 Изменить имя", callback_data="st_dash:name")],
         [InlineKeyboardButton(text="🔑 Изменить пароль", callback_data="st_dash:pass")],
         [InlineKeyboardButton(text="❌ Выйти", callback_data="cancel_menu")]
@@ -1173,6 +1175,9 @@ async def starost_dash_action(c: CallbackQuery, state: FSMContext):
     elif action == "pass":
         await c.message.edit_text("🔑 Введите <b>Новый пароль</b> для панели старосты:", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="st_dash:back")]]))
         await state.set_state(StarostStates.waiting_for_new_pass)
+    elif action == "broadcast_all":
+        await c.message.edit_text("🌍 <b>Глобальная рассылка</b>\n\nНапишите текст, который будет разослан <b>ВСЕМ</b> подписчикам бота:", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="st_dash:back")]]))
+        await state.set_state(StarostStates.waiting_for_message_all)
     elif action == "broadcast":
         courses = set()
         for grp in GROUPS_DB.keys():
@@ -1262,6 +1267,34 @@ async def starost_broadcast(m: Message, state: FSMContext):
             logger.error(f"Failed to send to {uid}: {e}")
             
     await m.answer(f"✅ <b>Рассылка завершена!</b>\nУспешно доставлено: <b>{success} из {len(target_users)}</b>.", parse_mode="HTML")
+    await show_starosta_dashboard(m, str(m.from_user.id))
+
+@dp.message(StarostStates.waiting_for_message_all)
+async def starost_broadcast_all(m: Message, state: FSMContext):
+    starosta_name = await dao.hget("starosta_name", str(m.from_user.id))
+    await state.clear()
+    
+    subs = await dao.hgetall("user_subs")
+    target_users = list(subs.keys())
+    
+    if not target_users:
+        await m.answer("😔 В боте еще нет подписчиков.", parse_mode="HTML")
+        await show_starosta_dashboard(m, str(m.from_user.id))
+        return
+        
+    await m.answer(f"🌍 <b>Глобальная рассылка запущена!</b>\nОтправляю сообщение {len(target_users)} студентам...", parse_mode="HTML")
+    text = f"📢 <b>Важное сообщение от старосты ({starosta_name}):</b>\n\n{m.text}"
+    
+    success = 0
+    for uid in target_users:
+        try:
+            await bot.send_message(int(uid), text, parse_mode="HTML")
+            success += 1
+            await asyncio.sleep(0.05)
+        except Exception as e:
+            logger.error(f"Failed to send to {uid}: {e}")
+            
+    await m.answer(f"✅ <b>Глобальная рассылка завершена!</b>\nУспешно доставлено: <b>{success} из {len(target_users)}</b>.", parse_mode="HTML")
     await show_starosta_dashboard(m, str(m.from_user.id))
 
 @dp.message(F.text)
