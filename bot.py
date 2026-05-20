@@ -448,10 +448,15 @@ async def admin_actions(c: CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data == "sub:morning_time")
 async def cb_sub_morning_time(c: CallbackQuery, state: FSMContext):
     kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="07:00", callback_data="set_morn:07:00"),
+         InlineKeyboardButton(text="07:30", callback_data="set_morn:07:30"),
+         InlineKeyboardButton(text="08:00", callback_data="set_morn:08:00")],
+        [InlineKeyboardButton(text="08:30", callback_data="set_morn:08:30"),
+         InlineKeyboardButton(text="09:00", callback_data="set_morn:09:00")],
         [InlineKeyboardButton(text="🔕 Отключить", callback_data="set_morn:off")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")]
     ])
-    await c.message.edit_text("🌅 <b>Утренняя рассылка (на сегодня)</b>\n\nНапишите желаемое время в формате <b>ЧЧ:ММ</b> (например, <code>07:00</code>) прямо в чат:", reply_markup=kb, parse_mode="HTML")
+    await c.message.edit_text("🌅 <b>Утренняя рассылка (на сегодня)</b>\n\nВыберите время из кнопок <b>ИЛИ</b> напишите желаемое время в формате <b>ЧЧ:ММ</b> прямо в чат:", reply_markup=kb, parse_mode="HTML")
     await state.set_state(UserStates.waiting_for_morning_time)
     try: await c.answer()
     except: pass
@@ -468,10 +473,13 @@ async def user_set_morning_time(m: Message, state: FSMContext):
 
 @dp.callback_query(F.data.startswith("set_morn:"))
 async def cb_set_morning_time_save(c: CallbackQuery, state: FSMContext):
-    time_val = c.data.split(":")[1]
+    time_val = c.data.split(":", 1)[1]
     if time_val == "off":
         await dao.hset("user_morning_time", str(c.from_user.id), "Отключено")
         await c.answer("Рассылка на сегодня отключена")
+    else:
+        await dao.hset("user_morning_time", str(c.from_user.id), time_val)
+        await c.answer(f"Время установлено на {time_val}")
     await state.clear()
     await c.message.delete()
     await show_subscription_menu(c.message)
@@ -479,10 +487,15 @@ async def cb_set_morning_time_save(c: CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data == "sub:evening_time")
 async def cb_sub_evening_time(c: CallbackQuery, state: FSMContext):
     kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="18:00", callback_data="set_ev:18:00"),
+         InlineKeyboardButton(text="19:00", callback_data="set_ev:19:00"),
+         InlineKeyboardButton(text="20:00", callback_data="set_ev:20:00")],
+        [InlineKeyboardButton(text="21:00", callback_data="set_ev:21:00"),
+         InlineKeyboardButton(text="22:00", callback_data="set_ev:22:00")],
         [InlineKeyboardButton(text="🔕 Отключить", callback_data="set_ev:off")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")]
     ])
-    await c.message.edit_text("🕒 <b>Настройка вечерней рассылки (на завтра)</b>\n\nНапишите желаемое время в формате <b>ЧЧ:ММ</b> (например, <code>20:30</code>) прямо в чат:", reply_markup=kb, parse_mode="HTML")
+    await c.message.edit_text("🕒 <b>Настройка вечерней рассылки (на завтра)</b>\n\nВыберите время из кнопок <b>ИЛИ</b> напишите желаемое время в формате <b>ЧЧ:ММ</b> прямо в чат:", reply_markup=kb, parse_mode="HTML")
     await state.set_state(UserStates.waiting_for_evening_time)
     try: await c.answer()
     except: pass
@@ -499,10 +512,13 @@ async def user_set_evening_time(m: Message, state: FSMContext):
 
 @dp.callback_query(F.data.startswith("set_ev:"))
 async def cb_set_evening_time_save(c: CallbackQuery, state: FSMContext):
-    time_val = c.data.split(":")[1]
+    time_val = c.data.split(":", 1)[1]
     if time_val == "off":
         await dao.hdel("user_evening_time", str(c.from_user.id))
         await c.answer("Рассылка на завтра отключена")
+    else:
+        await dao.hset("user_evening_time", str(c.from_user.id), time_val)
+        await c.answer(f"Время установлено на {time_val}")
     await state.clear()
     await c.message.delete()
     await show_subscription_menu(c.message)
