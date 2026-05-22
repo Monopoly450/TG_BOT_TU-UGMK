@@ -11,7 +11,6 @@ import redis.asyncio as redis
 from typing import Any
 
 # ═══════════════════ НАСТРОЙКИ ═══════════════════
-PROXY_URL = os.getenv("PROXY_URL")
 SCHEDULE_URL = "https://up.corp.tu-ugmk.com/student/schedule"
 LOGIN = os.getenv("LOGIN", "uvybhjhhv@gmail.com")
 PASSWORD = os.getenv("PASSWORD", "qazwsxedcip60000OP")
@@ -75,7 +74,6 @@ class ScheduleParser:
         if self._initialized: return
         self.playwright = await async_playwright().start()
         l_kwargs = {"headless": True}
-        if PROXY_URL: l_kwargs["proxy"] = {"server": PROXY_URL}
         self.browser = await self.playwright.chromium.launch(**l_kwargs)
         self.ctx = await self.browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
