@@ -849,6 +849,7 @@ async def cb_back_to_courses(c: CallbackQuery):
 @dp.callback_query(F.data.startswith("fsel:"))       
 async def cb_sel(c: CallbackQuery, state: FSMContext):
     await c.message.delete()
+    _, t_type, idx = c.data.split(":")
     db_funcs = {"group": get_groups_db, "teacher": get_teachers_db, "classroom": get_classrooms_db}
     db = await db_funcs[t_type]()
     t_val = list(db.keys())[int(idx)]
