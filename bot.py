@@ -1379,8 +1379,10 @@ async def cb_ical_export(c: CallbackQuery, state: FSMContext):
             parse_mode="HTML"
         )
     except Exception as e:
-        logger.error(f"iCal export failed: {e}")
-        await c.message.answer("❌ Не удалось экспортировать календарь.")
+        import traceback
+        tb = traceback.format_exc()
+        logger.error(f"iCal export failed: {e}\n{tb}")
+        await c.message.answer(f"❌ Не удалось экспортировать календарь.\nОшибка: <code>{e}</code>\n<pre>{tb[:2000]}</pre>", parse_mode="HTML")
 
 @dp.message(F.text == "⭐ В избранное", ScheduleStates.viewing)
 async def add_to_favorites(m: Message, state: FSMContext):
