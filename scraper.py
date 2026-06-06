@@ -120,18 +120,56 @@ class ScheduleParser:
         mon = datetime.now() - timedelta(days=datetime.now().weekday()) + timedelta(weeks=offset)
         return mon.strftime("%d.%m.%Y"), (mon + timedelta(days=6)).strftime("%d.%m.%Y")
 
-    def _build_url(self, wo=0, t_type=None, t_val=None):
+    def _build_url(self, wo=0, t_type=None, t_val=None, oid=None):
         sd, ed = self._get_dates(wo)
-        db = {"group": GROUPS_DB, "teacher": TEACHERS_DB, "classroom": CLASSROOMS_DB}
         tm = {"group": "AcademicGroup", "teacher": "Teacher", "classroom": "Classroom"}
-        oid = db[t_type][t_val]
         url = f"{SCHEDULE_URL}?scheduleType=Week&objectType={tm[t_type]}&objectId={oid}&startDate={sd}&endDate={ed}&_referrer=%2Fstudent%2Findex"
         if t_type == "group": url += f"&another_group={urllib.parse.quote(t_val)}"
         return url
 
+    async def get_entity_id(self, t_type, t_val):
+        db_keys = {"group": "db_groups", "teacher": "db_teachers", "classroom": "db_classrooms"}
+        fallback_dbs = {"group": GROUPS_DB, "teacher": TEACHERS_DB, "classroom": CLASSROOMS_DB}
+        if dao.ok:
+            r_id = await dao.client.hget(db_keys[t_type], t_val)
+            if r_id: return r_id
+        return fallback_dbs[t_type].get(t_val)
+
+    async def discover_entities(self, html):
+        try:
+            if not dao.ok: await dao.connect()
+            if not dao.ok: return
+            soup = BeautifulSoup(html, "lxml")
+            for a in soup.find_all("a", href=True):
+                href = a["href"]
+                if "/student/schedule" in href:
+                    parsed_url = urllib.parse.urlparse(href)
+                    qs = urllib.parse.parse_qs(parsed_url.query)
+                    obj_type = qs.get("objectType", [None])[0]
+                    obj_id = qs.get("objectId", [None])[0]
+                    if not obj_type or not obj_id: continue
+                    name = a.get_text(strip=True)
+                    if not name: continue
+                    if obj_type == "AcademicGroup":
+                        group_name = qs.get("another_group", [None])[0]
+                        group_name = urllib.parse.unquote(group_name) if group_name else name
+                        await dao.client.hset("db_groups", group_name, obj_id)
+                    elif obj_type == "Teacher":
+                        await dao.client.hset("db_teachers", name, obj_id)
+                    elif obj_type == "Classroom":
+                        room_name = name
+                        if room_name and not room_name.startswith("Ауд."):
+                            room_name = f"Ауд. {room_name}"
+                        await dao.client.hset("db_classrooms", room_name, obj_id)
+        except Exception as e:
+            logger.error(f"Error in discover_entities: {e}")
+
     async def fetch(self, wo=0, t_type=None, t_val=None):
         try:
-            url = self._build_url(wo, t_type, t_val)
+            oid = await self.get_entity_id(t_type, t_val)
+            if not oid:
+                return {"_error": f"ID for {t_type} '{t_val}' not found"}
+            url = self._build_url(wo, t_type, t_val, oid)
             logger.info(f"[{t_type}] Fetching: {url}")
             await self.page.goto(url, wait_until="domcontentloaded", timeout=60000)
             if "login" in self.page.url.lower() or "auth" in self.page.url.lower():
@@ -151,6 +189,7 @@ class ScheduleParser:
             logger.info(f"Page title: {await self.page.title()}")
             html = await self.page.content()
             with open("debug_last_fetch.html", "w", encoding="utf-8") as f: f.write(html)
+            await self.discover_entities(html)
             res = self._parse(html, t_type, t_val)
             
             has_lessons = any(isinstance(v, list) and len(v) > 0 for k, v in res.items() if k != "_dates")
@@ -213,6 +252,17 @@ class ScheduleParser:
                     l_type = l_type_span.get_text(strip=True) if l_type_span else ""
                     subject = disc_text.replace(l_type, "").strip() if l_type else disc_text
                     
+                    # Ищем любые внешние ссылки в ячейках строки (например, Толк/Телемост)
+                    link_url = ""
+                    for cell in cells:
+                        for a_tag in cell.find_all("a", href=True):
+                            href = a_tag["href"]
+                            if href.startswith("http") and "/student/schedule" not in href:
+                                link_url = href
+                                break
+                        if link_url:
+                            break
+                    
                     lessons.append({
                         "time": cells[0].get_text(strip=True), 
                         "subject": subject,
@@ -220,6 +270,7 @@ class ScheduleParser:
                         "room": cells[2].get_text(strip=True) if len(cells) > 2 else "",
                         "group": cells[3].get_text(strip=True) if len(cells) > 4 else "", 
                         "teacher": cells[-1].get_text(strip=True) if len(cells) > 3 else "",
+                        "link": link_url,
                     })
             schedule[day_name] = lessons
             
@@ -243,12 +294,25 @@ class ScheduleParser:
                 if len(cells) < 3: continue
                 disc_text = cells[1].get_text(strip=True)
                 if not disc_text: continue
+                
+                # Ищем любые внешние ссылки в ячейках строки (например, Толк/Телемост)
+                link_url = ""
+                for cell in cells:
+                    for a_tag in cell.find_all("a", href=True):
+                        href = a_tag["href"]
+                        if href.startswith("http") and "/student/schedule" not in href:
+                            link_url = href
+                            break
+                    if link_url:
+                        break
+                
                 lessons.append({
                     "time": cells[0].get_text(strip=True), 
                     "subject": disc_text,
                     "room": cells[2].get_text(strip=True) if len(cells) > 2 else "",
                     "group": cells[3].get_text(strip=True) if len(cells) > 4 else "", 
                     "teacher": cells[-1].get_text(strip=True) if len(cells) > 3 else "",
+                    "link": link_url,
                 })
                 has_data_rows = True
             
