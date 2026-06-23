@@ -1982,7 +1982,7 @@ async def cb_ai_set_model_save(c: CallbackQuery):
     model = c.data.split(":")[1]
     await db_manager.set_user_ai_model(c.from_user.id, model)
     await c.answer(f"Модель изменена на {model}")
-    await show_ai_menu_directly(c.message, user_id=c.from_user.id)
+    await show_ai_menu_directly(c, user_id=c.from_user.id)
 
 @dp.callback_query(F.data == "ai:clear_context")
 async def cb_ai_clear_context(c: CallbackQuery):
@@ -1998,13 +1998,12 @@ async def cb_ai_close(c: CallbackQuery, state: FSMContext):
     await c.message.answer("🔙 Главное меню", reply_markup=get_main_menu())
     await c.answer()
 
-async def show_ai_menu_directly(message: Message, user_id: int = None):
-    uid = user_id or message.chat.id
-    user_row = await db_manager.get_user(uid)
+async def show_ai_menu_directly(message: Message | CallbackQuery, user_id: int = None):
+    uid = user_id or message.from_user.id
+    user_row = await db_manager.get_user(int(uid))
     model = user_row['ai_model'] if user_row else 'gpt-4o-mini'
     has_key = bool(user_row['custom_ai_key']) if user_row else False
     ai_balance = user_row['ai_balance'] if user_row else 0
-    key_status = "✅ Установлен" if has_key else "❌ Не установлен"
     
     text = (
         "🤖 <b>Панель ИИ-Ассистента</b>\n\n"
@@ -2020,7 +2019,10 @@ async def show_ai_menu_directly(message: Message, user_id: int = None):
         [InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model")],
         [InlineKeyboardButton(text="🧹 Очистить контекст", callback_data="ai:clear_context")]
     ])
-    await message.answer(text, reply_markup=kb, parse_mode="HTML")
+    if isinstance(message, CallbackQuery):
+        await message.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    else:
+        await message.answer(text, reply_markup=kb, parse_mode="HTML")
 
 
 @dp.callback_query(F.data == "ai:back_to_menu")
