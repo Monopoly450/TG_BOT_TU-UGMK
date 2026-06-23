@@ -12,12 +12,17 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - PROXY_URL=http://proxy:8888
+      - DB_HOST=db
+      - DB_USER=postgres
+      - DB_PASSWORD=ugmk_postgres_pass
+      - DB_NAME=tu_bot
     volumes:
       - bot_data:/app/data
       - shared_cache:/app/cache
     depends_on:
       - redis
       - proxy
+      - db
     command: python bot.py
 
   # ⚙️ Воркеры (Скраперы) - парсинг сайта
@@ -30,11 +35,16 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - PROXY_URL=http://proxy:8888
+      - DB_HOST=db
+      - DB_USER=postgres
+      - DB_PASSWORD=ugmk_postgres_pass
+      - DB_NAME=tu_bot
     volumes:
       - shared_cache:/app/cache
     depends_on:
       - redis
       - proxy
+      - db
     deploy:
       replicas: 5
     command: python scraper.py
@@ -55,7 +65,38 @@ services:
       - redis_data:/data
     command: redis-server --save 60 1 --loglevel warning
 
+  # 🐘 База данных (PostgreSQL) - реляционные данные
+  db:
+    image: postgres:alpine
+    container_name: postgres_db
+    restart: always
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=ugmk_postgres_pass
+      - POSTGRES_DB=tu_bot
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+  # 🖥️ Веб-панель управления администратора
+  dashboard:
+    build: .
+    container_name: admin_dashboard
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - DB_HOST=db
+      - DB_USER=postgres
+      - DB_PASSWORD=ugmk_postgres_pass
+      - DB_NAME=tu_bot
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+    command: uvicorn dashboard:app --host 0.0.0.0 --port 8080
+
 volumes:
   redis_data:
   bot_data:
   shared_cache:
+  pg_data:

@@ -19,6 +19,7 @@ from aiogram.client.session.middlewares.base import BaseRequestMiddleware # type
 from aiogram.types import ( # type: ignore
     Message, CallbackQuery, InlineKeyboardButton,    
     InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton,
+    LabeledPrice, PreCheckoutQuery, SuccessfulPayment, BufferedInputFile
 )
 from aiogram.filters import CommandStart, Command # type: ignore
 from aiogram.fsm.storage.memory import MemoryStorage # type: ignore
@@ -28,6 +29,11 @@ from aiogram.exceptions import TelegramBadRequest # type: ignore
 from aiogram.dispatcher.middlewares.base import BaseMiddleware # type: ignore
 import redis.asyncio as redis # type: ignore
 from secure_store import SecureStore
+from db_manager import db_manager
+from ai_manager import get_ai_response
+import vpn_manager
+import io
+import qrcode
 
 # ═══════════════════ НАСТРОЙКИ ═══════════════════
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -112,6 +118,12 @@ class IncomingMessageTracker(BaseMiddleware):
                         "updated_at": datetime.now(timezone.utc).isoformat()
                     }
                     secure_store.save_user(str(user.id), profile_data)
+                    # Register/update user in PostgreSQL
+                    await db_manager.register_or_update_user(
+                        telegram_id=user.id,
+                        username=user.username,
+                        group_name=await dao.hget("user_subs", str(user.id))
+                    )
             except Exception as e:
                 logger.error(f"Tracking failed: {e}")
         return await handler(event, data)
@@ -249,6 +261,9 @@ class UserStates(StatesGroup):
     waiting_for_morning_time = State()
     waiting_for_teacher_search = State()
     waiting_for_classroom_search = State()
+    waiting_for_ai_prompt = State()
+    waiting_for_ai_key = State()
+    waiting_for_activation_key = State()
 
 class StarostStates(StatesGroup):
     waiting_for_password = State()
@@ -262,9 +277,18 @@ class StarostStates(StatesGroup):
     waiting_for_hw_lesson = State()
     waiting_for_hw_text = State()
     waiting_for_hw_delete = State()
+    waiting_for_poll_question = State()
+    waiting_for_poll_options = State()
 
 class AdminStates(StatesGroup):
     waiting_for_broadcast_message = State()
+    waiting_for_event_title = State()
+    waiting_for_event_desc = State()
+    waiting_for_event_date = State()
+    waiting_for_event_link = State()
+    waiting_for_channel_name = State()
+    waiting_for_channel_link = State()
+    waiting_for_channel_cat = State()
 
 def get_greeting() -> str:
     tz = timezone(timedelta(hours=5))
@@ -297,10 +321,12 @@ def get_main_menu(val=None):
         ]
     else:
         kb = [
-            [KeyboardButton(text="🎓 Моя группа"), KeyboardButton(text="🔔 Моя подписка")],
-            [KeyboardButton(text="📅 Мое расписание"), KeyboardButton(text="⭐ Избранное")],
+            [KeyboardButton(text="📅 Мое расписание"), KeyboardButton(text="🎓 Моя группа")],
+            [KeyboardButton(text="🤖 ИИ-Ассистент"), KeyboardButton(text="🔌 VPN-сервис")],
+            [KeyboardButton(text="🏫 Экосистема"), KeyboardButton(text="⭐ Избранное")],
+            [KeyboardButton(text="🔔 Моя подписка"), KeyboardButton(text="🧹 Очистить")],
             [KeyboardButton(text="👩‍🏫 Преподаватели"), KeyboardButton(text="🏫 Аудитории")],
-            [KeyboardButton(text="💻 Толк"), KeyboardButton(text="🧹 Очистить")]
+            [KeyboardButton(text="💻 Толк")]
         ]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
@@ -738,6 +764,12 @@ async def start(m: Message, state: FSMContext):
             "updated_at": datetime.now(timezone.utc).isoformat()
         }
         secure_store.save_user(str(m.from_user.id), profile_data)
+        # Register user in PostgreSQL
+        await db_manager.register_or_update_user(
+            telegram_id=m.from_user.id,
+            username=m.from_user.username,
+            group_name=await dao.hget("user_subs", str(m.from_user.id))
+        )
         
     await state.clear()
     await m.answer("👋 <b>Бот расписания готов к работе!</b>", reply_markup=get_main_menu(), parse_mode="HTML")
@@ -856,6 +888,7 @@ async def cb_sel(c: CallbackQuery, state: FSMContext):
     
     if t_type == "group":
         await dao.hset("user_subs", str(c.from_user.id), t_val)
+        await db_manager.register_or_update_user(c.from_user.id, c.from_user.username, t_val)
         await c.message.answer(f"✅ Ваша группа успешно сохранена: <b>{t_val}</b>\nТеперь вы будете получать важные уведомления от старосты.\n\nБыстро посмотреть расписание можно по кнопке «📅 Мое расписание».", parse_mode="HTML", reply_markup=get_main_menu())
         await c.answer()
     else:
@@ -1069,6 +1102,7 @@ async def notify_on_shutdown():
         logger.error(f"Notify on shutdown failed: {e}")
 
 async def main():
+    await db_manager.init_db()
     if PROXY_URL: logger.info(f"🌐 Используется прокси: {PROXY_URL}")
     dp.startup.register(notify_on_startup)
     dp.shutdown.register(notify_on_shutdown)
@@ -1084,13 +1118,15 @@ async def show_starosta_dashboard(m_or_c, user_id):
     name = await dao.hget("starosta_name", str(user_id))
     group = await dao.hget("starosta_group_saved", str(user_id))
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📨 Написать сообщение группе", callback_data="st_dash:broadcast")],
-        [InlineKeyboardButton(text="🏫 Изменить свою группу", callback_data="st_dash:change_group")],
-        [InlineKeyboardButton(text="📝 Добавить домашнее задание", callback_data="st_dash:add_hw")],
-        [InlineKeyboardButton(text="❌ Удалить домашнее задание", callback_data="st_dash:del_hw")],
-        [InlineKeyboardButton(text="🌍 Написать всем пользователям", callback_data="st_dash:broadcast_all")],
-        [InlineKeyboardButton(text="👤 Изменить имя", callback_data="st_dash:name")],
-        [InlineKeyboardButton(text="🔑 Изменить пароль", callback_data="st_dash:pass")],
+        [InlineKeyboardButton(text="📨 Сообщение группе", callback_data="st_dash:broadcast"),
+         InlineKeyboardButton(text="📊 Создать опрос", callback_data="st_dash:create_poll")],
+        [InlineKeyboardButton(text="📝 Добавить Д/З", callback_data="st_dash:add_hw"),
+         InlineKeyboardButton(text="❌ Удалить Д/З", callback_data="st_dash:del_hw")],
+        [InlineKeyboardButton(text="📈 Результаты опросов", callback_data="st_dash:poll_results")],
+        [InlineKeyboardButton(text="🏫 Изменить группу", callback_data="st_dash:change_group"),
+         InlineKeyboardButton(text="👤 Изменить имя", callback_data="st_dash:name")],
+        [InlineKeyboardButton(text="🌍 Написать всем", callback_data="st_dash:broadcast_all"),
+         InlineKeyboardButton(text="🔑 Изменить пароль", callback_data="st_dash:pass")],
         [InlineKeyboardButton(text="❌ Выйти", callback_data="cancel_menu")]
     ])
     text = f"🎓 <b>Панель старосты</b>\n\n👤 Сохраненное имя: <b>{name}</b>\n🏫 Ваша группа: <b>{group or 'Не выбрана'}</b>\n\nВыберите действие:"
@@ -1537,6 +1573,1064 @@ async def cb_st_hw_del(c: CallbackQuery, state: FSMContext):
     await c.answer("🗑 Д/З успешно удалено!")
     await state.clear()
     await show_starosta_dashboard(c, uid)
+
+# ═══════════════════ ИИ-АССИСТЕНТ ═══════════════════
+@dp.message(F.text == "🤖 ИИ-Ассистент")
+@dp.message(Command("ai"))
+async def ai_menu(m: Message, state: FSMContext):
+    await state.clear()
+    uid = m.from_user.id
+    user_row = await db_manager.get_user(uid)
+    
+    if not user_row:
+        await db_manager.register_or_update_user(uid, m.from_user.username)
+        user_row = await db_manager.get_user(uid)
+        
+    model = user_row['ai_model'] if user_row else 'gemini-1.5-flash'
+    has_key = bool(user_row['custom_ai_key']) if user_row else False
+    ai_balance = user_row['ai_balance'] if user_row else 0
+    key_status = "✅ Установлен" if has_key else "❌ Не установлен"
+    
+    text = (
+        "🤖 <b>Панель ИИ-Ассистента</b>\n\n"
+        f"🧠 Выбранная модель: <code>{model}</code>\n"
+        f"🔑 Личный API-ключ: <b>{key_status}</b>\n"
+        f"💳 Баланс ИИ-запросов (OpenRouter): <b>{ai_balance}</b>\n\n"
+        "Вы можете использовать ИИ, установив собственный API-ключ в настройках, "
+        "или приобрести баланс ИИ-запросов за Telegram звезды."
+    )
+    
+    can_chat = has_key or (ai_balance > 0)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💬 Начать диалог", callback_data="ai:chat") if can_chat else
+         InlineKeyboardButton(text="💬 Начать диалог (нужен ключ/баланс)", callback_data="ai:need_key")],
+        [InlineKeyboardButton(text="💳 Купить 100 запросов (50 ⭐)", callback_data="ai:buy_requests"),
+         InlineKeyboardButton(text="🔑 Активировать ключ", callback_data="ai:activate_key")],
+        [InlineKeyboardButton(text="🔑 Установить API-ключ", callback_data="ai:set_key"),
+         InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model")],
+        [InlineKeyboardButton(text="🧹 Очистить контекст диалога", callback_data="ai:clear_context")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")]
+    ])
+    await m.answer(text, reply_markup=kb, parse_mode="HTML")
+
+@dp.callback_query(F.data == "ai:chat")
+async def cb_ai_chat(c: CallbackQuery, state: FSMContext):
+    uid = c.from_user.id
+    user_row = await db_manager.get_user(uid)
+    has_key = bool(user_row['custom_ai_key']) if user_row else False
+    ai_balance = user_row['ai_balance'] if user_row else 0
+    
+    if not has_key and ai_balance <= 0:
+        await c.answer("⚠️ У вас нет личного ключа и баланс запросов равен 0!", show_alert=True)
+        return
+        
+    await state.set_state(UserStates.waiting_for_ai_prompt)
+    await state.update_data(
+        ai_key=user_row['custom_ai_key'] if has_key else None,
+        ai_model=user_row['ai_model']
+    )
+    
+    kb = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Выйти из чата ИИ")]], resize_keyboard=True)
+    await c.message.answer(
+        "💬 <b>Диалог с ИИ запущен!</b>\n\n"
+        "Отправьте любое сообщение, и ИИ ответит вам с учетом контекста переписки.\n"
+        "Чтобы завершить общение, нажмите кнопку <b>«❌ Выйти из чата ИИ»</b> ниже.",
+        reply_markup=kb,
+        parse_mode="HTML"
+    )
+    await c.message.delete()
+    await c.answer()
+
+@dp.callback_query(F.data == "ai:need_key")
+async def cb_ai_need_key(c: CallbackQuery):
+    await c.answer("⚠️ У вас нет личного ключа и ваш баланс ИИ равен 0. Пожалуйста, пополните баланс!", show_alert=True)
+
+@dp.message(UserStates.waiting_for_ai_prompt)
+async def ai_chat_message(m: Message, state: FSMContext):
+    if m.text == "❌ Выйти из чата ИИ":
+        await state.clear()
+        await m.answer("👋 Диалог завершен.", reply_markup=get_main_menu())
+        return
+        
+    data = await state.get_data()
+    api_key = data.get("ai_key")
+    model_name = data.get("ai_model", "gemini-1.5-flash")
+    uid = m.from_user.id
+    
+    has_custom_key = bool(api_key)
+    if not has_custom_key:
+        balance = await db_manager.check_user_ai_balance(uid)
+        if balance <= 0:
+            await state.clear()
+            await m.answer("❌ <b>Недостаточно запросов!</b>\nВаш баланс равен 0. Чат завершен.", reply_markup=get_main_menu(), parse_mode="HTML")
+            return
+            
+    history_key = f"ai_history:{uid}"
+    history = []
+    history_str = await dao.get(history_key)
+    if history_str:
+        try:
+            history = json.loads(history_str)
+        except Exception:
+            history = []
+            
+    async with loading_animation(m.chat.id):
+        try:
+            response_text = await get_ai_response(
+                prompt=m.text,
+                api_key=api_key,
+                model_name=model_name,
+                history=history
+            )
+            
+            await db_manager.log_ai_request(
+                telegram_id=uid,
+                prompt=m.text,
+                response=response_text,
+                model_used=model_name
+            )
+            
+            if not has_custom_key:
+                await db_manager.decrement_user_ai_balance(uid)
+                new_bal = await db_manager.check_user_ai_balance(uid)
+                response_text += f"\n\n<i>(Осталось запросов: {new_bal})</i>"
+            
+            history.append({"role": "user", "content": m.text})
+            history.append({"role": "assistant", "content": response_text})
+            history = history[-10:]
+            
+            await dao.setex(history_key, 3600, json.dumps(history, ensure_ascii=False))
+            
+            if len(response_text) > 4096:
+                for chunk in [response_text[i:i+4000] for i in range(0, len(response_text), 4000)]:
+                    await m.answer(chunk)
+            else:
+                await m.answer(response_text, parse_mode="HTML")
+                
+        except Exception as e:
+            logger.error(f"AI response failed: {e}")
+            await m.answer(
+                f"❌ <b>Ошибка вызова ИИ:</b>\n<code>{str(e)}</code>\n\n"
+                "Пожалуйста, обратитесь к администратору.",
+                parse_mode="HTML"
+            )
+
+@dp.callback_query(F.data == "ai:set_key")
+async def cb_ai_set_key(c: CallbackQuery, state: FSMContext):
+    await state.set_state(UserStates.waiting_for_ai_key)
+    await c.message.answer(
+        "🔑 <b>Установка API-ключа ИИ</b>\n\n"
+        "Отправьте ваш API-ключ в ответ на это сообщение.\n"
+        "• Для <b>Google Gemini</b> ключ обычно начинается с <code>AIzaSy...</code>\n"
+        "• Для <b>OpenAI GPT</b> ключ начинается с <code>sk-...</code>\n\n"
+        "Ваш ключ будет сохранен в базе данных.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="ai_cancel_settings")]]),
+        parse_mode="HTML"
+    )
+    await c.answer()
+
+@dp.message(UserStates.waiting_for_ai_key)
+async def process_ai_key(m: Message, state: FSMContext):
+    key = m.text.strip()
+    if len(key) < 20:
+        await m.answer("❌ Слишком короткий ключ. Пожалуйста, проверьте и пришлите корректный ключ.")
+        return
+        
+    await db_manager.set_user_ai_key(m.from_user.id, key)
+    await state.clear()
+    
+    try: await m.delete()
+    except Exception: pass
+        
+    await m.answer("✅ <b>API-ключ успешно сохранен!</b> Ваше сообщение с ключом было удалено из чата для безопасности.", parse_mode="HTML")
+    await show_ai_menu_directly(m)
+
+@dp.callback_query(F.data == "ai:select_model")
+async def cb_ai_select_model(c: CallbackQuery):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="♊ Gemini 1.5 Flash (Быстрая)", callback_data="ai_set_mod:gemini-1.5-flash")],
+        [InlineKeyboardButton(text="♊ Gemini 1.5 Pro (Умная)", callback_data="ai_set_mod:gemini-1.5-pro")],
+        [InlineKeyboardButton(text="🧠 GPT-4o-mini (Быстрая OpenAI)", callback_data="ai_set_mod:gpt-4o-mini")],
+        [InlineKeyboardButton(text="🧠 GPT-4o (Умная OpenAI)", callback_data="ai_set_mod:gpt-4o")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="ai_cancel_settings")]
+    ])
+    await c.message.edit_text("⚙️ <b>Выберите модель ИИ:</b>", reply_markup=kb, parse_mode="HTML")
+    await c.answer()
+
+@dp.callback_query(F.data.startswith("ai_set_mod:"))
+async def cb_ai_set_model_save(c: CallbackQuery):
+    model = c.data.split(":")[1]
+    await db_manager.set_user_ai_model(c.from_user.id, model)
+    await c.answer(f"Модель изменена на {model}")
+    await show_ai_menu_directly(c.message, user_id=c.from_user.id)
+
+@dp.callback_query(F.data == "ai:clear_context")
+async def cb_ai_clear_context(c: CallbackQuery):
+    history_key = f"ai_history:{c.from_user.id}"
+    await dao.delete(history_key)
+    await c.answer("🧹 Контекст диалога успешно очищен!", show_alert=True)
+
+@dp.callback_query(F.data == "ai_cancel_settings")
+@dp.callback_query(F.data == "ai:close")
+async def cb_ai_close(c: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await c.message.delete()
+    await c.message.answer("🔙 Главное меню", reply_markup=get_main_menu())
+    await c.answer()
+
+async def show_ai_menu_directly(message: Message, user_id: int = None):
+    uid = user_id or message.chat.id
+    user_row = await db_manager.get_user(uid)
+    model = user_row['ai_model'] if user_row else 'gemini-1.5-flash'
+    has_key = bool(user_row['custom_ai_key']) if user_row else False
+    ai_balance = user_row['ai_balance'] if user_row else 0
+    key_status = "✅ Установлен" if has_key else "❌ Не установлен"
+    
+    text = (
+        "🤖 <b>Панель ИИ-Ассистента</b>\n\n"
+        f"🧠 Выбранная модель: <code>{model}</code>\n"
+        f"🔑 Личный API-ключ: <b>{key_status}</b>\n"
+        f"💳 Баланс ИИ-запросов (OpenRouter): <b>{ai_balance}</b>\n\n"
+        "Вы можете использовать ИИ, установив собственный API-ключ в настройках, "
+        "или приобрести баланс ИИ-запросов за Telegram звезды."
+    )
+    
+    can_chat = has_key or (ai_balance > 0)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💬 Начать диалог", callback_data="ai:chat") if can_chat else
+         InlineKeyboardButton(text="💬 Начать диалог (нужен ключ/баланс)", callback_data="ai:need_key")],
+        [InlineKeyboardButton(text="💳 Купить 100 запросов (50 ⭐)", callback_data="ai:buy_requests"),
+         InlineKeyboardButton(text="🔑 Активировать ключ", callback_data="ai:activate_key")],
+        [InlineKeyboardButton(text="🔑 Установить API-ключ", callback_data="ai:set_key"),
+         InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model")],
+        [InlineKeyboardButton(text="🧹 Очистить контекст диалога", callback_data="ai:clear_context")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")]
+    ])
+    await message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+
+# ═══════════════════ VPN-СЕРВИС ═══════════════════
+@dp.message(F.text == "🔌 VPN-сервис")
+@dp.message(Command("vpn"))
+async def vpn_menu(m: Message, state: FSMContext):
+    await state.clear()
+    uid = m.from_user.id
+    user_row = await db_manager.get_user(uid)
+    
+    if not user_row:
+        await db_manager.register_or_update_user(uid, m.from_user.username)
+        user_row = await db_manager.get_user(uid)
+        
+    vpn_enabled = user_row['vpn_enabled'] if user_row else False
+    
+    if vpn_enabled:
+        text = (
+            "🔌 <b>Ваша подписка на VPN активна!</b>\n\n"
+            "Вы можете скачать файл конфигурации или отсканировать QR-код для быстрого импорта в приложение WireGuard.\n\n"
+            "<b>Инструкция по настройке:</b>\n"
+            "1. Установите приложение <b>WireGuard</b> из App Store или Google Play.\n"
+            "2. Отсканируйте QR-код ниже или импортируйте файл конфигурации.\n"
+            "3. Включите соединение в приложении."
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📁 Скачать файл .conf", callback_data="vpn:get_file"),
+             InlineKeyboardButton(text="🖼 Показать QR-код", callback_data="vpn:get_qr")],
+            [InlineKeyboardButton(text="❌ Отключить VPN", callback_data="vpn:disable")],
+            [InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")]
+        ])
+    else:
+        text = (
+            "🔌 <b>Собственный VPN-сервис</b>\n\n"
+            "Мы предоставляем стабильный, быстрый и безопасный доступ к зарубежным образовательным платформам и библиотекам.\n\n"
+            "Стоимость подписки составляет <b>150 ⭐ (Telegram Stars)</b>.\n"
+            "После оплаты вы получите:\n"
+            "1. Личный профиль WireGuard VPN со стабильной скоростью.\n"
+            "2. Уникальный промокод на <b>100 запросов к ИИ-Ассистенту</b>."
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💳 Приобрести подписку (150 ⭐)", callback_data="vpn:buy")],
+            [InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")]
+        ])
+        
+    await m.answer(text, reply_markup=kb, parse_mode="HTML")
+
+@dp.callback_query(F.data == "vpn:enable")
+async def cb_vpn_enable(c: CallbackQuery):
+    uid = c.from_user.id
+    await c.message.edit_text("⏳ <b>Генерация персональных ключей и настройка сервера...</b>\nПожалуйста, подождите.", parse_mode="HTML")
+    
+    try:
+        user_row = await db_manager.get_user(uid)
+        user_db_id = user_row['id'] if user_row else 1
+        
+        config_text = await vpn_manager.generate_user_vpn_config(user_db_id)
+        await db_manager.set_user_vpn(uid, enabled=True, key=config_text)
+        
+        await c.message.delete()
+        
+        from aiogram.types import BufferedInputFile
+        file_data = BufferedInputFile(config_text.encode("utf-8"), filename=f"tu_ugmk_vpn_{uid}.conf")
+        await c.message.answer_document(
+            document=file_data,
+            caption="✅ <b>VPN успешно подключен!</b>\n\nИмпортируйте этот файл в приложение WireGuard.\nВы также можете получить QR-код для настройки через меню.",
+            parse_mode="HTML"
+        )
+        await show_vpn_menu_directly(c.message, user_id=uid)
+        
+    except Exception as e:
+        logger.error(f"VPN activation failed for {uid}: {e}")
+        await c.message.edit_text(
+            f"❌ <b>Не удалось активировать VPN:</b>\n<code>{str(e)}</code>\n\nПожалуйста, обратитесь к администратору.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")]]),
+            parse_mode="HTML"
+        )
+    await c.answer()
+
+@dp.callback_query(F.data == "vpn:get_file")
+async def cb_vpn_get_file(c: CallbackQuery):
+    uid = c.from_user.id
+    user_row = await db_manager.get_user(uid)
+    if not user_row or not user_row['vpn_enabled'] or not user_row['vpn_key']:
+        await c.answer("⚠️ У вас нет активного VPN-ключа!", show_alert=True)
+        return
+        
+    from aiogram.types import BufferedInputFile
+    config_text = user_row['vpn_key']
+    file_data = BufferedInputFile(config_text.encode("utf-8"), filename=f"tu_ugmk_vpn_{uid}.conf")
+    
+    await c.message.answer_document(
+        document=file_data,
+        caption="📁 Ваш файл конфигурации WireGuard."
+    )
+    await c.answer()
+
+@dp.callback_query(F.data == "vpn:get_qr")
+async def cb_vpn_get_qr(c: CallbackQuery):
+    uid = c.from_user.id
+    user_row = await db_manager.get_user(uid)
+    if not user_row or not user_row['vpn_enabled'] or not user_row['vpn_key']:
+        await c.answer("⚠️ У вас нет активного VPN-ключа!", show_alert=True)
+        return
+        
+    await c.answer("⏳ Генерация QR-кода...")
+    
+    config_text = user_row['vpn_key']
+    
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=10,
+        border=4,
+    )
+    qr.add_data(config_text)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    bio = io.BytesIO()
+    img.save(bio, "PNG")
+    bio.seek(0)
+    
+    from aiogram.types import BufferedInputFile
+    photo_file = BufferedInputFile(bio.read(), filename="vpn_qr.png")
+    await c.message.answer_photo(
+        photo=photo_file,
+        caption="🖼 <b>QR-код для импорта в WireGuard:</b>\nОтсканируйте его камерой из приложения WireGuard для мгновенной настройки.",
+        parse_mode="HTML"
+    )
+
+@dp.callback_query(F.data == "vpn:disable")
+async def cb_vpn_disable(c: CallbackQuery):
+    uid = c.from_user.id
+    user_row = await db_manager.get_user(uid)
+    await db_manager.set_user_vpn(uid, enabled=False)
+    
+    # Try cleaning peer from WireGuard server if configured
+    try:
+        if user_row and user_row['vpn_key'] and vpn_manager.VPN_SSH_HOST:
+            import base64
+            from cryptography.hazmat.primitives.asymmetric import x25519
+            from cryptography.hazmat.primitives import serialization
+            
+            priv_key_match = re.search(r'PrivateKey\s*=\s*([a-zA-Z0-9+/=]+)', user_row['vpn_key'])
+            if priv_key_match:
+                priv_key_b64 = priv_key_match.group(1)
+                priv_bytes = base64.b64decode(priv_key_b64)
+                private_key = x25519.X25519PrivateKey.from_private_bytes(priv_bytes)
+                public_key = private_key.public_key()
+                pub_bytes = public_key.public_bytes(
+                    encoding=serialization.Encoding.Raw,
+                    format=serialization.PublicFormat.Raw
+                )
+                pub_key_b64 = base64.b64encode(pub_bytes).decode('utf-8')
+                
+                import asyncssh
+                async with asyncssh.connect(vpn_manager.VPN_SSH_HOST, username=vpn_manager.VPN_SSH_USER, password=vpn_manager.VPN_SSH_PASSWORD, known_hosts=None) as conn:
+                    await conn.run(f"sudo wg set wg0 peer {pub_key_b64} remove")
+                    await conn.run(f"sudo sed -i '/{pub_key_b64}/,+2d' /etc/wireguard/wg0.conf")
+    except Exception as e:
+        logger.error(f"Failed to remove WG peer on server for {uid}: {e}")
+        
+    await c.answer("VPN успешно отключен", show_alert=True)
+    await c.message.delete()
+    await show_vpn_menu_directly(c.message, user_id=uid)
+
+async def show_vpn_menu_directly(message: Message, user_id: int = None):
+    uid = user_id or message.chat.id
+    user_row = await db_manager.get_user(uid)
+    vpn_enabled = user_row['vpn_enabled'] if user_row else False
+    
+    if vpn_enabled:
+        text = (
+            "🔌 <b>Ваша подписка на VPN активна!</b>\n\n"
+            "Вы можете скачать файл конфигурации или отсканировать QR-код для быстрого импорта в приложение WireGuard.\n\n"
+            "<b>Инструкция по настройке:</b>\n"
+            "1. Установите приложение <b>WireGuard</b> из App Store или Google Play.\n"
+            "2. Отсканируйте QR-код ниже или импортируйте файл конфигурации.\n"
+            "3. Включите соединение в приложении."
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📁 Скачать файл .conf", callback_data="vpn:get_file"),
+             InlineKeyboardButton(text="🖼 Показать QR-код", callback_data="vpn:get_qr")],
+            [InlineKeyboardButton(text="❌ Отключить VPN", callback_data="vpn:disable")],
+            [InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")]
+        ])
+    else:
+        text = (
+            "🔌 <b>Собственный VPN-сервис</b>\n\n"
+            "Мы предоставляем стабильный, быстрый и безопасный доступ к зарубежным образовательным платформам и библиотекам.\n\n"
+            "Стоимость подписки составляет <b>150 ⭐ (Telegram Stars)</b>.\n"
+            "После оплаты вы получите:\n"
+            "1. Личный профиль WireGuard VPN со стабильной скоростью.\n"
+            "2. Уникальный промокод на <b>100 запросов к ИИ-Ассистенту</b>."
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💳 Приобрести подписку (150 ⭐)", callback_data="vpn:buy")],
+            [InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")]
+        ])
+    await message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+
+# ═══════════════════ ПЛАТЕЖНЫЕ ХЭНДЛЕРЫ И АКТИВАЦИЯ КЛЮЧЕЙ ═══════════════════
+
+@dp.callback_query(F.data == "vpn:buy")
+async def cb_vpn_buy(c: CallbackQuery):
+    uid = c.from_user.id
+    prices = [LabeledPrice(label="Подписка VPN + 100 ИИ", amount=150)]
+    try:
+        await c.message.answer_invoice(
+            title="Подписка VPN + 100 запросов ИИ",
+            description="Доступ к быстрому VPN-сервису WireGuard на 30 дней и 100 запросов к ИИ ассистенту через OpenRouter.",
+            payload="vpn_subscription",
+            provider_token="",
+            currency="XTR",
+            prices=prices
+        )
+        await c.answer("Счет выставлен!")
+    except Exception as e:
+        logger.error(f"Failed to send invoice for VPN: {e}")
+        await c.answer("⚠️ Не удалось выставить счет. Обратитесь к администратору.", show_alert=True)
+
+@dp.callback_query(F.data == "ai:buy_requests")
+async def cb_ai_buy_requests(c: CallbackQuery):
+    uid = c.from_user.id
+    prices = [LabeledPrice(label="100 ИИ-запросов", amount=50)]
+    try:
+        await c.message.answer_invoice(
+            title="100 запросов к ИИ-Ассистенту",
+            description="Пополнение баланса ИИ-Ассистента через OpenRouter на 100 дополнительных запросов.",
+            payload="ai_100_requests",
+            provider_token="",
+            currency="XTR",
+            prices=prices
+        )
+        await c.answer("Счет выставлен!")
+    except Exception as e:
+        logger.error(f"Failed to send invoice for AI: {e}")
+        await c.answer("⚠️ Не удалось выставить счет. Обратитесь к администратору.", show_alert=True)
+
+@dp.pre_checkout_query()
+async def process_pre_checkout_query(pre_checkout_query: PreCheckoutQuery):
+    await pre_checkout_query.answer(ok=True)
+
+@dp.message(F.successful_payment)
+async def process_successful_payment(m: Message):
+    payload = m.successful_payment.invoice_payload
+    uid = m.from_user.id
+    
+    if payload == "vpn_subscription":
+        await m.answer("⏳ <b>Настройка вашего VPN-подключения и генерация ключей...</b>", parse_mode="HTML")
+        try:
+            user_row = await db_manager.get_user(uid)
+            if not user_row:
+                await db_manager.register_or_update_user(uid, m.from_user.username)
+                user_row = await db_manager.get_user(uid)
+                
+            user_db_id = user_row['id'] if user_row else 1
+            
+            # Generate config and update user VPN status
+            config_text = await vpn_manager.generate_user_vpn_config(user_db_id)
+            await db_manager.set_user_vpn(uid, enabled=True, key=config_text)
+            
+            # Generate AI key
+            ai_key = await db_manager.generate_ai_key(request_limit=100)
+            
+            # Send VPN file
+            file_data = BufferedInputFile(config_text.encode("utf-8"), filename=f"tu_ugmk_vpn_{uid}.conf")
+            await m.answer_document(
+                document=file_data,
+                caption="✅ <b>VPN успешно подключен!</b>\n\nИмпортируйте этот файл в приложение WireGuard.\nВы также можете получить QR-код для настройки через меню.",
+                parse_mode="HTML"
+            )
+            
+            # Generate & Send QR code
+            qr = qrcode.QRCode(
+                version=1,
+                error_correction=qrcode.constants.ERROR_CORRECT_L,
+                box_size=10,
+                border=4,
+            )
+            qr.add_data(config_text)
+            qr.make(fit=True)
+            img = qr.make_image(fill_color="black", back_color="white")
+            bio = io.BytesIO()
+            img.save(bio, "PNG")
+            bio.seek(0)
+            photo_file = BufferedInputFile(bio.read(), filename="vpn_qr.png")
+            
+            await m.answer_photo(
+                photo=photo_file,
+                caption="🖼 <b>QR-код для импорта в WireGuard:</b>\nОтсканируйте его из приложения WireGuard для настройки.",
+                parse_mode="HTML"
+            )
+            
+            await m.answer(
+                f"🎉 <b>Спасибо за покупку!</b>\n\n"
+                f"🔑 Мы сгенерировали для вас уникальный ключ ИИ-доступа на 100 запросов:\n"
+                f"<code>{ai_key}</code>\n\n"
+                f"Отправьте его боту (или используйте команду <code>/activate {ai_key}</code>) для активации, либо поделитесь с другом!",
+                parse_mode="HTML"
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to complete VPN setup after payment: {e}")
+            await m.answer(
+                f"⚠️ <b>Произошла ошибка при настройке VPN:</b>\n<code>{str(e)}</code>\n\n"
+                f"Пожалуйста, свяжитесь с администратором. Ваша оплата зафиксирована.",
+                parse_mode="HTML"
+            )
+            
+    elif payload == "ai_100_requests":
+        try:
+            # Increment user balance directly
+            user_row = await db_manager.get_user(uid)
+            if not user_row:
+                await db_manager.register_or_update_user(uid, m.from_user.username)
+                
+            # Add 100 to balance
+            async with db_manager.pool.acquire() as conn:
+                await conn.execute("UPDATE users SET ai_balance = ai_balance + 100 WHERE telegram_id = $1", uid)
+                
+            new_bal = await db_manager.check_user_ai_balance(uid)
+            await m.answer(
+                f"🎉 <b>Оплата прошла успешно!</b>\n\n"
+                f"На ваш баланс зачислено <b>100</b> ИИ-запросов.\n"
+                f"Текущий баланс: <b>{new_bal}</b> запросов.",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"Failed to add requests after payment: {e}")
+            await m.answer(
+                f"⚠️ <b>Произошла ошибка при обновлении баланса ИИ:</b>\n<code>{str(e)}</code>\n\n"
+                f"Свяжитесь с администратором для начисления.",
+                parse_mode="HTML"
+            )
+
+@dp.callback_query(F.data == "ai:activate_key")
+async def cb_ai_activate_key(c: CallbackQuery, state: FSMContext):
+    await state.set_state(UserStates.waiting_for_activation_key)
+    await c.message.answer(
+        "🔑 <b>Активация ИИ-ключа</b>\n\n"
+        "Пожалуйста, пришлите ваш ключ доступа (в формате <code>UGMK-AI-XXXXXX</code>) в ответ на это сообщение.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="ai_cancel_settings")]]),
+        parse_mode="HTML"
+    )
+    await c.answer()
+
+@dp.message(UserStates.waiting_for_activation_key)
+async def process_ai_activation_key(m: Message, state: FSMContext):
+    key_val = m.text.strip().upper()
+    uid = m.from_user.id
+    
+    limit = await db_manager.activate_ai_key(key_val, uid)
+    if limit > 0:
+        await state.clear()
+        await m.answer(
+            f"🎉 <b>Успешно активировано!</b>\n"
+            f"На ваш баланс зачислено <b>{limit}</b> ИИ-запросов.",
+            parse_mode="HTML"
+        )
+        await show_ai_menu_directly(m)
+    else:
+        await m.answer(
+            "❌ <b>Неверный или уже использованный ключ!</b>\n"
+            "Пожалуйста, проверьте правильность ввода или обратитесь к администратору.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="ai_cancel_settings")]]),
+            parse_mode="HTML"
+        )
+
+@dp.message(Command("activate"))
+async def cmd_activate_key(m: Message):
+    parts = m.text.split(maxsplit=1)
+    if len(parts) < 2:
+        await m.answer(
+            "⚠️ <b>Использование команды:</b>\n"
+            "<code>/activate UGMK-AI-XXXXXX</code>",
+            parse_mode="HTML"
+        )
+        return
+        
+    key_val = parts[1].strip().upper()
+    uid = m.from_user.id
+    
+    limit = await db_manager.activate_ai_key(key_val, uid)
+    if limit > 0:
+        await m.answer(
+            f"🎉 <b>Успешно активировано!</b>\n"
+            f"На ваш баланс зачислено <b>{limit}</b> ИИ-запросов.",
+            parse_mode="HTML"
+        )
+    else:
+        await m.answer(
+            "❌ <b>Неверный или уже использованный ключ!</b>\n"
+            "Пожалуйста, проверьте правильность ввода.",
+            parse_mode="HTML"
+        )
+
+@dp.message(F.text.regexp(r'(?i)UGMK-AI-[A-Z0-9]{8}'))
+async def auto_activate_key(m: Message):
+    match = re.search(r'(?i)UGMK-AI-[A-Z0-9]{8}', m.text)
+    if not match:
+        return
+    key_val = match.group(0).upper()
+    uid = m.from_user.id
+    
+    limit = await db_manager.activate_ai_key(key_val, uid)
+    if limit > 0:
+        await m.answer(
+            f"🎉 <b>Обнаружен ключ активации!</b>\n"
+            f"Ключ: <code>{key_val}</code>\n"
+            f"На ваш баланс зачислено <b>{limit}</b> ИИ-запросов.",
+            parse_mode="HTML"
+        )
+    else:
+        await m.answer(
+            "❌ <b>Обнаружен ключ, но он недействителен или уже активирован.</b>",
+            parse_mode="HTML"
+        )
+
+
+# ═══════════════════ СТУДЕНЧЕСКАЯ ЭКОСИСТЕМА ═══════════════════
+@dp.message(F.text == "🏫 Экосистема")
+@dp.message(Command("ecosystem"))
+async def ecosystem_menu(m: Message, state: FSMContext):
+    await state.clear()
+    uid = m.from_user.id
+    is_admin = uid in ADMIN_IDS
+    
+    text = (
+        "🏫 <b>Студенческая экосистема ТУ УГМК</b>\n\n"
+        "Добро пожаловать в единую экосистему! Здесь вы найдете:\n"
+        "• 📅 <b>Афишу мероприятий</b> — будьте в курсе главных событий университета.\n"
+        "• 📢 <b>Каталог сообществ</b> — ссылки на студенческие чаты, клубы и полезные каналы."
+    )
+    
+    kb_rows = [
+        [InlineKeyboardButton(text="📅 Афиша мероприятий", callback_data="eco:events"),
+         InlineKeyboardButton(text="📢 Каталог сообществ", callback_data="eco:channels")]
+    ]
+    if is_admin:
+        kb_rows.append([InlineKeyboardButton(text="⚙️ Панель редактора афиши/каталога", callback_data="eco:admin_panel")])
+    kb_rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")])
+    
+    await m.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows), parse_mode="HTML")
+
+@dp.callback_query(F.data == "eco:events")
+async def cb_eco_events(c: CallbackQuery):
+    events = await db_manager.get_events()
+    if not events:
+        await c.message.edit_text(
+            "📅 <b>Афиша мероприятий ТУ УГМК</b>\n\n"
+            "😴 Пока нет запланированных мероприятий. Следите за обновлениями!",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="eco:back")]]),
+            parse_mode="HTML"
+        )
+        await c.answer()
+        return
+        
+    text = ["📅 <b>Предстоящие мероприятия:</b>\n"]
+    for i, ev in enumerate(events, 1):
+        date_str = ev['event_date'].strftime("%d.%m.%Y %H:%M") if ev['event_date'] else "Н/Д"
+        link_str = f" | <a href='{ev['link']}'>Подробнее</a>" if ev['link'] else ""
+        text.append(
+            f"{i}️⃣ <b>{ev['title']}</b>\n"
+            f"   🕒 <code>{date_str}</code>\n"
+            f"   📝 {ev['description'] or 'Без описания'}{link_str}\n"
+            "────────────────────"
+        )
+        
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="eco:back")]])
+    await c.message.edit_text("\n".join(text), reply_markup=kb, parse_mode="HTML", disable_web_page_preview=True)
+    await c.answer()
+
+@dp.callback_query(F.data == "eco:channels")
+async def cb_eco_channels(c: CallbackQuery):
+    channels = await db_manager.get_channels()
+    if not channels:
+        await c.message.edit_text(
+            "📢 <b>Каталог студенческих сообществ</b>\n\n"
+            "😴 Каталог временно пуст.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="eco:back")]]),
+            parse_mode="HTML"
+        )
+        await c.answer()
+        return
+        
+    cats = {}
+    for ch in channels:
+        cat = ch['category'] or "Разное"
+        if cat not in cats:
+            cats[cat] = []
+        cats[cat].append(ch)
+        
+    text = ["📢 <b>Каталог студенческих сообществ:</b>\n"]
+    for cat, items in cats.items():
+        text.append(f"📂 <b>{cat.upper()}</b>")
+        for item in items:
+            text.append(f"   • <a href='{item['link']}'>{item['name']}</a>")
+        text.append("")
+        
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="eco:back")]])
+    await c.message.edit_text("\n".join(text), reply_markup=kb, parse_mode="HTML", disable_web_page_preview=True)
+    await c.answer()
+
+@dp.callback_query(F.data == "eco:back")
+async def cb_eco_back(c: CallbackQuery, state: FSMContext):
+    await state.clear()
+    uid = c.from_user.id
+    is_admin = uid in ADMIN_IDS
+    text = (
+        "🏫 <b>Студенческая экосистема ТУ УГМК</b>\n\n"
+        "Добро пожаловать в единую экосистему! Здесь вы найдете:\n"
+        "• 📅 <b>Афишу мероприятий</b> — будьте в курсе главных событий университета.\n"
+        "• 📢 <b>Каталог сообществ</b> — ссылки на студенческие чаты, клубы и полезные каналы."
+    )
+    kb_rows = [
+        [InlineKeyboardButton(text="📅 Афиша мероприятий", callback_data="eco:events"),
+         InlineKeyboardButton(text="📢 Каталог сообществ", callback_data="eco:channels")]
+    ]
+    if is_admin:
+        kb_rows.append([InlineKeyboardButton(text="⚙️ Панель редактора афиши/каталога", callback_data="eco:admin_panel")])
+    kb_rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")])
+    await c.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows), parse_mode="HTML")
+    await c.answer()
+
+@dp.callback_query(F.data == "eco:admin_panel", F.from_user.id.in_(ADMIN_IDS))
+async def cb_eco_admin(c: CallbackQuery):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📅 Добавить событие", callback_data="eco_adm:add_event"),
+         InlineKeyboardButton(text="🗑 Удалить событие", callback_data="eco_adm:del_event")],
+        [InlineKeyboardButton(text="📢 Добавить ссылку", callback_data="eco_adm:add_chan"),
+         InlineKeyboardButton(text="🗑 Удалить ссылку", callback_data="eco_adm:del_chan")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="eco:back")]
+    ])
+    await c.message.edit_text("⚙️ <b>Панель управления афишей и каталогом:</b>", reply_markup=kb, parse_mode="HTML")
+    await c.answer()
+
+# Add Event
+@dp.callback_query(F.data == "eco_adm:add_event", F.from_user.id.in_(ADMIN_IDS))
+async def cb_eco_add_event(c: CallbackQuery, state: FSMContext):
+    await state.set_state(AdminStates.waiting_for_event_title)
+    await c.message.edit_text(
+        "📅 <b>Добавление события в афишу</b>\n\nВведите название мероприятия:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="eco:admin_panel")]]),
+        parse_mode="HTML"
+    )
+    await c.answer()
+
+@dp.message(AdminStates.waiting_for_event_title, F.from_user.id.in_(ADMIN_IDS))
+async def process_event_title(m: Message, state: FSMContext):
+    await state.update_data(ev_title=m.text.strip())
+    await state.set_state(AdminStates.waiting_for_event_desc)
+    await m.answer("📅 Введите описание мероприятия (или «-», если описания нет):")
+
+@dp.message(AdminStates.waiting_for_event_desc, F.from_user.id.in_(ADMIN_IDS))
+async def process_event_desc(m: Message, state: FSMContext):
+    desc = m.text.strip()
+    await state.update_data(ev_desc="" if desc == "-" else desc)
+    await state.set_state(AdminStates.waiting_for_event_date)
+    await m.answer("📅 Введите дату и время в формате <b>ДД.ММ.ГГГГ ЧЧ:ММ</b> (например, <code>15.09.2026 18:00</code>):", parse_mode="HTML")
+
+@dp.message(AdminStates.waiting_for_event_date, F.from_user.id.in_(ADMIN_IDS))
+async def process_event_date(m: Message, state: FSMContext):
+    try:
+        dt = datetime.strptime(m.text.strip(), "%d.%m.%Y %H:%M")
+        await state.update_data(ev_date=dt)
+        await state.set_state(AdminStates.waiting_for_event_link)
+        await m.answer("📅 Введите ссылку на мероприятие (или «-», если ссылки нет):")
+    except ValueError:
+        await m.answer("❌ <b>Неверный формат даты!</b> Введите дату в формате <b>ДД.ММ.ГГГГ ЧЧ:ММ</b>:")
+
+@dp.message(AdminStates.waiting_for_event_link, F.from_user.id.in_(ADMIN_IDS))
+async def process_event_link(m: Message, state: FSMContext):
+    data = await state.get_data()
+    title = data.get("ev_title")
+    desc = data.get("ev_desc")
+    dt = data.get("ev_date")
+    link = m.text.strip()
+    link = "" if link == "-" else link
+    
+    await state.clear()
+    await db_manager.add_event(title, desc, dt, link)
+    await m.answer("✅ <b>Мероприятие успешно добавлено в афишу!</b>", parse_mode="HTML")
+    await show_eco_admin_panel(m)
+
+# Delete Event
+@dp.callback_query(F.data == "eco_adm:del_event", F.from_user.id.in_(ADMIN_IDS))
+async def cb_eco_del_event(c: CallbackQuery):
+    events = await db_manager.get_events()
+    if not events:
+        await c.answer("Афиша уже пуста!", show_alert=True)
+        return
+        
+    btns = []
+    for ev in events:
+        btns.append([InlineKeyboardButton(text=f"❌ {ev['title'][:30]}", callback_data=f"eco_adm:del_ev_id:{ev['id']}")])
+    btns.append([InlineKeyboardButton(text="🔙 Назад", callback_data="eco:admin_panel")])
+    
+    await c.message.edit_text("🗑 <b>Выберите мероприятие для удаления:</b>", reply_markup=InlineKeyboardMarkup(inline_keyboard=btns), parse_mode="HTML")
+    await c.answer()
+
+@dp.callback_query(F.data.startswith("eco_adm:del_ev_id:"), F.from_user.id.in_(ADMIN_IDS))
+async def cb_eco_del_event_confirm(c: CallbackQuery):
+    ev_id = int(c.data.split(":")[3])
+    await db_manager.delete_event(ev_id)
+    await c.answer("Событие удалено")
+    await cb_eco_del_event(c)
+
+# Add Channel
+@dp.callback_query(F.data == "eco_adm:add_chan", F.from_user.id.in_(ADMIN_IDS))
+async def cb_eco_add_chan(c: CallbackQuery, state: FSMContext):
+    await state.set_state(AdminStates.waiting_for_channel_name)
+    await c.message.edit_text(
+        "📢 <b>Добавление чата/канала в каталог</b>\n\nВведите название сообщества/канала:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="eco:admin_panel")]]),
+        parse_mode="HTML"
+    )
+    await c.answer()
+
+@dp.message(AdminStates.waiting_for_channel_name, F.from_user.id.in_(ADMIN_IDS))
+async def process_chan_name(m: Message, state: FSMContext):
+    await state.update_data(ch_name=m.text.strip())
+    await state.set_state(AdminStates.waiting_for_channel_link)
+    await m.answer("📢 Введите ссылку на сообщество (например, <code>https://t.me/...</code>):", parse_mode="HTML")
+
+@dp.message(AdminStates.waiting_for_channel_link, F.from_user.id.in_(ADMIN_IDS))
+async def process_chan_link(m: Message, state: FSMContext):
+    link = m.text.strip()
+    if not link.startswith("http"):
+        await m.answer("❌ Ссылка должна начинаться с http/https. Введите ссылку снова:")
+        return
+    await state.update_data(ch_link=link)
+    await state.set_state(AdminStates.waiting_for_channel_cat)
+    await m.answer("📢 Введите категорию (например: <code>Студсовет</code>, <code>Спорт</code>, <code>Культура</code>, <code>Обучение</code>):", parse_mode="HTML")
+
+@dp.message(AdminStates.waiting_for_channel_cat, F.from_user.id.in_(ADMIN_IDS))
+async def process_chan_cat(m: Message, state: FSMContext):
+    data = await state.get_data()
+    name = data.get("ch_name")
+    link = data.get("ch_link")
+    cat = m.text.strip()
+    
+    await state.clear()
+    await db_manager.add_channel(name, link, cat)
+    await m.answer(f"✅ <b>Сообщество «{name}» успешно добавлено в каталог!</b>", parse_mode="HTML")
+    await show_eco_admin_panel(m)
+
+# Delete Channel
+@dp.callback_query(F.data == "eco_adm:del_chan", F.from_user.id.in_(ADMIN_IDS))
+async def cb_eco_del_chan(c: CallbackQuery):
+    channels = await db_manager.get_channels()
+    if not channels:
+        await c.answer("Каталог уже пуст!", show_alert=True)
+        return
+        
+    btns = []
+    for ch in channels:
+        btns.append([InlineKeyboardButton(text=f"❌ [{ch['category']}] {ch['name'][:25]}", callback_data=f"eco_adm:del_ch_id:{ch['id']}")])
+    btns.append([InlineKeyboardButton(text="🔙 Назад", callback_data="eco:admin_panel")])
+    await c.message.edit_text("🗑 <b>Выберите ссылку для удаления:</b>", reply_markup=InlineKeyboardMarkup(inline_keyboard=btns), parse_mode="HTML")
+    await c.answer()
+
+@dp.callback_query(F.data.startswith("eco_adm:del_ch_id:"), F.from_user.id.in_(ADMIN_IDS))
+async def cb_eco_del_chan_confirm(c: CallbackQuery):
+    ch_id = int(c.data.split(":")[3])
+    await db_manager.delete_channel(ch_id)
+    await c.answer("Ссылка удалена")
+    await cb_eco_del_chan(c)
+
+async def show_eco_admin_panel(message: Message):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📅 Добавить событие", callback_data="eco_adm:add_event"),
+         InlineKeyboardButton(text="🗑 Удалить событие", callback_data="eco_adm:del_event")],
+        [InlineKeyboardButton(text="📢 Добавить ссылку", callback_data="eco_adm:add_chan"),
+         InlineKeyboardButton(text="🗑 Удалить ссылку", callback_data="eco_adm:del_chan")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="eco:back")]
+    ])
+    await message.answer("⚙️ <b>Панель управления афишей и каталогом:</b>", reply_markup=kb, parse_mode="HTML")
+
+
+# ═══════════════════ ОПРОСЫ СТАРОСТЫ ═══════════════════
+@dp.callback_query(F.data == "st_dash:create_poll")
+async def cb_st_create_poll(c: CallbackQuery, state: FSMContext):
+    uid = str(c.from_user.id)
+    group = await dao.hget("starosta_group_saved", uid)
+    if not group:
+        await c.answer("❌ Сначала выберите вашу группу!", show_alert=True)
+        return
+        
+    await c.message.edit_text(
+        "📊 <b>Создание опроса группы</b>\n\n"
+        "Шаг 1: Введите текст вопроса для студентов вашей группы:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="st_dash:back")]]),
+        parse_mode="HTML"
+    )
+    await state.set_state(StarostStates.waiting_for_poll_question)
+    await c.answer()
+
+@dp.message(StarostStates.waiting_for_poll_question)
+async def process_poll_question(m: Message, state: FSMContext):
+    question = m.text.strip()
+    await state.update_data(poll_question=question)
+    await state.set_state(StarostStates.waiting_for_poll_options)
+    await m.answer(
+        "📊 <b>Создание опроса группы</b>\n\n"
+        "Шаг 2: Введите варианты ответов.\n"
+        "Каждый вариант должен быть на <b>новой строке</b>.\n"
+        "Пример:\n"
+        "<code>Да\nНет\nНе смогу прийти</code>\n\n"
+        "Минимум 2 варианта, максимум 10.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="st_dash:back")]]),
+        parse_mode="HTML"
+    )
+
+@dp.message(StarostStates.waiting_for_poll_options)
+async def process_poll_options(m: Message, state: FSMContext):
+    data = await state.get_data()
+    question = data.get("poll_question")
+    uid = str(m.from_user.id)
+    group = await dao.hget("starosta_group_saved", uid)
+    starosta_name = await dao.hget("starosta_name", uid)
+    
+    options = [opt.strip() for opt in m.text.split("\n") if opt.strip()]
+    if len(options) < 2 or len(options) > 10:
+        await m.answer("❌ Вариантов должно быть от 2 до 10. Пожалуйста, отправьте список вариантов снова:")
+        return
+        
+    await state.clear()
+    
+    poll_id = await db_manager.create_poll(
+        creator_id=m.from_user.id,
+        group_name=group,
+        question=question,
+        options=options
+    )
+    
+    subs = await dao.hgetall("user_subs")
+    target_users = [uid_sub for uid_sub, gid in subs.items() if gid == group]
+    
+    if not target_users:
+        await m.answer(f"✅ Опрос создан, но в группе <b>{group}</b> еще нет подписчиков.", parse_mode="HTML")
+        await show_starosta_dashboard(m, m.from_user.id)
+        return
+        
+    await m.answer(f"🚀 <b>Опрос успешно создан!</b> Рассылаю {len(target_users)} студентам группы...", parse_mode="HTML")
+    
+    poll_text = f"📊 <b>Опрос от старосты ({starosta_name}):</b>\n\n💬 <code>{question}</code>"
+    
+    kb_btns = []
+    for i, opt in enumerate(options):
+        kb_btns.append([InlineKeyboardButton(text=opt, callback_data=f"vote:{poll_id}:{i}")])
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_btns)
+    
+    success = 0
+    for t_uid in target_users:
+        try:
+            await bot.send_message(int(t_uid), poll_text, reply_markup=kb, parse_mode="HTML")
+            success += 1
+            await asyncio.sleep(0.05)
+        except Exception as e:
+            logger.error(f"Failed to send poll to {t_uid}: {e}")
+            
+    await m.answer(f"✅ Опрос успешно разослан! Доставлено: <b>{success} из {len(target_users)}</b>.", parse_mode="HTML")
+    await show_starosta_dashboard(m, m.from_user.id)
+
+@dp.callback_query(F.data == "st_dash:poll_results")
+async def cb_st_poll_results(c: CallbackQuery):
+    uid = str(c.from_user.id)
+    group = await dao.hget("starosta_group_saved", uid)
+    if not group:
+        await c.answer("❌ Сначала выберите вашу группу!", show_alert=True)
+        return
+        
+    poll = await db_manager.get_active_poll_for_group(group)
+    if not poll:
+        await c.message.edit_text(
+            "😴 <b>В вашей группе еще не создавались опросы.</b>",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="st_dash:back")]]),
+            parse_mode="HTML"
+        )
+        await c.answer()
+        return
+        
+    poll_id = poll['id']
+    question = poll['question']
+    options = json.loads(poll['options'])
+    
+    results, total_votes = await db_manager.get_poll_results(poll_id)
+    
+    res_text = [f"📈 <b>Результаты опроса:</b>\n«<code>{question}</code>»\n"]
+    for i, opt in enumerate(options):
+        votes = results.get(i, 0)
+        pct = (votes / total_votes * 100) if total_votes > 0 else 0
+        res_text.append(f"• <b>{opt}</b>: {votes} чел. ({pct:.1f}%)")
+        
+    res_text.append(f"\n👥 Всего проголосовало: <b>{total_votes}</b> чел.")
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Обновить результаты", callback_data="st_dash:poll_results")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="st_dash:back")]
+    ])
+    
+    await c.message.edit_text("\n".join(res_text), reply_markup=kb, parse_mode="HTML")
+    await c.answer()
+
+@dp.callback_query(F.data.startswith("vote:"))
+async def cb_user_vote(c: CallbackQuery):
+    _, poll_id_str, opt_idx_str = c.data.split(":")
+    poll_id = int(poll_id_str)
+    opt_idx = int(opt_idx_str)
+    uid = c.from_user.id
+    
+    poll = await db_manager.get_poll(poll_id)
+    if not poll:
+        await c.answer("❌ Опрос не найден.", show_alert=True)
+        return
+        
+    options = json.loads(poll['options'])
+    chosen_option = options[opt_idx]
+    
+    await db_manager.vote_poll(poll_id, uid, opt_idx)
+    await c.answer(f"✅ Ваш голос за «{chosen_option}» учтен!", show_alert=True)
+
 
 @dp.message(F.text)
 async def fallback_message(m: Message, state: FSMContext):        

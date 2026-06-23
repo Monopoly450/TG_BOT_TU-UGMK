@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TU UGMK Bot - Admin Panel</title>
+    <!-- Google Fonts Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --card-bg: rgba(30, 41, 59, 0.4);
+            --card-border: rgba(255, 255, 255, 0.08);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --accent: #d946ef;
+            --success: #10b981;
+            --success-glow: rgba(16, 185, 129, 0.2);
+            --danger: #ef4444;
+            --danger-glow: rgba(239, 68, 68, 0.2);
+            --input-bg: rgba(15, 23, 42, 0.6);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(217, 70, 239, 0.1) 0px, transparent 50%);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            align-items: center;
+            overflow-x: hidden;
+        }
+
+        /* Glow effects */
+        .glass-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+
+        /* --- LOGIN PAGE --- */
+        .login-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        .login-card {
+            width: 100%;
+            max-width: 400px;
+            padding: 40px;
+            text-align: center;
+        }
+
+        .login-card h2 {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #a5b4fc, #f472b6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .login-card p {
+            color: var(--text-secondary);
+            font-size: 14px;
+            margin-bottom: 30px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+            text-align: left;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            letter-spacing: 0.05em;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 12px 16px;
+            font-size: 15px;
+            color: var(--text-primary);
+            background-color: var(--input-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            outline: none;
+            transition: all 0.3s ease;
+        }
+
+        .form-control:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            padding: 12px 24px;
+            font-size: 15px;
+            font-weight: 600;
+            color: #ffffff;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+        }
+
+        .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        /* --- DASHBOARD LAYOUT --- */
+        .wrapper {
+            width: 100%;
+            max-width: 1200px;
+            padding: 40px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--card-border);
+        }
+
+        header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #a5b4fc, #f472b6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .logout-btn {
+            background: transparent;
+            border: 1px solid var(--card-border);
+            color: var(--text-secondary);
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .logout-btn:hover {
+            background: var(--danger-glow);
+            color: var(--danger);
+            border-color: var(--danger);
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 20px;
+        }
+
+        .stat-card {
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .stat-card .label {
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-secondary);
+        }
+
+        .stat-card .value {
+            font-size: 32px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        /* Panels layout */
+        .panel {
+            padding: 30px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .panel-title {
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        /* Table Styles */
+        .table-container {
+            width: 100%;
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th {
+            padding: 16px 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-secondary);
+            border-bottom: 1px solid var(--card-border);
+        }
+
+        td {
+            padding: 16px 20px;
+            font-size: 14px;
+            color: var(--text-primary);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+            vertical-align: middle;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* Badges */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 10px;
+            border-radius: 9999px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .badge-active {
+            background-color: var(--success-glow);
+            color: var(--success);
+        }
+
+        .badge-inactive {
+            background-color: var(--danger-glow);
+            color: var(--danger);
+        }
+
+        /* Toggle switches */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 24px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: var(--input-bg);
+            border: 1px solid var(--card-border);
+            transition: .4s;
+            border-radius: 24px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 3px;
+            bottom: 3px;
+            background-color: var(--text-secondary);
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider {
+            background-color: var(--success-glow);
+            border-color: var(--success);
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(20px);
+            background-color: var(--success);
+        }
+
+        /* AI Balance inputs */
+        .balance-form {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .balance-input {
+            width: 70px;
+            padding: 6px 10px;
+            font-size: 13px;
+            text-align: center;
+        }
+
+        .balance-btn {
+            background: var(--primary);
+            color: #fff;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+
+        .balance-btn:hover {
+            background: var(--primary-hover);
+        }
+
+        /* AI Key Generator Form */
+        .generator-box {
+            display: flex;
+            align-items: flex-end;
+            gap: 20px;
+            background: var(--input-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .generator-box .form-group {
+            margin-bottom: 0;
+            flex-grow: 1;
+        }
+
+        .generator-box .btn {
+            width: auto;
+            white-space: nowrap;
+            height: 45px;
+        }
+
+        /* Key lists */
+        .key-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 20px;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .key-value {
+            font-family: monospace;
+            font-weight: 600;
+            color: var(--accent);
+            background: rgba(217, 70, 239, 0.1);
+            padding: 4px 8px;
+            border-radius: 4px;
+            letter-spacing: 0.05em;
+        }
+
+        .copy-btn {
+            background: transparent;
+            border: 1px solid var(--card-border);
+            color: var(--text-secondary);
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .copy-btn:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-primary);
+        }
+
+        /* Success alerts */
+        .alert-success {
+            padding: 12px 20px;
+            background-color: var(--success-glow);
+            border: 1px solid var(--success);
+            color: var(--success);
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .alert-close {
+            background: none;
+            border: none;
+            color: var(--success);
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        /* Responsive grid for content panels */
+        .content-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 30px;
+        }
+
+        @media (max-width: 900px) {
+            .content-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    {% if not authenticated %}
+    <!-- LOGIN PAGE -->
+    <div class="login-container">
+        <div class="glass-card login-card">
+            <h2>Вход в панель</h2>
+            <p>Панель администратора TU UGMK Bot</p>
+            
+            {% if error %}
+            <div style="color: var(--danger); font-size: 14px; margin-bottom: 15px; font-weight: 500;">
+                ❌ {{ error }}
+            </div>
+            {% endif %}
+
+            <form method="POST" action="/login">
+                <div class="form-group">
+                    <label for="password">Пароль администратора</label>
+                    <input type="password" id="password" name="password" class="form-control" placeholder="Введите пароль" required autofocus>
+                </div>
+                <button type="submit" class="btn">Войти</button>
+            </form>
+        </div>
+    </div>
+    {% else %}
+    <!-- MAIN DASHBOARD -->
+    <div class="wrapper">
+        <header>
+            <div>
+                <h1>Панель управления</h1>
+                <p style="color: var(--text-secondary); font-size: 14px;">Администрирование пользователей, подписок VPN и ИИ</p>
+            </div>
+            <form action="/logout" method="POST">
+                <button type="submit" class="logout-btn">Выйти</button>
+            </form>
+        </header>
+
+        {% if notification %}
+        <div class="alert-success">
+            <span>{{ notification }}</span>
+            <button class="alert-close" onclick="this.parentElement.remove()">×</button>
+        </div>
+        {% endif %}
+
+        <!-- Stats Grid -->
+        <div class="stats-grid">
+            <div class="glass-card stat-card">
+                <span class="label">Всего пользователей</span>
+                <span class="value">{{ users|length }}</span>
+            </div>
+            <div class="glass-card stat-card">
+                <span class="label">Активных VPN</span>
+                <span class="value">{{ active_vpn_count }}</span>
+            </div>
+            <div class="glass-card stat-card">
+                <span class="label">Всего ИИ-ключей</span>
+                <span class="value">{{ ai_keys|length }}</span>
+            </div>
+            <div class="glass-card stat-card">
+                <span class="label">Неиспользованных ключей</span>
+                <span class="value">{{ unused_keys_count }}</span>
+            </div>
+        </div>
+
+        <div class="content-grid">
+            <!-- Left Side: User Table -->
+            <div class="glass-card panel">
+                <div class="panel-header">
+                    <h2 class="panel-title">Управление пользователями</h2>
+                </div>
+                
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Пользователь</th>
+                                <th>Группа</th>
+                                <th>VPN Подписка</th>
+                                <th>Баланс ИИ</th>
+                                <th>Дата регистрации</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for user in users %}
+                            <tr>
+                                <td>
+                                    <div style="font-weight: 600;">{{ user.username or "Без имени" }}</div>
+                                    <div style="font-size: 12px; color: var(--text-secondary); margin-top: 2px;">ID: {{ user.telegram_id }}</div>
+                                </td>
+                                <td>{{ user.group_name or "—" }}</td>
+                                <td>
+                                    <form action="/user/toggle_vpn" method="POST" style="display:inline;">
+                                        <input type="hidden" name="telegram_id" value="{{ user.telegram_id }}">
+                                        <label class="switch">
+                                            <input type="checkbox" name="vpn_enabled" {% if user.vpn_enabled %}checked{% endif %} onchange="this.form.submit()">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </form>
+                                    <span style="margin-left: 8px; font-weight: 500; font-size: 13px;" class="{% if user.vpn_enabled %}badge badge-active{% else %}badge badge-inactive{% endif %}">
+                                        {% if user.vpn_enabled %}Активен{% else %}Откл.{% endif %}
+                                    </span>
+                                </td>
+                                <td>
+                                    <form action="/user/update_balance" method="POST" class="balance-form">
+                                        <input type="hidden" name="telegram_id" value="{{ user.telegram_id }}">
+                                        <input type="number" name="ai_balance" value="{{ user.ai_balance }}" class="form-control balance-input" min="0" required>
+                                        <button type="submit" class="balance-btn">Сохранить</button>
+                                    </form>
+                                </td>
+                                <td style="font-size: 13px; color: var(--text-secondary);">
+                                    {{ user.created_at.strftime('%d.%m.%Y %H:%M') if user.created_at else '—' }}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Right Side: AI Keys Generator and List -->
+            <div style="display: flex; flex-direction: column; gap: 30px;">
+                <!-- Key generator -->
+                <div class="glass-card panel">
+                    <h2 class="panel-title">Генератор ИИ-ключей</h2>
+                    <form action="/keys/generate" method="POST" class="generator-box">
+                        <div class="form-group">
+                            <label for="request_limit">Количество запросов</label>
+                            <input type="number" id="request_limit" name="request_limit" class="form-control" value="100" min="1" required>
+                        </div>
+                        <button type="submit" class="btn">Создать</button>
+                    </form>
+                </div>
+
+                <!-- Keys list -->
+                <div class="glass-card panel" style="max-height: 500px; overflow-y: auto;">
+                    <h2 class="panel-title">История ИИ-ключей</h2>
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                        {% if ai_keys %}
+                            {% for key in ai_keys %}
+                            <div class="key-row">
+                                <div>
+                                    <span class="key-value" id="key-{{ key.id }}">{{ key.key_value }}</span>
+                                    <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">
+                                        Лимит: <b>{{ key.request_limit }}</b> запросов
+                                    </div>
+                                    {% if key.used_by %}
+                                        <div style="font-size: 11px; color: var(--success); margin-top: 2px;">
+                                            Активирован: {{ key.username or key.used_by }}
+                                        </div>
+                                    {% else %}
+                                        <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">
+                                            Не использован
+                                        </div>
+                                    {% endif %}
+                                </div>
+                                <button class="copy-btn" onclick="copyKey('{{ key.key_value }}')">Копировать</button>
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                            <p style="color: var(--text-secondary); text-align: center; padding: 20px;">Нет сгенерированных ключей</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function copyKey(value) {
+            navigator.clipboard.writeText(value).then(() => {
+                alert("Ключ " + value + " скопирован в буфер обмена!");
+            }).catch(err => {
+                console.error("Ошибка при копировании: ", err);
+            });
+        }
+    </script>
+    {% endif %}
+</body>
+</html>

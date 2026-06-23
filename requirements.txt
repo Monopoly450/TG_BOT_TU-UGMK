@@ -8,3 +8,12 @@ aiohttp-socks
 python-dotenv
 cryptography
 psutil
+asyncpg
+asyncssh
+qrcode
+google-generativeai
+openai
+fastapi
+uvicorn
+jinja2
+python-multipart
