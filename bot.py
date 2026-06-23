@@ -927,6 +927,7 @@ async def cb_sub_buy_vpn_only_menu(c: CallbackQuery):
 @dp.callback_query(F.data == "sub:buy_bundle_menu")
 async def cb_sub_buy_bundle_menu(c: CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💳 Тест: VPN + 10 Премиум (1 ⭐)", callback_data="vpn:buy_test")],
         [InlineKeyboardButton(text="💳 VPN + 150 Стандарт (500 ⭐)", callback_data="vpn:buy_standard")],
         [InlineKeyboardButton(text="💳 VPN + 30 Премиум (600 ⭐)", callback_data="vpn:buy_premium")],
         [InlineKeyboardButton(text="🔙 Назад в меню покупок", callback_data="sub:buy_menu")]
@@ -934,6 +935,7 @@ async def cb_sub_buy_bundle_menu(c: CallbackQuery):
     text = (
         "📦 <b>Купить всё вместе (ИИ + VPN):</b>\n\n"
         "Выберите выгодный пакет:\n"
+        "• <b>Тест: VPN + 10 Премиум ИИ</b> — 1 ⭐ (для проверки)\n"
         "1. <b>VPN + 150 Стандарт ИИ</b> — 500 ⭐\n"
         "2. <b>VPN + 30 Премиум ИИ</b> — 600 ⭐\n\n"
         "Все тарифы действуют 30 дней с момента покупки."
@@ -2315,6 +2317,24 @@ async def show_vpn_menu_directly(message: Message, user_id: int = None):
 
 # ═══════════════════ ПЛАТЕЖНЫЕ ХЭНДЛЕРЫ И АКТИВАЦИЯ КЛЮЧЕЙ ═══════════════════
 
+@dp.callback_query(F.data == "vpn:buy_test")
+async def cb_vpn_buy_test(c: CallbackQuery):
+    uid = c.from_user.id
+    prices = [LabeledPrice(label="Тест: VPN + 10 Премиум ИИ", amount=1)]
+    try:
+        await c.message.answer_invoice(
+            title="Тест: VPN + 10 Премиум ИИ",
+            description="Тестовая подписка WireGuard VPN на 30 дней и 10 премиум запросов к ИИ.",
+            payload="vpn_sub_test",
+            provider_token="",
+            currency="XTR",
+            prices=prices
+        )
+        await c.answer("Счет выставлен!")
+    except Exception as e:
+        logger.error(f"Failed to send invoice for VPN test: {e}")
+        await c.answer("⚠️ Не удалось выставить счет. Обратитесь к администратору.", show_alert=True)
+
 @dp.callback_query(F.data == "vpn:buy_standard")
 async def cb_vpn_buy_standard(c: CallbackQuery):
     uid = c.from_user.id
@@ -2414,8 +2434,9 @@ async def process_successful_payment(m: Message):
     payload = m.successful_payment.invoice_payload
     uid = m.from_user.id
     
-    if payload in ["vpn_sub_standard", "vpn_sub_premium"]:
-        is_premium = (payload == "vpn_sub_premium")
+    if payload in ["vpn_sub_standard", "vpn_sub_premium", "vpn_sub_test"]:
+        is_premium = (payload in ["vpn_sub_premium", "vpn_sub_test"])
+        is_test = (payload == "vpn_sub_test")
         await m.answer("⏳ <b>Настройка вашего VPN-подключения и генерация ключей...</b>", parse_mode="HTML")
         try:
             user_row = await db_manager.get_user(uid)
@@ -2451,7 +2472,10 @@ async def process_successful_payment(m: Message):
             await db_manager.set_user_vpn(uid, enabled=True, key=config_text, expires_at=new_vpn_expires)
             
             # Generate actual OpenRouter key
-            limit_usd = 1.50 if is_premium else 0.15
+            if is_test:
+                limit_usd = 0.50
+            else:
+                limit_usd = 1.50 if is_premium else 0.15
             ai_key = await create_openrouter_key(limit_usd=limit_usd, expires_days=expires_days)
             await db_manager.set_user_ai_key(uid, ai_key, new_ai_expires)
             
@@ -2484,7 +2508,7 @@ async def process_successful_payment(m: Message):
                 parse_mode="HTML"
             )
             
-            pkg_name = "30 премиум" if is_premium else "150 стандартных"
+            pkg_name = "10 премиум" if is_test else ("30 премиум" if is_premium else "150 стандартных")
             await m.answer(
                 f"🎉 <b>Спасибо за покупку!</b>\n\n"
                 f"🔑 Мы сгенерировали для вас персональный API-ключ OpenRouter ({pkg_name} запросов):\n"
