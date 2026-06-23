@@ -1957,13 +1957,13 @@ async def vpn_menu(m: Message, state: FSMContext):
             "🔌 <b>Собственный VPN-сервис</b>\n\n"
             "Мы предоставляем стабильный, быстрый и безопасный доступ к зарубежным образовательным платформам и библиотекам.\n\n"
             "Выберите вариант подписки:\n"
-            "1. <b>VPN + 100 Стандарт ИИ</b> — 150 ⭐ (Telegram Stars)\n"
-            "2. <b>VPN + 100 Премиум ИИ (Claude, GPT, Kimi, Qwen)</b> — 310 ⭐ (Telegram Stars)\n\n"
+            "1. <b>VPN + 150 Стандарт ИИ</b> — 500 ⭐ (Telegram Stars)\n"
+            "2. <b>VPN + 30 Премиум ИИ (Claude, GPT, Kimi, Qwen)</b> — 600 ⭐ (Telegram Stars)\n\n"
             "<i>Все тарифы рассчитаны для обеспечения 30%+ чистой прибыли в месяц для развития бота.</i>"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💳 VPN + 100 Стандарт (150 ⭐)", callback_data="vpn:buy_standard")],
-            [InlineKeyboardButton(text="💳 VPN + 100 Премиум (310 ⭐)", callback_data="vpn:buy_premium")],
+            [InlineKeyboardButton(text="💳 VPN + 150 Стандарт (500 ⭐)", callback_data="vpn:buy_standard")],
+            [InlineKeyboardButton(text="💳 VPN + 30 Премиум (600 ⭐)", callback_data="vpn:buy_premium")],
             [InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")]
         ])
         
@@ -2113,13 +2113,13 @@ async def show_vpn_menu_directly(message: Message, user_id: int = None):
             "🔌 <b>Собственный VPN-сервис</b>\n\n"
             "Мы предоставляем стабильный, быстрый и безопасный доступ к зарубежным образовательным платформам и библиотекам.\n\n"
             "Выберите вариант подписки:\n"
-            "1. <b>VPN + 100 Стандарт ИИ</b> — 150 ⭐ (Telegram Stars)\n"
-            "2. <b>VPN + 100 Премиум ИИ (Claude, GPT, Kimi, Qwen)</b> — 310 ⭐ (Telegram Stars)\n\n"
+            "1. <b>VPN + 150 Стандарт ИИ</b> — 500 ⭐ (Telegram Stars)\n"
+            "2. <b>VPN + 30 Премиум ИИ (Claude, GPT, Kimi, Qwen)</b> — 600 ⭐ (Telegram Stars)\n\n"
             "<i>Все тарифы рассчитаны для обеспечения 30%+ чистой прибыли в месяц для развития бота.</i>"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💳 VPN + 100 Стандарт (150 ⭐)", callback_data="vpn:buy_standard")],
-            [InlineKeyboardButton(text="💳 VPN + 100 Премиум (310 ⭐)", callback_data="vpn:buy_premium")],
+            [InlineKeyboardButton(text="💳 VPN + 150 Стандарт (500 ⭐)", callback_data="vpn:buy_standard")],
+            [InlineKeyboardButton(text="💳 VPN + 30 Премиум (600 ⭐)", callback_data="vpn:buy_premium")],
             [InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")]
         ])
     await message.answer(text, reply_markup=kb, parse_mode="HTML")
@@ -2130,11 +2130,11 @@ async def show_vpn_menu_directly(message: Message, user_id: int = None):
 @dp.callback_query(F.data == "vpn:buy_standard")
 async def cb_vpn_buy_standard(c: CallbackQuery):
     uid = c.from_user.id
-    prices = [LabeledPrice(label="VPN + 100 Стандарт ИИ", amount=150)]
+    prices = [LabeledPrice(label="VPN + 150 Стандарт ИИ", amount=500)]
     try:
         await c.message.answer_invoice(
-            title="VPN + 100 Стандарт ИИ",
-            description="Подписка WireGuard VPN на 30 дней и промокод на 100 стандартных запросов к ИИ.",
+            title="VPN + 150 Стандарт ИИ",
+            description="Подписка WireGuard VPN на 30 дней и промокод на 150 стандартных запросов к ИИ.",
             payload="vpn_sub_standard",
             provider_token="",
             currency="XTR",
@@ -2148,11 +2148,11 @@ async def cb_vpn_buy_standard(c: CallbackQuery):
 @dp.callback_query(F.data == "vpn:buy_premium")
 async def cb_vpn_buy_premium(c: CallbackQuery):
     uid = c.from_user.id
-    prices = [LabeledPrice(label="VPN + 100 Премиум ИИ", amount=310)]
+    prices = [LabeledPrice(label="VPN + 30 Премиум ИИ", amount=600)]
     try:
         await c.message.answer_invoice(
-            title="VPN + 100 Премиум ИИ",
-            description="Подписка WireGuard VPN на 30 дней и промокод на 100 премиум запросов к ИИ (Claude, GPT, Kimi, Qwen).",
+            title="VPN + 30 Премиум ИИ",
+            description="Подписка WireGuard VPN на 30 дней и промокод на 30 премиум запросов к ИИ (Claude, GPT, Kimi, Qwen).",
             payload="vpn_sub_premium",
             provider_token="",
             currency="XTR",
@@ -2223,8 +2223,8 @@ async def process_successful_payment(m: Message):
             config_text = await vpn_manager.generate_user_vpn_config(user_db_id)
             await db_manager.set_user_vpn(uid, enabled=True, key=config_text)
             
-            # Generate AI key (100 credits for standard, 400 credits for premium)
-            limit = 400 if is_premium else 100
+            # Generate AI key (150 credits for standard, 120 credits for premium)
+            limit = 120 if is_premium else 150
             ai_key = await db_manager.generate_ai_key(request_limit=limit)
             
             # Send VPN file
@@ -2256,7 +2256,7 @@ async def process_successful_payment(m: Message):
                 parse_mode="HTML"
             )
             
-            pkg_name = "100 премиум" if is_premium else "100 стандартных"
+            pkg_name = "30 премиум" if is_premium else "150 стандартных"
             await m.answer(
                 f"🎉 <b>Спасибо за покупку!</b>\n\n"
                 f"🔑 Мы сгенерировали для вас уникальный ключ ИИ-доступа ({pkg_name} запросов):\n"
