@@ -1600,16 +1600,19 @@ async def ai_menu(m: Message, state: FSMContext):
         "или приобрести баланс ИИ-запросов за Telegram звезды."
     )
     
-    can_chat = has_key or (ai_balance > 0)
+    is_free = model in ["nous-hermes-3-free", "gemma-2-free", "llama-3-free"]
+    can_chat = has_key or (ai_balance > 0) or is_free
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💬 Начать диалог", callback_data="ai:chat") if can_chat else
          InlineKeyboardButton(text="💬 Начать диалог (нужен ключ/баланс)", callback_data="ai:need_key")],
-        [InlineKeyboardButton(text="💳 Купить 100 запросов (50 ⭐)", callback_data="ai:buy_requests"),
-         InlineKeyboardButton(text="🔑 Активировать ключ", callback_data="ai:activate_key")],
+        [InlineKeyboardButton(text="💳 100 Стандарт ИИ (50 ⭐)", callback_data="ai:buy_requests"),
+         InlineKeyboardButton(text="💳 100 Премиум ИИ (200 ⭐)", callback_data="ai:buy_premium")],
+        [InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model"),
+         InlineKeyboardButton(text="🆓 Бесплатные модели", callback_data="ai:free_models")],
         [InlineKeyboardButton(text="🔑 Установить API-ключ", callback_data="ai:set_key"),
-         InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model")],
-        [InlineKeyboardButton(text="🧹 Очистить контекст диалога", callback_data="ai:clear_context")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")]
+         InlineKeyboardButton(text="🔑 Активировать ключ", callback_data="ai:activate_key")],
+        [InlineKeyboardButton(text="🧹 Очистить контекст", callback_data="ai:clear_context"),
+         InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")]
     ])
     await m.answer(text, reply_markup=kb, parse_mode="HTML")
 
@@ -1658,11 +1661,21 @@ async def ai_chat_message(m: Message, state: FSMContext):
     uid = m.from_user.id
     
     has_custom_key = bool(api_key)
-    if not has_custom_key:
+    is_free = model_name in ["nous-hermes-3-free", "gemma-2-free", "llama-3-free"]
+    is_premium = model_name in ["claude-opus-4.8", "gpt-5.5", "kimi-k2.7", "qwen-3.7-plus"]
+    
+    if not has_custom_key and not is_free:
         balance = await db_manager.check_user_ai_balance(uid)
-        if balance <= 0:
+        required_balance = 4 if is_premium else 1
+        if balance < required_balance:
             await state.clear()
-            await m.answer("❌ <b>Недостаточно запросов!</b>\nВаш баланс равен 0. Чат завершен.", reply_markup=get_main_menu(), parse_mode="HTML")
+            await m.answer(
+                f"❌ <b>Недостаточно запросов!</b>\n"
+                f"Для использования этой модели требуется минимум <b>{required_balance}</b> 💳 (ваш баланс: <b>{balance}</b>).\n"
+                f"Чат завершен. Пожалуйста, пополните баланс.",
+                reply_markup=get_main_menu(),
+                parse_mode="HTML"
+            )
             return
             
     history_key = f"ai_history:{uid}"
@@ -1691,9 +1704,14 @@ async def ai_chat_message(m: Message, state: FSMContext):
             )
             
             if not has_custom_key:
-                await db_manager.decrement_user_ai_balance(uid)
-                new_bal = await db_manager.check_user_ai_balance(uid)
-                response_text += f"\n\n<i>(Осталось запросов: {new_bal})</i>"
+                if not is_free:
+                    deduct_amount = 4 if is_premium else 1
+                    async with db_manager.pool.acquire() as conn:
+                        await conn.execute("UPDATE users SET ai_balance = GREATEST(0, ai_balance - $2) WHERE telegram_id = $1", uid, deduct_amount)
+                    new_bal = await db_manager.check_user_ai_balance(uid)
+                    response_text += f"\n\n<i>(Осталось запросов: {new_bal} 💳)</i>"
+                else:
+                    response_text += f"\n\n<i>(🆓 Бесплатный запрос)</i>"
             
             history.append({"role": "user", "content": m.text})
             history.append({"role": "assistant", "content": response_text})
@@ -1745,14 +1763,31 @@ async def process_ai_key(m: Message, state: FSMContext):
     await m.answer("✅ <b>API-ключ успешно сохранен!</b> Ваше сообщение с ключом было удалено из чата для безопасности.", parse_mode="HTML")
     await show_ai_menu_directly(m)
 
+@dp.callback_query(F.data == "ai_ignore")
+async def cb_ai_ignore(c: CallbackQuery):
+    await c.answer()
+
 @dp.callback_query(F.data == "ai:select_model")
 async def cb_ai_select_model(c: CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="♊ Gemini 1.5 Flash (Быстрая)", callback_data="ai_set_mod:gemini-1.5-flash")],
-        [InlineKeyboardButton(text="♊ Gemini 1.5 Pro (Умная)", callback_data="ai_set_mod:gemini-1.5-pro")],
-        [InlineKeyboardButton(text="🧠 GPT-4o-mini (Быстрая OpenAI)", callback_data="ai_set_mod:gpt-4o-mini")],
-        [InlineKeyboardButton(text="🧠 GPT-4o (Умная OpenAI)", callback_data="ai_set_mod:gpt-4o")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="ai_cancel_settings")]
+        [InlineKeyboardButton(text="💎 --- СТАНДАРТНЫЕ (1 💳) ---", callback_data="ai_ignore")],
+        [InlineKeyboardButton(text="♊ Gemini 1.5 Flash", callback_data="ai_set_mod:gemini-1.5-flash"),
+         InlineKeyboardButton(text="♊ Gemini 1.5 Pro", callback_data="ai_set_mod:gemini-1.5-pro")],
+        [InlineKeyboardButton(text="🧠 GPT-4o-mini", callback_data="ai_set_mod:gpt-4o-mini"),
+         InlineKeyboardButton(text="🧠 GPT-4o", callback_data="ai_set_mod:gpt-4o")],
+         
+        [InlineKeyboardButton(text="🔥 --- ПРЕМИУМ (4 💳) ---", callback_data="ai_ignore")],
+        [InlineKeyboardButton(text="🦉 Claude Opus 4.8", callback_data="ai_set_mod:claude-opus-4.8"),
+         InlineKeyboardButton(text="🧠 GPT 5.5", callback_data="ai_set_mod:gpt-5.5")],
+        [InlineKeyboardButton(text="🌙 Kimi K2.7", callback_data="ai_set_mod:kimi-k2.7"),
+         InlineKeyboardButton(text="🐉 Qwen 3.7 Plus", callback_data="ai_set_mod:qwen-3.7-plus")],
+         
+        [InlineKeyboardButton(text="🆓 --- БЕСПЛАТНЫЕ (0 💳) ---", callback_data="ai_ignore")],
+        [InlineKeyboardButton(text="🐴 Hermes 3 405B (Free)", callback_data="ai_set_mod:nous-hermes-3-free")],
+        [InlineKeyboardButton(text="♊ Gemma 2 9B (Free)", callback_data="ai_set_mod:gemma-2-free"),
+         InlineKeyboardButton(text="🦙 Llama 3 8B (Free)", callback_data="ai_set_mod:llama-3-free")],
+         
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="ai:back_to_menu")]
     ])
     await c.message.edit_text("⚙️ <b>Выберите модель ИИ:</b>", reply_markup=kb, parse_mode="HTML")
     await c.answer()
@@ -1795,18 +1830,75 @@ async def show_ai_menu_directly(message: Message, user_id: int = None):
         "или приобрести баланс ИИ-запросов за Telegram звезды."
     )
     
-    can_chat = has_key or (ai_balance > 0)
+    is_free = model in ["nous-hermes-3-free", "gemma-2-free", "llama-3-free"]
+    can_chat = has_key or (ai_balance > 0) or is_free
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💬 Начать диалог", callback_data="ai:chat") if can_chat else
          InlineKeyboardButton(text="💬 Начать диалог (нужен ключ/баланс)", callback_data="ai:need_key")],
-        [InlineKeyboardButton(text="💳 Купить 100 запросов (50 ⭐)", callback_data="ai:buy_requests"),
-         InlineKeyboardButton(text="🔑 Активировать ключ", callback_data="ai:activate_key")],
+        [InlineKeyboardButton(text="💳 100 Стандарт ИИ (50 ⭐)", callback_data="ai:buy_requests"),
+         InlineKeyboardButton(text="💳 100 Премиум ИИ (200 ⭐)", callback_data="ai:buy_premium")],
+        [InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model"),
+         InlineKeyboardButton(text="🆓 Бесплатные модели", callback_data="ai:free_models")],
         [InlineKeyboardButton(text="🔑 Установить API-ключ", callback_data="ai:set_key"),
-         InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model")],
-        [InlineKeyboardButton(text="🧹 Очистить контекст диалога", callback_data="ai:clear_context")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")]
+         InlineKeyboardButton(text="🔑 Активировать ключ", callback_data="ai:activate_key")],
+        [InlineKeyboardButton(text="🧹 Очистить контекст", callback_data="ai:clear_context"),
+         InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")]
     ])
     await message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+
+@dp.callback_query(F.data == "ai:free_models")
+async def cb_ai_free_models(c: CallbackQuery):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🐴 Hermes 3 405B (Free)", callback_data="ai_set_mod:nous-hermes-3-free")],
+        [InlineKeyboardButton(text="♊ Gemma 2 9B (Free)", callback_data="ai_set_mod:gemma-2-free"),
+         InlineKeyboardButton(text="🦙 Llama 3 8B (Free)", callback_data="ai_set_mod:llama-3-free")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="ai:back_to_menu")]
+    ])
+    await c.message.edit_text(
+        "🆓 <b>Бесплатные модели ИИ</b>\n\n"
+        "Эти модели не списывают кредиты с вашего баланса и доступны даже с нулевым балансом.\n\n"
+        "Выберите модель:",
+        reply_markup=kb,
+        parse_mode="HTML"
+    )
+    await c.answer()
+
+
+@dp.callback_query(F.data == "ai:back_to_menu")
+async def cb_ai_back_to_menu(c: CallbackQuery):
+    uid = c.from_user.id
+    user_row = await db_manager.get_user(uid)
+    model = user_row['ai_model'] if user_row else 'gemini-1.5-flash'
+    has_key = bool(user_row['custom_ai_key']) if user_row else False
+    ai_balance = user_row['ai_balance'] if user_row else 0
+    key_status = "✅ Установлен" if has_key else "❌ Не установлен"
+    
+    text = (
+        "🤖 <b>Панель ИИ-Ассистента</b>\n\n"
+        f"🧠 Выбранная модель: <code>{model}</code>\n"
+        f"🔑 Личный API-ключ: <b>{key_status}</b>\n"
+        f"💳 Баланс ИИ-запросов (OpenRouter): <b>{ai_balance}</b>\n\n"
+        "Вы можете использовать ИИ, установив собственный API-ключ в настройках, "
+        "или приобрести баланс ИИ-запросов за Telegram звезды."
+    )
+    
+    is_free = model in ["nous-hermes-3-free", "gemma-2-free", "llama-3-free"]
+    can_chat = has_key or (ai_balance > 0) or is_free
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💬 Начать диалог", callback_data="ai:chat") if can_chat else
+         InlineKeyboardButton(text="💬 Начать диалог (нужен ключ/баланс)", callback_data="ai:need_key")],
+        [InlineKeyboardButton(text="💳 100 Стандарт ИИ (50 ⭐)", callback_data="ai:buy_requests"),
+         InlineKeyboardButton(text="💳 100 Премиум ИИ (200 ⭐)", callback_data="ai:buy_premium")],
+        [InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model"),
+         InlineKeyboardButton(text="🆓 Бесплатные модели", callback_data="ai:free_models")],
+        [InlineKeyboardButton(text="🔑 Установить API-ключ", callback_data="ai:set_key"),
+         InlineKeyboardButton(text="🔑 Активировать ключ", callback_data="ai:activate_key")],
+        [InlineKeyboardButton(text="🧹 Очистить контекст", callback_data="ai:clear_context"),
+         InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")]
+    ])
+    await c.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    await c.answer()
 
 
 # ═══════════════════ VPN-СЕРВИС ═══════════════════
@@ -1842,13 +1934,14 @@ async def vpn_menu(m: Message, state: FSMContext):
         text = (
             "🔌 <b>Собственный VPN-сервис</b>\n\n"
             "Мы предоставляем стабильный, быстрый и безопасный доступ к зарубежным образовательным платформам и библиотекам.\n\n"
-            "Стоимость подписки составляет <b>150 ⭐ (Telegram Stars)</b>.\n"
-            "После оплаты вы получите:\n"
-            "1. Личный профиль WireGuard VPN со стабильной скоростью.\n"
-            "2. Уникальный промокод на <b>100 запросов к ИИ-Ассистенту</b>."
+            "Выберите вариант подписки:\n"
+            "1. <b>VPN + 100 Стандарт ИИ</b> — 150 ⭐ (Telegram Stars)\n"
+            "2. <b>VPN + 100 Премиум ИИ (Claude, GPT, Kimi, Qwen)</b> — 310 ⭐ (Telegram Stars)\n\n"
+            "<i>Все тарифы рассчитаны для обеспечения 30%+ чистой прибыли в месяц для развития бота.</i>"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💳 Приобрести подписку (150 ⭐)", callback_data="vpn:buy")],
+            [InlineKeyboardButton(text="💳 VPN + 100 Стандарт (150 ⭐)", callback_data="vpn:buy_standard")],
+            [InlineKeyboardButton(text="💳 VPN + 100 Премиум (310 ⭐)", callback_data="vpn:buy_premium")],
             [InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")]
         ])
         
@@ -1997,13 +2090,14 @@ async def show_vpn_menu_directly(message: Message, user_id: int = None):
         text = (
             "🔌 <b>Собственный VPN-сервис</b>\n\n"
             "Мы предоставляем стабильный, быстрый и безопасный доступ к зарубежным образовательным платформам и библиотекам.\n\n"
-            "Стоимость подписки составляет <b>150 ⭐ (Telegram Stars)</b>.\n"
-            "После оплаты вы получите:\n"
-            "1. Личный профиль WireGuard VPN со стабильной скоростью.\n"
-            "2. Уникальный промокод на <b>100 запросов к ИИ-Ассистенту</b>."
+            "Выберите вариант подписки:\n"
+            "1. <b>VPN + 100 Стандарт ИИ</b> — 150 ⭐ (Telegram Stars)\n"
+            "2. <b>VPN + 100 Премиум ИИ (Claude, GPT, Kimi, Qwen)</b> — 310 ⭐ (Telegram Stars)\n\n"
+            "<i>Все тарифы рассчитаны для обеспечения 30%+ чистой прибыли в месяц для развития бота.</i>"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💳 Приобрести подписку (150 ⭐)", callback_data="vpn:buy")],
+            [InlineKeyboardButton(text="💳 VPN + 100 Стандарт (150 ⭐)", callback_data="vpn:buy_standard")],
+            [InlineKeyboardButton(text="💳 VPN + 100 Премиум (310 ⭐)", callback_data="vpn:buy_premium")],
             [InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")]
         ])
     await message.answer(text, reply_markup=kb, parse_mode="HTML")
@@ -2011,32 +2105,50 @@ async def show_vpn_menu_directly(message: Message, user_id: int = None):
 
 # ═══════════════════ ПЛАТЕЖНЫЕ ХЭНДЛЕРЫ И АКТИВАЦИЯ КЛЮЧЕЙ ═══════════════════
 
-@dp.callback_query(F.data == "vpn:buy")
-async def cb_vpn_buy(c: CallbackQuery):
+@dp.callback_query(F.data == "vpn:buy_standard")
+async def cb_vpn_buy_standard(c: CallbackQuery):
     uid = c.from_user.id
-    prices = [LabeledPrice(label="Подписка VPN + 100 ИИ", amount=150)]
+    prices = [LabeledPrice(label="VPN + 100 Стандарт ИИ", amount=150)]
     try:
         await c.message.answer_invoice(
-            title="Подписка VPN + 100 запросов ИИ",
-            description="Доступ к быстрому VPN-сервису WireGuard на 30 дней и 100 запросов к ИИ ассистенту через OpenRouter.",
-            payload="vpn_subscription",
+            title="VPN + 100 Стандарт ИИ",
+            description="Подписка WireGuard VPN на 30 дней и промокод на 100 стандартных запросов к ИИ.",
+            payload="vpn_sub_standard",
             provider_token="",
             currency="XTR",
             prices=prices
         )
         await c.answer("Счет выставлен!")
     except Exception as e:
-        logger.error(f"Failed to send invoice for VPN: {e}")
+        logger.error(f"Failed to send invoice for VPN standard: {e}")
+        await c.answer("⚠️ Не удалось выставить счет. Обратитесь к администратору.", show_alert=True)
+
+@dp.callback_query(F.data == "vpn:buy_premium")
+async def cb_vpn_buy_premium(c: CallbackQuery):
+    uid = c.from_user.id
+    prices = [LabeledPrice(label="VPN + 100 Премиум ИИ", amount=310)]
+    try:
+        await c.message.answer_invoice(
+            title="VPN + 100 Премиум ИИ",
+            description="Подписка WireGuard VPN на 30 дней и промокод на 100 премиум запросов к ИИ (Claude, GPT, Kimi, Qwen).",
+            payload="vpn_sub_premium",
+            provider_token="",
+            currency="XTR",
+            prices=prices
+        )
+        await c.answer("Счет выставлен!")
+    except Exception as e:
+        logger.error(f"Failed to send invoice for VPN premium: {e}")
         await c.answer("⚠️ Не удалось выставить счет. Обратитесь к администратору.", show_alert=True)
 
 @dp.callback_query(F.data == "ai:buy_requests")
 async def cb_ai_buy_requests(c: CallbackQuery):
     uid = c.from_user.id
-    prices = [LabeledPrice(label="100 ИИ-запросов", amount=50)]
+    prices = [LabeledPrice(label="100 Стандарт ИИ-запросов", amount=50)]
     try:
         await c.message.answer_invoice(
-            title="100 запросов к ИИ-Ассистенту",
-            description="Пополнение баланса ИИ-Ассистента через OpenRouter на 100 дополнительных запросов.",
+            title="100 стандартных запросов к ИИ",
+            description="Пополнение баланса ИИ-Ассистента на 100 стандартных (или 25 премиум) запросов.",
             payload="ai_100_requests",
             provider_token="",
             currency="XTR",
@@ -2045,6 +2157,24 @@ async def cb_ai_buy_requests(c: CallbackQuery):
         await c.answer("Счет выставлен!")
     except Exception as e:
         logger.error(f"Failed to send invoice for AI: {e}")
+        await c.answer("⚠️ Не удалось выставить счет. Обратитесь к администратору.", show_alert=True)
+
+@dp.callback_query(F.data == "ai:buy_premium")
+async def cb_ai_buy_premium(c: CallbackQuery):
+    uid = c.from_user.id
+    prices = [LabeledPrice(label="100 Премиум ИИ-запросов", amount=200)]
+    try:
+        await c.message.answer_invoice(
+            title="100 премиум запросов к ИИ",
+            description="Пополнение баланса ИИ-Ассистента на 100 премиум (или 400 стандартных) запросов.",
+            payload="ai_100_premium",
+            provider_token="",
+            currency="XTR",
+            prices=prices
+        )
+        await c.answer("Счет выставлен!")
+    except Exception as e:
+        logger.error(f"Failed to send invoice for AI premium: {e}")
         await c.answer("⚠️ Не удалось выставить счет. Обратитесь к администратору.", show_alert=True)
 
 @dp.pre_checkout_query()
@@ -2056,7 +2186,8 @@ async def process_successful_payment(m: Message):
     payload = m.successful_payment.invoice_payload
     uid = m.from_user.id
     
-    if payload == "vpn_subscription":
+    if payload in ["vpn_sub_standard", "vpn_sub_premium"]:
+        is_premium = (payload == "vpn_sub_premium")
         await m.answer("⏳ <b>Настройка вашего VPN-подключения и генерация ключей...</b>", parse_mode="HTML")
         try:
             user_row = await db_manager.get_user(uid)
@@ -2070,8 +2201,9 @@ async def process_successful_payment(m: Message):
             config_text = await vpn_manager.generate_user_vpn_config(user_db_id)
             await db_manager.set_user_vpn(uid, enabled=True, key=config_text)
             
-            # Generate AI key
-            ai_key = await db_manager.generate_ai_key(request_limit=100)
+            # Generate AI key (100 credits for standard, 400 credits for premium)
+            limit = 400 if is_premium else 100
+            ai_key = await db_manager.generate_ai_key(request_limit=limit)
             
             # Send VPN file
             file_data = BufferedInputFile(config_text.encode("utf-8"), filename=f"tu_ugmk_vpn_{uid}.conf")
@@ -2102,11 +2234,12 @@ async def process_successful_payment(m: Message):
                 parse_mode="HTML"
             )
             
+            pkg_name = "100 премиум" if is_premium else "100 стандартных"
             await m.answer(
                 f"🎉 <b>Спасибо за покупку!</b>\n\n"
-                f"🔑 Мы сгенерировали для вас уникальный ключ ИИ-доступа на 100 запросов:\n"
+                f"🔑 Мы сгенерировали для вас уникальный ключ ИИ-доступа ({pkg_name} запросов):\n"
                 f"<code>{ai_key}</code>\n\n"
-                f"Отправьте его боту (или используйте команду <code>/activate {ai_key}</code>) для активации, либо поделитесь с другом!",
+                f"Отправьте его боту для активации, либо поделитесь с другом!",
                 parse_mode="HTML"
             )
             
@@ -2118,22 +2251,24 @@ async def process_successful_payment(m: Message):
                 parse_mode="HTML"
             )
             
-    elif payload == "ai_100_requests":
+    elif payload in ["ai_100_requests", "ai_100_premium"]:
+        is_premium = (payload == "ai_100_premium")
+        add_amount = 400 if is_premium else 100
         try:
             # Increment user balance directly
             user_row = await db_manager.get_user(uid)
             if not user_row:
                 await db_manager.register_or_update_user(uid, m.from_user.username)
                 
-            # Add 100 to balance
             async with db_manager.pool.acquire() as conn:
-                await conn.execute("UPDATE users SET ai_balance = ai_balance + 100 WHERE telegram_id = $1", uid)
+                await conn.execute("UPDATE users SET ai_balance = ai_balance + $2 WHERE telegram_id = $1", uid, add_amount)
                 
             new_bal = await db_manager.check_user_ai_balance(uid)
+            pkg_name = "100 Премиум" if is_premium else "100 Стандарт"
             await m.answer(
                 f"🎉 <b>Оплата прошла успешно!</b>\n\n"
-                f"На ваш баланс зачислено <b>100</b> ИИ-запросов.\n"
-                f"Текущий баланс: <b>{new_bal}</b> запросов.",
+                f"На ваш баланс зачислено <b>{add_amount}</b> ИИ-кредитов (соответствует {pkg_name} запросам).\n"
+                f"Текущий баланс: <b>{new_bal}</b> кредитов.",
                 parse_mode="HTML"
             )
         except Exception as e:

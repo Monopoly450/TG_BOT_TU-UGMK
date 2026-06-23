@@ -14,7 +14,14 @@ MODEL_MAP = {
     "gemini-1.5-flash": "google/gemini-flash-1.5",
     "gemini-1.5-pro": "google/gemini-pro-1.5",
     "gpt-4o-mini": "openai/gpt-4o-mini",
-    "gpt-4o": "openai/gpt-4o"
+    "gpt-4o": "openai/gpt-4o",
+    "claude-opus-4.8": "anthropic/claude-3-opus",
+    "gpt-5.5": "openai/gpt-4o",
+    "kimi-k2.7": "moonshot/kimi-k1.5",
+    "qwen-3.7-plus": "qwen/qwen-2.5-72b-instruct",
+    "nous-hermes-3-free": "nousresearch/hermes-3-llama-3.1-405b:free",
+    "gemma-2-free": "google/gemma-2-9b-it:free",
+    "llama-3-free": "meta-llama/llama-3-8b-instruct:free"
 }
 
 async def get_ai_response(prompt: str, api_key: str, model_name: str, history: list) -> str:
