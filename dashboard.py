@@ -32,11 +32,14 @@ async def index(request: Request, notification: str = None):
     authenticated = is_authenticated(request)
     
     if not authenticated:
-        return templates.TemplateResponse("index.html", {
-            "request": request,
-            "authenticated": False,
-            "error": None
-        })
+        return templates.TemplateResponse(
+            request=request,
+            name="index.html",
+            context={
+                "authenticated": False,
+                "error": None
+            }
+        )
         
     try:
         users = await db_manager.get_all_users()
@@ -49,15 +52,18 @@ async def index(request: Request, notification: str = None):
             
         unused_keys_count = sum(1 for k in ai_keys if k['used_by'] is None)
         
-        return templates.TemplateResponse("index.html", {
-            "request": request,
-            "authenticated": True,
-            "users": users,
-            "ai_keys": ai_keys,
-            "active_vpn_count": active_vpn_count,
-            "unused_keys_count": unused_keys_count,
-            "notification": notification
-        })
+        return templates.TemplateResponse(
+            request=request,
+            name="index.html",
+            context={
+                "authenticated": True,
+                "users": users,
+                "ai_keys": ai_keys,
+                "active_vpn_count": active_vpn_count,
+                "unused_keys_count": unused_keys_count,
+                "notification": notification
+            }
+        )
     except Exception as e:
         logger.error(f"Dashboard load error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -69,11 +75,14 @@ async def login(request: Request, password: str = Form(...)):
         response.set_cookie(key="admin_session", value=password, max_age=86400, httponly=True)
         return response
     else:
-        return templates.TemplateResponse("index.html", {
-            "request": request,
-            "authenticated": False,
-            "error": "Неверный пароль администратора!"
-        })
+        return templates.TemplateResponse(
+            request=request,
+            name="index.html",
+            context={
+                "authenticated": False,
+                "error": "Неверный пароль администратора!"
+            }
+        )
 
 @app.post("/logout")
 async def logout():
