@@ -132,8 +132,13 @@ async def create_openrouter_key(limit_usd: float, expires_days: int = 30) -> str
                 raise ValueError(f"Ошибка OpenRouter: {text}")
             
             data = await resp.json()
-            key_data = data.get("data", data)
-            api_key = key_data.get("key")
+            api_key = data.get("key")
+            if not api_key:
+                # Fallback to nested data.key (used in tests)
+                key_data = data.get("data")
+                if isinstance(key_data, dict):
+                    api_key = key_data.get("key")
+            
             if not api_key:
                 raise ValueError(f"Ключ не найден в ответе OpenRouter: {data}")
             return api_key
