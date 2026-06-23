@@ -1622,15 +1622,18 @@ async def cb_ai_chat(c: CallbackQuery, state: FSMContext):
     user_row = await db_manager.get_user(uid)
     has_key = bool(user_row['custom_ai_key']) if user_row else False
     ai_balance = user_row['ai_balance'] if user_row else 0
+    model = user_row['ai_model'] if user_row else 'gemini-1.5-flash'
     
-    if not has_key and ai_balance <= 0:
+    is_free = model in ["nous-hermes-3-free", "gemma-2-free", "llama-3-free"]
+    
+    if not has_key and ai_balance <= 0 and not is_free:
         await c.answer("⚠️ У вас нет личного ключа и баланс запросов равен 0!", show_alert=True)
         return
         
     await state.set_state(UserStates.waiting_for_ai_prompt)
     await state.update_data(
         ai_key=user_row['custom_ai_key'] if has_key else None,
-        ai_model=user_row['ai_model']
+        ai_model=model
     )
     
     kb = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Выйти из чата ИИ")]], resize_keyboard=True)
