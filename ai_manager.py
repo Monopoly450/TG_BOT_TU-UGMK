@@ -115,7 +115,7 @@ async def create_openrouter_key(limit_usd: float, expires_days: int = 30) -> str
         "Content-Type": "application/json"
     }
     
-    expires_at = (datetime.now(timezone.utc) + timedelta(days=expires_days)).isoformat()
+    expires_at = (datetime.now(timezone.utc) + timedelta(days=expires_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
     name = f"tg_{int(datetime.now(timezone.utc).timestamp())}"
     
     payload = {
