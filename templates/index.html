@@ -543,39 +543,61 @@
                                 <th>Пользователь</th>
                                 <th>Группа</th>
                                 <th>VPN Подписка</th>
-                                <th>Баланс ИИ</th>
-                                <th>Дата регистрации</th>
+                                <th>ИИ-Ассистент</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for user in users %}
                             <tr>
                                 <td>
-                                    <div style="font-weight: 600;">{{ user.username or "Без имени" }}</div>
-                                    <div style="font-size: 12px; color: var(--text-secondary); margin-top: 2px;">ID: {{ user.telegram_id }}</div>
+                                    <div style="font-weight: 600;">
+                                        {% if user.username %}
+                                            <a href="https://t.me/{{ user.username }}" target="_blank" style="color: var(--primary); text-decoration: none;">@{{ user.username }}</a>
+                                        {% else %}
+                                            Без имени
+                                        {% endif %}
+                                    </div>
+                                    <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">ID: {{ user.telegram_id }}</div>
+                                    <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">Рег: {{ user.created_at.strftime('%d.%m.%Y %H:%M') if user.created_at else '—' }}</div>
                                 </td>
                                 <td>{{ user.group_name or "—" }}</td>
                                 <td>
-                                    <form action="/user/toggle_vpn" method="POST" style="display:inline;">
-                                        <input type="hidden" name="telegram_id" value="{{ user.telegram_id }}">
-                                        <label class="switch">
-                                            <input type="checkbox" name="vpn_enabled" {% if user.vpn_enabled %}checked{% endif %} onchange="this.form.submit()">
-                                            <span class="slider"></span>
-                                        </label>
-                                    </form>
-                                    <span style="margin-left: 8px; font-weight: 500; font-size: 13px;" class="{% if user.vpn_enabled %}badge badge-active{% else %}badge badge-inactive{% endif %}">
-                                        {% if user.vpn_enabled %}Активен{% else %}Откл.{% endif %}
-                                    </span>
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <form action="/user/toggle_vpn" method="POST" style="display:inline;">
+                                            <input type="hidden" name="telegram_id" value="{{ user.telegram_id }}">
+                                            <label class="switch">
+                                                <input type="checkbox" name="vpn_enabled" {% if user.vpn_enabled %}checked{% endif %} onchange="this.form.submit()">
+                                                <span class="slider"></span>
+                                            </label>
+                                        </form>
+                                        <span style="font-weight: 500; font-size: 12px;" class="{% if user.vpn_enabled %}badge badge-active{% else %}badge badge-inactive{% endif %}">
+                                            {% if user.vpn_enabled %}Активен{% else %}Откл.{% endif %}
+                                        </span>
+                                    </div>
+                                    <div style="font-size: 11px; color: var(--text-secondary); margin-top: 6px; line-height: 1.4;">
+                                        <div>Куплено: {{ user.vpn_purchased_at.strftime('%d.%m.%Y %H:%M') if user.vpn_purchased_at else '—' }}</div>
+                                        <div>До: {{ user.vpn_expires_at.strftime('%d.%m.%Y %H:%M') if user.vpn_expires_at else '—' }}</div>
+                                    </div>
                                 </td>
                                 <td>
-                                    <form action="/user/update_balance" method="POST" class="balance-form">
+                                    <form action="/user/update_balance" method="POST" class="balance-form" style="margin-bottom: 6px; display: flex; gap: 4px;">
                                         <input type="hidden" name="telegram_id" value="{{ user.telegram_id }}">
-                                        <input type="number" name="ai_balance" value="{{ user.ai_balance }}" class="form-control balance-input" min="0" required>
-                                        <button type="submit" class="balance-btn">Сохранить</button>
+                                        <input type="number" name="ai_balance" value="{{ user.ai_balance }}" class="form-control balance-input" min="0" required style="width: 70px; padding: 4px 8px; font-size: 13px;">
+                                        <button type="submit" class="balance-btn" style="padding: 4px 8px; font-size: 12px;">ОК</button>
                                     </form>
-                                </td>
-                                <td style="font-size: 13px; color: var(--text-secondary);">
-                                    {{ user.created_at.strftime('%d.%m.%Y %H:%M') if user.created_at else '—' }}
+                                    <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.4;">
+                                        <div>Куплено: {{ user.ai_purchased_at.strftime('%d.%m.%Y %H:%M') if user.ai_purchased_at else '—' }}</div>
+                                        <div>До: {{ user.ai_expires_at.strftime('%d.%m.%Y %H:%M') if user.ai_expires_at else '—' }}</div>
+                                        <div style="margin-top: 4px; display: flex; align-items: center; gap: 4px;">
+                                            <span>Ключ:</span>
+                                            {% if user.custom_ai_key %}
+                                                <code style="font-family: monospace; background: rgba(255, 255, 255, 0.1); padding: 2px 4px; border-radius: 4px; font-size: 10px; word-break: break-all; max-width: 100px; display: inline-block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="{{ user.custom_ai_key }}">{{ user.custom_ai_key }}</code>
+                                                <button onclick="navigator.clipboard.writeText('{{ user.custom_ai_key }}'); alert('Ключ скопирован в буфер обмена!');" style="background: none; border: none; color: var(--primary); cursor: pointer; font-size: 11px; padding: 0 2px;" title="Скопировать ключ">📋</button>
+                                            {% else %}
+                                                <span style="color: var(--text-secondary);">—</span>
+                                            {% endif %}
+                                        </div>
+                                    </div>
                                 </td>
                             </tr>
                             {% endfor %}

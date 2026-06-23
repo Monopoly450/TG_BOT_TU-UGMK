@@ -2469,7 +2469,7 @@ async def process_successful_payment(m: Message):
             
             # Generate config and update user VPN status
             config_text = await vpn_manager.generate_user_vpn_config(user_db_id)
-            await db_manager.set_user_vpn(uid, enabled=True, key=config_text, expires_at=new_vpn_expires)
+            await db_manager.set_user_vpn(uid, enabled=True, key=config_text, expires_at=new_vpn_expires, purchased_at=now)
             
             # Generate actual OpenRouter key
             if is_test:
@@ -2477,7 +2477,7 @@ async def process_successful_payment(m: Message):
             else:
                 limit_usd = 1.50 if is_premium else 0.15
             ai_key = await create_openrouter_key(limit_usd=limit_usd, expires_days=expires_days)
-            await db_manager.set_user_ai_key(uid, ai_key, new_ai_expires)
+            await db_manager.set_user_ai_key(uid, ai_key, new_ai_expires, purchased_at=now)
             
             # Send VPN file
             file_data = BufferedInputFile(config_text.encode("utf-8"), filename=f"tu_ugmk_vpn_{uid}.conf")
@@ -2549,7 +2549,7 @@ async def process_successful_payment(m: Message):
             # Generate actual OpenRouter key
             limit_usd = 1.50 if is_premium else 0.15
             ai_key = await create_openrouter_key(limit_usd=limit_usd, expires_days=expires_days)
-            await db_manager.set_user_ai_key(uid, ai_key, new_ai_expires)
+            await db_manager.set_user_ai_key(uid, ai_key, new_ai_expires, purchased_at=now)
             
             pkg_name = "30 премиум" if is_premium else "150 стандартных"
             await m.answer(
@@ -2585,7 +2585,7 @@ async def process_successful_payment(m: Message):
                 new_vpn_expires = now + timedelta(days=30)
                 
             config_text = await vpn_manager.generate_user_vpn_config(user_db_id)
-            await db_manager.set_user_vpn(uid, enabled=True, key=config_text, expires_at=new_vpn_expires)
+            await db_manager.set_user_vpn(uid, enabled=True, key=config_text, expires_at=new_vpn_expires, purchased_at=now)
             
             # Send VPN file
             file_data = BufferedInputFile(config_text.encode("utf-8"), filename=f"tu_ugmk_vpn_{uid}.conf")
