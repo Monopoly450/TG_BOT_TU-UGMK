@@ -50,6 +50,8 @@ class DBManager:
                 );
                 
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS ai_balance INT DEFAULT 0;
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS vpn_expires_at TIMESTAMP;
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS ai_expires_at TIMESTAMP;
                 
                 CREATE TABLE IF NOT EXISTS ai_keys (
                     id SERIAL PRIMARY KEY,
@@ -127,13 +129,18 @@ class DBManager:
                     group_name = COALESCE($3, users.group_name)
             """, telegram_id, username, group_name)
 
-    async def set_user_ai_key(self, telegram_id: int, api_key: str):
+    async def set_user_ai_key(self, telegram_id: int, api_key: str, expires_at = None):
         async with self.pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO users (telegram_id, custom_ai_key)
-                VALUES ($1, $2)
-                ON CONFLICT (telegram_id) DO UPDATE SET custom_ai_key = $2
-            """, telegram_id, api_key)
+            if api_key:
+                await conn.execute("""
+                    INSERT INTO users (telegram_id, custom_ai_key, ai_expires_at)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT (telegram_id) DO UPDATE SET custom_ai_key = $2, ai_expires_at = $3
+                """, telegram_id, api_key, expires_at)
+            else:
+                await conn.execute("""
+                    UPDATE users SET custom_ai_key = NULL, ai_expires_at = NULL WHERE telegram_id = $1
+                """, telegram_id)
 
     async def set_user_ai_model(self, telegram_id: int, model: str):
         async with self.pool.acquire() as conn:
@@ -155,14 +162,18 @@ class DBManager:
                 VALUES ($1, $2, $3, $4)
             """, telegram_id, prompt, response, model_used)
 
-    # VPN operations
-    async def set_user_vpn(self, telegram_id: int, enabled: bool, key: str = None):
+    async def set_user_vpn(self, telegram_id: int, enabled: bool, key: str = None, expires_at = None):
         async with self.pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO users (telegram_id, vpn_enabled, vpn_key)
-                VALUES ($1, $2, $3)
-                ON CONFLICT (telegram_id) DO UPDATE SET vpn_enabled = $2, vpn_key = COALESCE($3, users.vpn_key)
-            """, telegram_id, enabled, key)
+            if enabled:
+                await conn.execute("""
+                    INSERT INTO users (telegram_id, vpn_enabled, vpn_key, vpn_expires_at)
+                    VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (telegram_id) DO UPDATE SET vpn_enabled = $2, vpn_key = COALESCE($3, users.vpn_key), vpn_expires_at = $4
+                """, telegram_id, enabled, key, expires_at)
+            else:
+                await conn.execute("""
+                    UPDATE users SET vpn_enabled = FALSE, vpn_expires_at = NULL WHERE telegram_id = $1
+                """, telegram_id)
 
     # Event operations (Афиша)
     async def get_events(self):

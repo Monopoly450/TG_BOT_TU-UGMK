@@ -321,10 +321,9 @@ def get_main_menu(val=None):
         ]
     else:
         kb = [
-            [KeyboardButton(text="📅 Мое расписание"), KeyboardButton(text="🎓 Моя группа")],
-            [KeyboardButton(text="🤖 ИИ-Ассистент"), KeyboardButton(text="🔌 VPN-сервис")],
-            [KeyboardButton(text="🏫 Экосистема"), KeyboardButton(text="⭐ Избранное")],
-            [KeyboardButton(text="🔔 Моя подписка"), KeyboardButton(text="💻 Толк")],
+            [KeyboardButton(text="📅 Мое расписание"), KeyboardButton(text="🔔 Моя подписка")],
+            [KeyboardButton(text="🤖 ИИ-Ассистент"), KeyboardButton(text="🏫 Экосистема")],
+            [KeyboardButton(text="⭐ Избранное"), KeyboardButton(text="💻 Толк")],
             [KeyboardButton(text="👩‍🏫 Преподаватели"), KeyboardButton(text="🏫 Аудитории")],
             [KeyboardButton(text="🧹 Очистить")]
         ]
@@ -793,22 +792,170 @@ async def handle_sub_time_menu_message(m: Message, state: FSMContext):
     await m.answer("🔔 Открываю настройки подписки...", reply_markup=get_submenu_keyboard())
     await show_subscription_time_menu(m)
 
-async def show_subscription_time_menu(m: Message, user_id: str = None):
+async def show_subscription_time_menu(m: Message | CallbackQuery, user_id: str = None):
     uid = user_id or str(m.from_user.id)
-    subbed_group = await dao.hget("user_subs", uid)
-    if not subbed_group:
-        await m.answer("❌ Сначала выберите вашу группу в меню <b>«🎓 Моя группа»</b>, чтобы настроить время автоматической рассылки.", parse_mode="HTML")
-        return
-        
-    morn_time = await dao.hget("user_morning_time", uid) or "08:00"
-    eve_time = await dao.hget("user_evening_time", uid) or "Отключено"
+    user_row = await db_manager.get_user(int(uid))
     
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"🌅 Утром ({morn_time})", callback_data="sub:morning_time"),
-         InlineKeyboardButton(text=f"🌙 Вечером ({eve_time})", callback_data="sub:evening_time")]
+    if not user_row:
+        await db_manager.register_or_update_user(int(uid), m.from_user.username if m.from_user else None)
+        user_row = await db_manager.get_user(int(uid))
+        
+    group_name = user_row['group_name'] if user_row and user_row['group_name'] else "❌ Не выбрана"
+    vpn_enabled = user_row['vpn_enabled'] if user_row else False
+    vpn_expires_at = user_row.get('vpn_expires_at') if user_row else None
+    ai_model = user_row['ai_model'] if user_row else 'gpt-4o-mini'
+    has_key = bool(user_row['custom_ai_key']) if user_row else False
+    ai_balance = user_row['ai_balance'] if user_row else 0
+    ai_expires_at = user_row.get('ai_expires_at') if user_row else None
+    
+    # Format VPN status
+    if vpn_enabled:
+        vpn_status = "✅ Активна"
+        if vpn_expires_at:
+            vpn_status += f" (до {vpn_expires_at.strftime('%d.%m.%Y')})"
+    else:
+        vpn_status = "❌ Не активна"
+        
+    # Format AI status
+    ai_key_status = "✅ Установлен" if has_key else "❌ Не установлен"
+    ai_expiry_str = ""
+    if ai_expires_at:
+        ai_expiry_str = f" (до {ai_expires_at.strftime('%d.%m.%Y')})"
+        
+    # Get notification times
+    morn_time = await dao.hget("user_morning_time", str(uid)) or "08:00"
+    eve_time = await dao.hget("user_evening_time", str(uid)) or "Отключено"
+    
+    text = (
+        "🔔 <b>Мой профиль и подписки</b>\n\n"
+        f"🎓 <b>Ваша группа:</b> <code>{group_name}</code>\n\n"
+        f"🔌 <b>WireGuard VPN:</b>\n"
+        f"• Статус: <b>{vpn_status}</b>\n\n"
+        f"🤖 <b>ИИ-Ассистент:</b>\n"
+        f"• Модель: <code>{ai_model}</code>\n"
+        f"• Персональный ключ: <b>{ai_key_status}</b>\n"
+        f"• Баланс запросов: <b>{ai_balance}</b>{ai_expiry_str}\n\n"
+        f"🕒 <b>Ежедневная рассылка расписания:</b>\n"
+        f"• Утро: <code>{morn_time}</code>\n"
+        f"• Вечер: <code>{eve_time}</code>"
+    )
+    
+    kb_rows = []
+    
+    # Group row
+    kb_rows.append([InlineKeyboardButton(text="🎓 Выбрать/Изменить группу", callback_data="sub:change_group")])
+    
+    # VPN controls row
+    if vpn_enabled:
+        kb_rows.append([
+            InlineKeyboardButton(text="📁 Скачать WG файл", callback_data="vpn:get_file"),
+            InlineKeyboardButton(text="🖼 Показать QR-код", callback_data="vpn:get_qr")
+        ])
+        kb_rows.append([InlineKeyboardButton(text="❌ Отключить VPN", callback_data="sub:disable_vpn")])
+    else:
+        kb_rows.append([InlineKeyboardButton(text="🔌 Подключить/Продлить VPN", callback_data="sub:buy_vpn_menu")])
+        
+    # AI controls row
+    ai_btn_row = []
+    ai_btn_row.append(InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model"))
+    ai_btn_row.append(InlineKeyboardButton(text="🆓 Бесплатные модели", callback_data="ai:free_models"))
+    kb_rows.append(ai_btn_row)
+    
+    kb_rows.append([
+        InlineKeyboardButton(text="🧹 Очистить контекст ИИ", callback_data="ai:clear_context"),
+        InlineKeyboardButton(text="💳 Купить запросы ИИ", callback_data="sub:buy_ai_menu")
     ])
     
-    await m.answer(f"🔔 <b>Настройка ежедневной рассылки</b>\nГруппа: <b>{subbed_group}</b>\n\nВы будете автоматически получать расписание каждый день (от рассылок старосты отписаться нельзя). Настройте удобное время:", parse_mode="HTML", reply_markup=kb)
+    # Daily notification setup row
+    kb_rows.append([
+        InlineKeyboardButton(text="🌅 Настроить Утро", callback_data="sub:morning_time"),
+        InlineKeyboardButton(text="🌙 Настроить Вечер", callback_data="sub:evening_time")
+    ])
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+    
+    if isinstance(m, CallbackQuery):
+        await m.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    else:
+        await m.answer(text, reply_markup=kb, parse_mode="HTML")
+
+@dp.callback_query(F.data == "sub:change_group")
+async def cb_sub_change_group(c: CallbackQuery):
+    await show_courses_menu(c)
+    await c.answer()
+
+@dp.callback_query(F.data == "sub:buy_vpn_menu")
+async def cb_sub_buy_vpn_menu(c: CallbackQuery):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💳 VPN + 150 Стандарт (500 ⭐)", callback_data="vpn:buy_standard")],
+        [InlineKeyboardButton(text="💳 VPN + 30 Премиум (600 ⭐)", callback_data="vpn:buy_premium")],
+        [InlineKeyboardButton(text="🔙 Назад в подписки", callback_data="sub:back_to_menu")]
+    ])
+    text = (
+        "🔌 <b>Подключение/Продление WireGuard VPN:</b>\n\n"
+        "Выберите тариф подписки:\n"
+        "1. <b>VPN + 150 Стандарт ИИ</b> — 500 ⭐ (Telegram Stars)\n"
+        "2. <b>VPN + 30 Премиум ИИ (Claude, GPT, Kimi, Qwen)</b> — 600 ⭐ (Telegram Stars)\n\n"
+        "Все тарифы действуют 30 дней с момента покупки."
+    )
+    await c.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    await c.answer()
+
+@dp.callback_query(F.data == "sub:buy_ai_menu")
+async def cb_sub_buy_ai_menu(c: CallbackQuery):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💳 150 Стандарт ИИ (400 ⭐)", callback_data="ai:buy_requests")],
+        [InlineKeyboardButton(text="💳 30 Премиум ИИ (500 ⭐)", callback_data="ai:buy_premium")],
+        [InlineKeyboardButton(text="🔙 Назад в подписки", callback_data="sub:back_to_menu")]
+    ])
+    text = (
+        "🤖 <b>Приобретение запросов ИИ:</b>\n\n"
+        "Выберите пакет запросов:\n"
+        "1. <b>150 стандартных запросов</b> — 400 ⭐\n"
+        "2. <b>30 премиум запросов</b> — 500 ⭐\n\n"
+        "При покупке вам будет автоматически сгенерирован и привязан персональный API-ключ OpenRouter со сроком действия 30 дней."
+    )
+    await c.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    await c.answer()
+
+@dp.callback_query(F.data == "sub:back_to_menu")
+async def cb_sub_back_to_menu(c: CallbackQuery):
+    await show_subscription_time_menu(c)
+    await c.answer()
+
+@dp.callback_query(F.data == "sub:disable_vpn")
+async def cb_sub_disable_vpn(c: CallbackQuery):
+    uid = c.from_user.id
+    user_row = await db_manager.get_user(uid)
+    await db_manager.set_user_vpn(uid, enabled=False)
+    
+    try:
+        if user_row and user_row['vpn_key'] and vpn_manager.VPN_SSH_HOST:
+            import base64
+            from cryptography.hazmat.primitives.asymmetric import x25519
+            from cryptography.hazmat.primitives import serialization
+            
+            priv_key_match = re.search(r'PrivateKey\s*=\s*([a-zA-Z0-9+/=]+)', user_row['vpn_key'])
+            if priv_key_match:
+                priv_key_b64 = priv_key_match.group(1)
+                priv_bytes = base64.b64decode(priv_key_b64)
+                private_key = x25519.X25519PrivateKey.from_private_bytes(priv_bytes)
+                public_key = private_key.public_key()
+                pub_bytes = public_key.public_bytes(
+                    encoding=serialization.Encoding.Raw,
+                    format=serialization.PublicFormat.Raw
+                )
+                pub_key_b64 = base64.b64encode(pub_bytes).decode('utf-8')
+                
+                import asyncssh
+                async with asyncssh.connect(vpn_manager.VPN_SSH_HOST, username=vpn_manager.VPN_SSH_USER, password=vpn_manager.VPN_SSH_PASSWORD, known_hosts=None) as conn:
+                    await conn.run(f"sudo wg set wg0 peer {pub_key_b64} remove")
+                    await conn.run(f"sudo sed -i '/{pub_key_b64}/,+2d' /etc/wireguard/wg0.conf")
+    except Exception as e:
+        logger.error(f"Failed to remove WG peer on server for {uid}: {e}")
+        
+    await c.answer("VPN успешно отключен", show_alert=True)
+    await show_subscription_time_menu(c)
 
 @dp.message(F.text == "📅 Мое расписание")
 async def show_my_schedule(m: Message, state: FSMContext):
@@ -854,7 +1001,8 @@ async def show_courses_menu(m_or_c):
         [InlineKeyboardButton(text="1️⃣ Первый курс", callback_data="course:25")],
         [InlineKeyboardButton(text="2️⃣ Второй курс", callback_data="course:24")],
         [InlineKeyboardButton(text="3️⃣ Третий курс", callback_data="course:23")],
-        [InlineKeyboardButton(text="4️⃣ Четвертый курс", callback_data="course:22")]
+        [InlineKeyboardButton(text="4️⃣ Четвертый курс", callback_data="course:22")],
+        [InlineKeyboardButton(text="🔙 Назад в подписки", callback_data="sub:back_to_menu")]
     ]
     text = "🎓 Выберите курс:"
     kb = InlineKeyboardMarkup(inline_keyboard=btns)
@@ -907,7 +1055,8 @@ async def cb_sel(c: CallbackQuery, state: FSMContext):
     if t_type == "group":
         await dao.hset("user_subs", str(c.from_user.id), t_val)
         await db_manager.register_or_update_user(c.from_user.id, c.from_user.username, t_val)
-        await c.message.answer(f"✅ Ваша группа успешно сохранена: <b>{t_val}</b>\nТеперь вы будете получать важные уведомления от старосты.\n\nБыстро посмотреть расписание можно по кнопке «📅 Мое расписание».", parse_mode="HTML", reply_markup=get_main_menu())
+        await c.message.answer(f"✅ Ваша группа успешно сохранена: <b>{t_val}</b>\nТеперь вы будете получать важные уведомления от старосты.", parse_mode="HTML", reply_markup=get_submenu_keyboard())
+        await show_subscription_time_menu(c.message, user_id=str(c.from_user.id))
         await c.answer()
     else:
         await state.set_state(ScheduleStates.viewing)
@@ -2251,14 +2400,35 @@ async def process_successful_payment(m: Message):
                 
             user_db_id = user_row['id'] if user_row else 1
             
+            # Compute new expiration times
+            now = datetime.now()
+            
+            # VPN
+            current_vpn_expires = user_row.get('vpn_expires_at') if user_row else None
+            if current_vpn_expires and current_vpn_expires > now:
+                new_vpn_expires = current_vpn_expires + timedelta(days=30)
+            else:
+                new_vpn_expires = now + timedelta(days=30)
+                
+            # AI
+            current_ai_expires = user_row.get('ai_expires_at') if user_row else None
+            if current_ai_expires and current_ai_expires > now:
+                new_ai_expires = current_ai_expires + timedelta(days=30)
+            else:
+                new_ai_expires = now + timedelta(days=30)
+                
+            expires_days = int((new_ai_expires - now).total_seconds() / 86400)
+            if expires_days < 30:
+                expires_days = 30
+            
             # Generate config and update user VPN status
             config_text = await vpn_manager.generate_user_vpn_config(user_db_id)
-            await db_manager.set_user_vpn(uid, enabled=True, key=config_text)
+            await db_manager.set_user_vpn(uid, enabled=True, key=config_text, expires_at=new_vpn_expires)
             
             # Generate actual OpenRouter key
             limit_usd = 1.50 if is_premium else 0.15
-            ai_key = await create_openrouter_key(limit_usd=limit_usd, expires_days=30)
-            await db_manager.set_user_ai_key(uid, ai_key)
+            ai_key = await create_openrouter_key(limit_usd=limit_usd, expires_days=expires_days)
+            await db_manager.set_user_ai_key(uid, ai_key, new_ai_expires)
             
             # Send VPN file
             file_data = BufferedInputFile(config_text.encode("utf-8"), filename=f"tu_ugmk_vpn_{uid}.conf")
@@ -2312,11 +2482,25 @@ async def process_successful_payment(m: Message):
             user_row = await db_manager.get_user(uid)
             if not user_row:
                 await db_manager.register_or_update_user(uid, m.from_user.username)
+                user_row = await db_manager.get_user(uid)
+                
+            now = datetime.now()
+            
+            # AI Expiry only
+            current_ai_expires = user_row.get('ai_expires_at') if user_row else None
+            if current_ai_expires and current_ai_expires > now:
+                new_ai_expires = current_ai_expires + timedelta(days=30)
+            else:
+                new_ai_expires = now + timedelta(days=30)
+                
+            expires_days = int((new_ai_expires - now).total_seconds() / 86400)
+            if expires_days < 30:
+                expires_days = 30
                 
             # Generate actual OpenRouter key
             limit_usd = 1.50 if is_premium else 0.15
-            ai_key = await create_openrouter_key(limit_usd=limit_usd, expires_days=30)
-            await db_manager.set_user_ai_key(uid, ai_key)
+            ai_key = await create_openrouter_key(limit_usd=limit_usd, expires_days=expires_days)
+            await db_manager.set_user_ai_key(uid, ai_key, new_ai_expires)
             
             pkg_name = "30 премиум" if is_premium else "150 стандартных"
             await m.answer(
