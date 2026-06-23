@@ -1780,8 +1780,7 @@ async def ai_menu(m: Message, state: FSMContext):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💬 Начать диалог", callback_data="ai:chat") if can_chat else
          InlineKeyboardButton(text="💬 Начать диалог (нужен ключ/баланс)", callback_data="ai:need_key")],
-        [InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model"),
-         InlineKeyboardButton(text="🆓 Бесплатные модели", callback_data="ai:free_models")],
+        [InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model")],
         [InlineKeyboardButton(text="🧹 Очистить контекст", callback_data="ai:clear_context")]
     ])
     await m.answer(text, reply_markup=kb, parse_mode="HTML")
@@ -2018,31 +2017,10 @@ async def show_ai_menu_directly(message: Message, user_id: int = None):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💬 Начать диалог", callback_data="ai:chat") if can_chat else
          InlineKeyboardButton(text="💬 Начать диалог (нужен ключ/баланс)", callback_data="ai:need_key")],
-        [InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model"),
-         InlineKeyboardButton(text="🆓 Бесплатные модели", callback_data="ai:free_models")],
+        [InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model")],
         [InlineKeyboardButton(text="🧹 Очистить контекст", callback_data="ai:clear_context")]
     ])
     await message.answer(text, reply_markup=kb, parse_mode="HTML")
-
-
-@dp.callback_query(F.data == "ai:free_models")
-async def cb_ai_free_models(c: CallbackQuery):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⚡ Nemotron 3 Ultra (Free)", callback_data="ai_set_mod:nemotron-3-ultra-free")],
-        [InlineKeyboardButton(text="💧 Laguna XS.2 (Free)", callback_data="ai_set_mod:laguna-xs-2-free"),
-         InlineKeyboardButton(text="🐉 Qwen 3 Next (Free)", callback_data="ai_set_mod:qwen3-next-free")],
-        [InlineKeyboardButton(text="🧠 GPT OSS 120B (Free)", callback_data="ai_set_mod:gpt-oss-free"),
-         InlineKeyboardButton(text="🦙 Llama 3.3 70B (Free)", callback_data="ai_set_mod:llama-3.3-free")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="ai:back_to_menu")]
-    ])
-    await c.message.edit_text(
-        "🆓 <b>Бесплатные модели ИИ</b>\n\n"
-        "Эти модели не списывают кредиты с вашего баланса и доступны даже с нулевым балансом.\n\n"
-        "Выберите модель:",
-        reply_markup=kb,
-        parse_mode="HTML"
-    )
-    await c.answer()
 
 
 @dp.callback_query(F.data == "ai:back_to_menu")
@@ -2065,8 +2043,7 @@ async def cb_ai_back_to_menu(c: CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💬 Начать диалог", callback_data="ai:chat") if can_chat else
          InlineKeyboardButton(text="💬 Начать диалог (нужен ключ/баланс)", callback_data="ai:need_key")],
-        [InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model"),
-         InlineKeyboardButton(text="🆓 Бесплатные модели", callback_data="ai:free_models")],
+        [InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model")],
         [InlineKeyboardButton(text="🧹 Очистить контекст", callback_data="ai:clear_context")]
     ])
     await c.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
