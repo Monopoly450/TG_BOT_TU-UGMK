@@ -749,8 +749,8 @@ async def admin_broadcast_process(m: Message, state: FSMContext):
 # --- HANDLERS ---
 @dp.message(F.text.in_(["💻 Толк", "Толк"]))
 async def talk_links(m: Message):
-    await clear_chat_history(m.chat.id)
-    await m.answer("🎥 Открываю ссылки Толк...", reply_markup=get_submenu_keyboard())
+    msg = await m.answer("🎥 Открываю ссылки Толк...", reply_markup=get_submenu_keyboard())
+    await clear_chat_history(m.chat.id, exclude_ids=[msg.message_id])
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Толк 1", url="https://tu-ugmk.ktalk.ru/jiydkhlxmj94")],
         [InlineKeyboardButton(text="Толк 2", url="https://tu-ugmk.ktalk.ru/uiwmi2bn1khb")],
@@ -788,8 +788,8 @@ async def start(m: Message, state: FSMContext):
 @dp.message(F.text == "🔔 Моя подписка")
 async def handle_sub_time_menu_message(m: Message, state: FSMContext):
     await state.clear()
-    await clear_chat_history(m.chat.id)
-    await m.answer("🔔 Открываю настройки подписки...", reply_markup=get_submenu_keyboard())
+    msg = await m.answer("🔔 Открываю настройки подписки...", reply_markup=get_submenu_keyboard())
+    await clear_chat_history(m.chat.id, exclude_ids=[msg.message_id])
     await show_subscription_time_menu(m)
 
 async def show_subscription_time_menu(m: Message | CallbackQuery, user_id: str = None):
@@ -966,8 +966,8 @@ async def show_my_schedule(m: Message, state: FSMContext):
         
     await state.set_state(ScheduleStates.viewing)
     await state.update_data(target_type="group", target_value=subbed_group)
-    await clear_chat_history(m.chat.id)
-    await m.answer(f"📅 Расписание для группы <b>{subbed_group}</b>\nВыберите день:", parse_mode="HTML", reply_markup=get_main_menu(subbed_group))
+    msg = await m.answer(f"📅 Расписание для группы <b>{subbed_group}</b>\nВыберите день:", parse_mode="HTML", reply_markup=get_main_menu(subbed_group))
+    await clear_chat_history(m.chat.id, exclude_ids=[msg.message_id])
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📅 Экспорт в iCal (Google/Apple)", callback_data="ical:export")]
@@ -978,15 +978,15 @@ async def show_my_schedule(m: Message, state: FSMContext):
 async def show_filter_menu(m: Message, state: FSMContext, explicit_type: str = None):
     t_type = explicit_type if explicit_type else ("teacher" if m.text == "👩‍🏫 Преподаватели" else "classroom")
     await state.set_state(UserStates.waiting_for_teacher_search if t_type == "teacher" else UserStates.waiting_for_classroom_search)
-    await clear_chat_history(m.chat.id)
-    await m.answer("🔍 Открываю поиск...", reply_markup=get_submenu_keyboard())
+    msg = await m.answer("🔍 Открываю поиск...", reply_markup=get_submenu_keyboard())
+    await clear_chat_history(m.chat.id, exclude_ids=[msg.message_id])
     prompt = "🔍 <b>Введите фамилию преподавателя</b> (или её часть) для поиска:" if t_type == "teacher" else "🔍 <b>Введите номер или название аудитории</b> для поиска:"
     await m.answer(prompt, parse_mode="HTML")
 
 @dp.message(F.text == "🎓 Моя группа")
 async def handle_my_group_menu(m: Message):
-    await clear_chat_history(m.chat.id)
-    await m.answer("🎓 Открываю меню группы...", reply_markup=get_submenu_keyboard())
+    msg = await m.answer("🎓 Открываю меню группы...", reply_markup=get_submenu_keyboard())
+    await clear_chat_history(m.chat.id, exclude_ids=[msg.message_id])
     subbed_group = await dao.hget("user_subs", str(m.from_user.id))
     if subbed_group:
         kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -1600,8 +1600,8 @@ async def add_to_favorites(m: Message, state: FSMContext):
 
 @dp.message(F.text == "⭐ Избранное")
 async def show_favorites(m: Message):
-    await clear_chat_history(m.chat.id)
-    await m.answer("⭐ Открываю избранное...", reply_markup=get_submenu_keyboard())
+    msg = await m.answer("⭐ Открываю избранное...", reply_markup=get_submenu_keyboard())
+    await clear_chat_history(m.chat.id, exclude_ids=[msg.message_id])
     favs = list(await dao.smembers(f"favs:{m.from_user.id}"))
     if not favs:
         await m.answer("⭐ <b>Избранное</b>\n\nУ вас пока нет сохраненных расписаний.\nЧтобы добавить расписание в избранное, откройте его и нажмите кнопку <b>«⭐ В избранное»</b>.", parse_mode="HTML")
@@ -1768,8 +1768,8 @@ PREMIUM_MODELS = [
 @dp.message(Command("ai"))
 async def ai_menu(m: Message, state: FSMContext):
     await state.clear()
-    await clear_chat_history(m.chat.id)
-    await m.answer("🤖 Открываю панель ИИ...", reply_markup=get_submenu_keyboard())
+    msg = await m.answer("🤖 Открываю панель ИИ...", reply_markup=get_submenu_keyboard())
+    await clear_chat_history(m.chat.id, exclude_ids=[msg.message_id])
     uid = m.from_user.id
     user_row = await db_manager.get_user(uid)
     
@@ -2109,8 +2109,8 @@ async def cb_ai_back_to_menu(c: CallbackQuery):
 @dp.message(Command("vpn"))
 async def vpn_menu(m: Message, state: FSMContext):
     await state.clear()
-    await clear_chat_history(m.chat.id)
-    await m.answer("🔌 Открываю VPN-сервис...", reply_markup=get_submenu_keyboard())
+    msg = await m.answer("🔌 Открываю VPN-сервис...", reply_markup=get_submenu_keyboard())
+    await clear_chat_history(m.chat.id, exclude_ids=[msg.message_id])
     uid = m.from_user.id
     user_row = await db_manager.get_user(uid)
     
@@ -2607,8 +2607,8 @@ async def auto_activate_key(m: Message):
 @dp.message(Command("ecosystem"))
 async def ecosystem_menu(m: Message, state: FSMContext):
     await state.clear()
-    await clear_chat_history(m.chat.id)
-    await m.answer("🏫 Открываю экосистему...", reply_markup=get_submenu_keyboard())
+    msg = await m.answer("🏫 Открываю экосистему...", reply_markup=get_submenu_keyboard())
+    await clear_chat_history(m.chat.id, exclude_ids=[msg.message_id])
     uid = m.from_user.id
     is_admin = uid in ADMIN_IDS
     
