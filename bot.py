@@ -324,11 +324,19 @@ def get_main_menu(val=None):
             [KeyboardButton(text="📅 Мое расписание"), KeyboardButton(text="🎓 Моя группа")],
             [KeyboardButton(text="🤖 ИИ-Ассистент"), KeyboardButton(text="🔌 VPN-сервис")],
             [KeyboardButton(text="🏫 Экосистема"), KeyboardButton(text="⭐ Избранное")],
-            [KeyboardButton(text="🔔 Моя подписка"), KeyboardButton(text="🧹 Очистить")],
+            [KeyboardButton(text="🔔 Моя подписка"), KeyboardButton(text="💻 Толк")],
             [KeyboardButton(text="👩‍🏫 Преподаватели"), KeyboardButton(text="🏫 Аудитории")],
-            [KeyboardButton(text="💻 Толк")]
+            [KeyboardButton(text="🧹 Очистить")]
         ]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
+
+def get_submenu_keyboard():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🔙 Назад"), KeyboardButton(text="🧹 Очистить")]
+        ],
+        resize_keyboard=True
+    )
 
 def get_day_pagination_kb(target_date: date):        
     prev, next = (target_date - timedelta(days=1)).isoformat(), (target_date + timedelta(days=1)).isoformat()
@@ -742,6 +750,8 @@ async def admin_broadcast_process(m: Message, state: FSMContext):
 # --- HANDLERS ---
 @dp.message(F.text.in_(["💻 Толк", "Толк"]))
 async def talk_links(m: Message):
+    await clear_chat_history(m.chat.id)
+    await m.answer("🎥 Открываю ссылки Толк...", reply_markup=get_submenu_keyboard())
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Толк 1", url="https://tu-ugmk.ktalk.ru/jiydkhlxmj94")],
         [InlineKeyboardButton(text="Толк 2", url="https://tu-ugmk.ktalk.ru/uiwmi2bn1khb")],
@@ -777,6 +787,12 @@ async def start(m: Message, state: FSMContext):
 
 
 @dp.message(F.text == "🔔 Моя подписка")
+async def handle_sub_time_menu_message(m: Message, state: FSMContext):
+    await state.clear()
+    await clear_chat_history(m.chat.id)
+    await m.answer("🔔 Открываю настройки подписки...", reply_markup=get_submenu_keyboard())
+    await show_subscription_time_menu(m)
+
 async def show_subscription_time_menu(m: Message, user_id: str = None):
     uid = user_id or str(m.from_user.id)
     subbed_group = await dao.hget("user_subs", uid)
@@ -789,8 +805,7 @@ async def show_subscription_time_menu(m: Message, user_id: str = None):
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"🌅 Утром ({morn_time})", callback_data="sub:morning_time"),
-         InlineKeyboardButton(text=f"🌙 Вечером ({eve_time})", callback_data="sub:evening_time")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")]
+         InlineKeyboardButton(text=f"🌙 Вечером ({eve_time})", callback_data="sub:evening_time")]
     ])
     
     await m.answer(f"🔔 <b>Настройка ежедневной рассылки</b>\nГруппа: <b>{subbed_group}</b>\n\nВы будете автоматически получать расписание каждый день (от рассылок старосты отписаться нельзя). Настройте удобное время:", parse_mode="HTML", reply_markup=kb)
@@ -804,6 +819,7 @@ async def show_my_schedule(m: Message, state: FSMContext):
         
     await state.set_state(ScheduleStates.viewing)
     await state.update_data(target_type="group", target_value=subbed_group)
+    await clear_chat_history(m.chat.id)
     await m.answer(f"📅 Расписание для группы <b>{subbed_group}</b>\nВыберите день:", parse_mode="HTML", reply_markup=get_main_menu(subbed_group))
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -815,16 +831,19 @@ async def show_my_schedule(m: Message, state: FSMContext):
 async def show_filter_menu(m: Message, state: FSMContext, explicit_type: str = None):
     t_type = explicit_type if explicit_type else ("teacher" if m.text == "👩‍🏫 Преподаватели" else "classroom")
     await state.set_state(UserStates.waiting_for_teacher_search if t_type == "teacher" else UserStates.waiting_for_classroom_search)
+    await clear_chat_history(m.chat.id)
+    await m.answer("🔍 Открываю поиск...", reply_markup=get_submenu_keyboard())
     prompt = "🔍 <b>Введите фамилию преподавателя</b> (или её часть) для поиска:" if t_type == "teacher" else "🔍 <b>Введите номер или название аудитории</b> для поиска:"
-    await m.answer(prompt, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_menu")]]))
+    await m.answer(prompt, parse_mode="HTML")
 
 @dp.message(F.text == "🎓 Моя группа")
 async def handle_my_group_menu(m: Message):
+    await clear_chat_history(m.chat.id)
+    await m.answer("🎓 Открываю меню группы...", reply_markup=get_submenu_keyboard())
     subbed_group = await dao.hget("user_subs", str(m.from_user.id))
     if subbed_group:
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🏫 Изменить группу", callback_data="change_my_group")],
-            [InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")]
+            [InlineKeyboardButton(text="🏫 Изменить группу", callback_data="change_my_group")]
         ])
         await m.answer(f"✅ Ваша текущая сохраненная группа: <b>{subbed_group}</b>", parse_mode="HTML", reply_markup=kb)
     else:
@@ -835,8 +854,7 @@ async def show_courses_menu(m_or_c):
         [InlineKeyboardButton(text="1️⃣ Первый курс", callback_data="course:25")],
         [InlineKeyboardButton(text="2️⃣ Второй курс", callback_data="course:24")],
         [InlineKeyboardButton(text="3️⃣ Третий курс", callback_data="course:23")],
-        [InlineKeyboardButton(text="4️⃣ Четвертый курс", callback_data="course:22")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")]
+        [InlineKeyboardButton(text="4️⃣ Четвертый курс", callback_data="course:22")]
     ]
     text = "🎓 Выберите курс:"
     kb = InlineKeyboardMarkup(inline_keyboard=btns)
@@ -1433,6 +1451,8 @@ async def add_to_favorites(m: Message, state: FSMContext):
 
 @dp.message(F.text == "⭐ Избранное")
 async def show_favorites(m: Message):
+    await clear_chat_history(m.chat.id)
+    await m.answer("⭐ Открываю избранное...", reply_markup=get_submenu_keyboard())
     favs = list(await dao.smembers(f"favs:{m.from_user.id}"))
     if not favs:
         await m.answer("⭐ <b>Избранное</b>\n\nУ вас пока нет сохраненных расписаний.\nЧтобы добавить расписание в избранное, откройте его и нажмите кнопку <b>«⭐ В избранное»</b>.", parse_mode="HTML")
@@ -1443,7 +1463,6 @@ async def show_favorites(m: Message):
         prefix = "🎓" if t_type == "group" else ("👩‍🏫" if t_type == "teacher" else "🏫")
         btns.append([InlineKeyboardButton(text=f"{prefix} {t_val}", callback_data=f"fav_select:{t_type}:{t_val}")])
     btns.append([InlineKeyboardButton(text="⚙️ Управление избранным", callback_data="fav_manage")])
-    btns.append([InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")])
     await m.answer("⭐ <b>Ваши избранные расписания:</b>", reply_markup=InlineKeyboardMarkup(inline_keyboard=btns), parse_mode="HTML")
 
 @dp.callback_query(F.data.startswith("fav_select:"))
@@ -1467,8 +1486,14 @@ async def cb_fav_manage(c: CallbackQuery):
         t_type, t_val = f.split(":", 1)
         prefix = "🎓" if t_type == "group" else ("👩‍🏫" if t_type == "teacher" else "🏫")
         btns.append([InlineKeyboardButton(text=f"❌ {prefix} {t_val}", callback_data=f"fav_del:{t_type}:{t_val}")])
-    btns.append([InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")])
+    btns.append([InlineKeyboardButton(text="🔙 Назад", callback_data="fav_back_to_list")])
     await c.message.edit_text("Выберите элемент для удаления:", reply_markup=InlineKeyboardMarkup(inline_keyboard=btns))
+    await c.answer()
+
+@dp.callback_query(F.data == "fav_back_to_list")
+async def cb_fav_back_to_list(c: CallbackQuery):
+    await c.message.delete()
+    await show_favorites(c.message)
     await c.answer()
 
 @dp.callback_query(F.data.startswith("fav_del:"))
@@ -1594,6 +1619,8 @@ PREMIUM_MODELS = [
 @dp.message(Command("ai"))
 async def ai_menu(m: Message, state: FSMContext):
     await state.clear()
+    await clear_chat_history(m.chat.id)
+    await m.answer("🤖 Открываю панель ИИ...", reply_markup=get_submenu_keyboard())
     uid = m.from_user.id
     user_row = await db_manager.get_user(uid)
     
@@ -1625,8 +1652,7 @@ async def ai_menu(m: Message, state: FSMContext):
         [InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model"),
          InlineKeyboardButton(text="🆓 Бесплатные модели", callback_data="ai:free_models")],
         [InlineKeyboardButton(text="🔑 Установить API-ключ", callback_data="ai:set_key")],
-        [InlineKeyboardButton(text="🧹 Очистить контекст", callback_data="ai:clear_context"),
-         InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")]
+        [InlineKeyboardButton(text="🧹 Очистить контекст", callback_data="ai:clear_context")]
     ])
     await m.answer(text, reply_markup=kb, parse_mode="HTML")
 
@@ -1870,8 +1896,7 @@ async def show_ai_menu_directly(message: Message, user_id: int = None):
         [InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model"),
          InlineKeyboardButton(text="🆓 Бесплатные модели", callback_data="ai:free_models")],
         [InlineKeyboardButton(text="🔑 Установить API-ключ", callback_data="ai:set_key")],
-        [InlineKeyboardButton(text="🧹 Очистить контекст", callback_data="ai:clear_context"),
-         InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")]
+        [InlineKeyboardButton(text="🧹 Очистить контекст", callback_data="ai:clear_context")]
     ])
     await message.answer(text, reply_markup=kb, parse_mode="HTML")
 
@@ -1924,8 +1949,7 @@ async def cb_ai_back_to_menu(c: CallbackQuery):
         [InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model"),
          InlineKeyboardButton(text="🆓 Бесплатные модели", callback_data="ai:free_models")],
         [InlineKeyboardButton(text="🔑 Установить API-ключ", callback_data="ai:set_key")],
-        [InlineKeyboardButton(text="🧹 Очистить контекст", callback_data="ai:clear_context"),
-         InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")]
+        [InlineKeyboardButton(text="🧹 Очистить контекст", callback_data="ai:clear_context")]
     ])
     await c.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
     await c.answer()
@@ -1936,6 +1960,8 @@ async def cb_ai_back_to_menu(c: CallbackQuery):
 @dp.message(Command("vpn"))
 async def vpn_menu(m: Message, state: FSMContext):
     await state.clear()
+    await clear_chat_history(m.chat.id)
+    await m.answer("🔌 Открываю VPN-сервис...", reply_markup=get_submenu_keyboard())
     uid = m.from_user.id
     user_row = await db_manager.get_user(uid)
     
@@ -1957,8 +1983,7 @@ async def vpn_menu(m: Message, state: FSMContext):
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📁 Скачать файл .conf", callback_data="vpn:get_file"),
              InlineKeyboardButton(text="🖼 Показать QR-код", callback_data="vpn:get_qr")],
-            [InlineKeyboardButton(text="❌ Отключить VPN", callback_data="vpn:disable")],
-            [InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")]
+            [InlineKeyboardButton(text="❌ Отключить VPN", callback_data="vpn:disable")]
         ])
     else:
         text = (
@@ -1971,8 +1996,7 @@ async def vpn_menu(m: Message, state: FSMContext):
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="💳 VPN + 150 Стандарт (500 ⭐)", callback_data="vpn:buy_standard")],
-            [InlineKeyboardButton(text="💳 VPN + 30 Премиум (600 ⭐)", callback_data="vpn:buy_premium")],
-            [InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")]
+            [InlineKeyboardButton(text="💳 VPN + 30 Премиум (600 ⭐)", callback_data="vpn:buy_premium")]
         ])
         
     await m.answer(text, reply_markup=kb, parse_mode="HTML")
@@ -2399,6 +2423,8 @@ async def auto_activate_key(m: Message):
 @dp.message(Command("ecosystem"))
 async def ecosystem_menu(m: Message, state: FSMContext):
     await state.clear()
+    await clear_chat_history(m.chat.id)
+    await m.answer("🏫 Открываю экосистему...", reply_markup=get_submenu_keyboard())
     uid = m.from_user.id
     is_admin = uid in ADMIN_IDS
     
@@ -2415,7 +2441,6 @@ async def ecosystem_menu(m: Message, state: FSMContext):
     ]
     if is_admin:
         kb_rows.append([InlineKeyboardButton(text="⚙️ Панель редактора афиши/каталога", callback_data="eco:admin_panel")])
-    kb_rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")])
     
     await m.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows), parse_mode="HTML")
 
@@ -2495,7 +2520,6 @@ async def cb_eco_back(c: CallbackQuery, state: FSMContext):
     ]
     if is_admin:
         kb_rows.append([InlineKeyboardButton(text="⚙️ Панель редактора афиши/каталога", callback_data="eco:admin_panel")])
-    kb_rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")])
     await c.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows), parse_mode="HTML")
     await c.answer()
 
