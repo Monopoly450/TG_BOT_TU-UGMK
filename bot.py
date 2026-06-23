@@ -1575,6 +1575,21 @@ async def cb_st_hw_del(c: CallbackQuery, state: FSMContext):
     await show_starosta_dashboard(c, uid)
 
 # ═══════════════════ ИИ-АССИСТЕНТ ═══════════════════
+FREE_MODELS = [
+    "nemotron-3-ultra-free",
+    "laguna-xs-2-free",
+    "qwen3-next-free",
+    "gpt-oss-free",
+    "llama-3.3-free"
+]
+
+PREMIUM_MODELS = [
+    "kimi-k2.7-code",
+    "claude-opus-4.8",
+    "gpt-4",
+    "gpt-5.5"
+]
+
 @dp.message(F.text == "🤖 ИИ-Ассистент")
 @dp.message(Command("ai"))
 async def ai_menu(m: Message, state: FSMContext):
@@ -1586,7 +1601,7 @@ async def ai_menu(m: Message, state: FSMContext):
         await db_manager.register_or_update_user(uid, m.from_user.username)
         user_row = await db_manager.get_user(uid)
         
-    model = user_row['ai_model'] if user_row else 'gemini-1.5-flash'
+    model = user_row['ai_model'] if user_row else 'gpt-4o-mini'
     has_key = bool(user_row['custom_ai_key']) if user_row else False
     ai_balance = user_row['ai_balance'] if user_row else 0
     key_status = "✅ Установлен" if has_key else "❌ Не установлен"
@@ -1600,7 +1615,7 @@ async def ai_menu(m: Message, state: FSMContext):
         "или приобрести баланс ИИ-запросов за Telegram звезды."
     )
     
-    is_free = model in ["nous-hermes-3-free", "gemma-2-free", "llama-3-free"]
+    is_free = model in FREE_MODELS
     can_chat = has_key or (ai_balance > 0) or is_free
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💬 Начать диалог", callback_data="ai:chat") if can_chat else
@@ -1622,9 +1637,9 @@ async def cb_ai_chat(c: CallbackQuery, state: FSMContext):
     user_row = await db_manager.get_user(uid)
     has_key = bool(user_row['custom_ai_key']) if user_row else False
     ai_balance = user_row['ai_balance'] if user_row else 0
-    model = user_row['ai_model'] if user_row else 'gemini-1.5-flash'
+    model = user_row['ai_model'] if user_row else 'gpt-4o-mini'
     
-    is_free = model in ["nous-hermes-3-free", "gemma-2-free", "llama-3-free"]
+    is_free = model in FREE_MODELS
     
     if not has_key and ai_balance <= 0 and not is_free:
         await c.answer("⚠️ У вас нет личного ключа и баланс запросов равен 0!", show_alert=True)
@@ -1660,12 +1675,12 @@ async def ai_chat_message(m: Message, state: FSMContext):
         
     data = await state.get_data()
     api_key = data.get("ai_key")
-    model_name = data.get("ai_model", "gemini-1.5-flash")
+    model_name = data.get("ai_model", "gpt-4o-mini")
     uid = m.from_user.id
     
     has_custom_key = bool(api_key)
-    is_free = model_name in ["nous-hermes-3-free", "gemma-2-free", "llama-3-free"]
-    is_premium = model_name in ["claude-opus-4.8", "gpt-5.5", "kimi-k2.7", "qwen-3.7-plus"]
+    is_free = model_name in FREE_MODELS
+    is_premium = model_name in PREMIUM_MODELS
     
     if not has_custom_key and not is_free:
         balance = await db_manager.check_user_ai_balance(uid)
@@ -1774,21 +1789,23 @@ async def cb_ai_ignore(c: CallbackQuery):
 async def cb_ai_select_model(c: CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💎 --- СТАНДАРТНЫЕ (1 💳) ---", callback_data="ai_ignore")],
-        [InlineKeyboardButton(text="♊ Gemini 1.5 Flash", callback_data="ai_set_mod:gemini-1.5-flash"),
-         InlineKeyboardButton(text="♊ Gemini 1.5 Pro", callback_data="ai_set_mod:gemini-1.5-pro")],
         [InlineKeyboardButton(text="🧠 GPT-4o-mini", callback_data="ai_set_mod:gpt-4o-mini"),
-         InlineKeyboardButton(text="🧠 GPT-4o", callback_data="ai_set_mod:gpt-4o")],
+         InlineKeyboardButton(text="🔮 DeepSeek v3.2", callback_data="ai_set_mod:deepseek-v3.2")],
+        [InlineKeyboardButton(text="🤖 MiniMax M2.7", callback_data="ai_set_mod:minimax-m2.7"),
+         InlineKeyboardButton(text="🔮 GLM-5", callback_data="ai_set_mod:glm-5")],
          
         [InlineKeyboardButton(text="🔥 --- ПРЕМИУМ (4 💳) ---", callback_data="ai_ignore")],
-        [InlineKeyboardButton(text="🦉 Claude Opus 4.8", callback_data="ai_set_mod:claude-opus-4.8"),
-         InlineKeyboardButton(text="🧠 GPT 5.5", callback_data="ai_set_mod:gpt-5.5")],
-        [InlineKeyboardButton(text="🌙 Kimi K2.7", callback_data="ai_set_mod:kimi-k2.7"),
-         InlineKeyboardButton(text="🐉 Qwen 3.7 Plus", callback_data="ai_set_mod:qwen-3.7-plus")],
+        [InlineKeyboardButton(text="🌙 Kimi K2.7 Code", callback_data="ai_set_mod:kimi-k2.7-code"),
+         InlineKeyboardButton(text="🦉 Claude Opus 4.8", callback_data="ai_set_mod:claude-opus-4.8")],
+        [InlineKeyboardButton(text="🧠 GPT-4", callback_data="ai_set_mod:gpt-4"),
+         InlineKeyboardButton(text="🧠 GPT-5.5", callback_data="ai_set_mod:gpt-5.5")],
          
         [InlineKeyboardButton(text="🆓 --- БЕСПЛАТНЫЕ (0 💳) ---", callback_data="ai_ignore")],
-        [InlineKeyboardButton(text="🐴 Hermes 3 405B (Free)", callback_data="ai_set_mod:nous-hermes-3-free")],
-        [InlineKeyboardButton(text="♊ Gemma 2 9B (Free)", callback_data="ai_set_mod:gemma-2-free"),
-         InlineKeyboardButton(text="🦙 Llama 3 8B (Free)", callback_data="ai_set_mod:llama-3-free")],
+        [InlineKeyboardButton(text="⚡ Nemotron 3 Ultra (Free)", callback_data="ai_set_mod:nemotron-3-ultra-free")],
+        [InlineKeyboardButton(text="💧 Laguna XS.2 (Free)", callback_data="ai_set_mod:laguna-xs-2-free"),
+         InlineKeyboardButton(text="🐉 Qwen 3 Next (Free)", callback_data="ai_set_mod:qwen3-next-free")],
+        [InlineKeyboardButton(text="🧠 GPT OSS 120B (Free)", callback_data="ai_set_mod:gpt-oss-free"),
+         InlineKeyboardButton(text="🦙 Llama 3.3 70B (Free)", callback_data="ai_set_mod:llama-3.3-free")],
          
         [InlineKeyboardButton(text="🔙 Назад", callback_data="ai:back_to_menu")]
     ])
@@ -1819,7 +1836,7 @@ async def cb_ai_close(c: CallbackQuery, state: FSMContext):
 async def show_ai_menu_directly(message: Message, user_id: int = None):
     uid = user_id or message.chat.id
     user_row = await db_manager.get_user(uid)
-    model = user_row['ai_model'] if user_row else 'gemini-1.5-flash'
+    model = user_row['ai_model'] if user_row else 'gpt-4o-mini'
     has_key = bool(user_row['custom_ai_key']) if user_row else False
     ai_balance = user_row['ai_balance'] if user_row else 0
     key_status = "✅ Установлен" if has_key else "❌ Не установлен"
@@ -1833,7 +1850,7 @@ async def show_ai_menu_directly(message: Message, user_id: int = None):
         "или приобрести баланс ИИ-запросов за Telegram звезды."
     )
     
-    is_free = model in ["nous-hermes-3-free", "gemma-2-free", "llama-3-free"]
+    is_free = model in FREE_MODELS
     can_chat = has_key or (ai_balance > 0) or is_free
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💬 Начать диалог", callback_data="ai:chat") if can_chat else
@@ -1853,9 +1870,11 @@ async def show_ai_menu_directly(message: Message, user_id: int = None):
 @dp.callback_query(F.data == "ai:free_models")
 async def cb_ai_free_models(c: CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🐴 Hermes 3 405B (Free)", callback_data="ai_set_mod:nous-hermes-3-free")],
-        [InlineKeyboardButton(text="♊ Gemma 2 9B (Free)", callback_data="ai_set_mod:gemma-2-free"),
-         InlineKeyboardButton(text="🦙 Llama 3 8B (Free)", callback_data="ai_set_mod:llama-3-free")],
+        [InlineKeyboardButton(text="⚡ Nemotron 3 Ultra (Free)", callback_data="ai_set_mod:nemotron-3-ultra-free")],
+        [InlineKeyboardButton(text="💧 Laguna XS.2 (Free)", callback_data="ai_set_mod:laguna-xs-2-free"),
+         InlineKeyboardButton(text="🐉 Qwen 3 Next (Free)", callback_data="ai_set_mod:qwen3-next-free")],
+        [InlineKeyboardButton(text="🧠 GPT OSS 120B (Free)", callback_data="ai_set_mod:gpt-oss-free"),
+         InlineKeyboardButton(text="🦙 Llama 3.3 70B (Free)", callback_data="ai_set_mod:llama-3.3-free")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="ai:back_to_menu")]
     ])
     await c.message.edit_text(
@@ -1872,7 +1891,7 @@ async def cb_ai_free_models(c: CallbackQuery):
 async def cb_ai_back_to_menu(c: CallbackQuery):
     uid = c.from_user.id
     user_row = await db_manager.get_user(uid)
-    model = user_row['ai_model'] if user_row else 'gemini-1.5-flash'
+    model = user_row['ai_model'] if user_row else 'gpt-4o-mini'
     has_key = bool(user_row['custom_ai_key']) if user_row else False
     ai_balance = user_row['ai_balance'] if user_row else 0
     key_status = "✅ Установлен" if has_key else "❌ Не установлен"
@@ -1886,7 +1905,7 @@ async def cb_ai_back_to_menu(c: CallbackQuery):
         "или приобрести баланс ИИ-запросов за Telegram звезды."
     )
     
-    is_free = model in ["nous-hermes-3-free", "gemma-2-free", "llama-3-free"]
+    is_free = model in FREE_MODELS
     can_chat = has_key or (ai_balance > 0) or is_free
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💬 Начать диалог", callback_data="ai:chat") if can_chat else

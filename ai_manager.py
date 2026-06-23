@@ -11,17 +11,24 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 # Mapping friendly model names to OpenRouter specific IDs
 MODEL_MAP = {
-    "gemini-1.5-flash": "google/gemini-flash-1.5",
-    "gemini-1.5-pro": "google/gemini-pro-1.5",
+    # Premium
+    "kimi-k2.7-code": "moonshotai/kimi-k2.7-code",
+    "claude-opus-4.8": "anthropic/claude-opus-4.8",
+    "gpt-4": "openai/gpt-4",
+    "gpt-5.5": "openai/gpt-5.5",
+    
+    # Standard
     "gpt-4o-mini": "openai/gpt-4o-mini",
-    "gpt-4o": "openai/gpt-4o",
-    "claude-opus-4.8": "anthropic/claude-3-opus",
-    "gpt-5.5": "openai/gpt-4o",
-    "kimi-k2.7": "moonshot/kimi-k1.5",
-    "qwen-3.7-plus": "qwen/qwen-2.5-72b-instruct",
-    "nous-hermes-3-free": "nousresearch/hermes-3-llama-3.1-405b:free",
-    "gemma-2-free": "google/gemma-2-9b-it:free",
-    "llama-3-free": "meta-llama/llama-3-8b-instruct:free"
+    "deepseek-v3.2": "deepseek/deepseek-v3.2",
+    "minimax-m2.7": "minimax/minimax-m2.7",
+    "glm-5": "z-ai/glm-5",
+    
+    # Free
+    "nemotron-3-ultra-free": "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "laguna-xs-2-free": "poolside/laguna-xs.2:free",
+    "qwen3-next-free": "qwen/qwen3-next-80b-a3b-instruct:free",
+    "gpt-oss-free": "openai/gpt-oss-120b:free",
+    "llama-3.3-free": "meta-llama/llama-3.3-70b-instruct:free"
 }
 
 async def get_ai_response(prompt: str, api_key: str, model_name: str, history: list) -> str:
