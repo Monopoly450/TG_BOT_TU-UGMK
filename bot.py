@@ -851,8 +851,11 @@ async def show_subscription_time_menu(m: Message | CallbackQuery, user_id: str =
         ])
         kb_rows.append([InlineKeyboardButton(text="❌ Отключить VPN", callback_data="sub:disable_vpn")])
     else:
-        kb_rows.append([InlineKeyboardButton(text="🔌 Подключить/Продлить VPN", callback_data="sub:buy_vpn_menu")])
+        kb_rows.append([InlineKeyboardButton(text="🔌 Подключить VPN", callback_data="sub:buy_vpn_only_direct")])
         
+    # Buy subscription row
+    kb_rows.append([InlineKeyboardButton(text="💳 Купить подписку", callback_data="sub:buy_menu")])
+    
     # Daily notification setup row
     kb_rows.append([
         InlineKeyboardButton(text="🌅 Настроить Утро", callback_data="sub:morning_time"),
@@ -871,19 +874,20 @@ async def cb_sub_change_group(c: CallbackQuery):
     await show_courses_menu(c)
     await c.answer()
 
-@dp.callback_query(F.data == "sub:buy_vpn_menu")
-async def cb_sub_buy_vpn_menu(c: CallbackQuery):
+@dp.callback_query(F.data == "sub:buy_menu")
+async def cb_sub_buy_menu(c: CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 VPN + 150 Стандарт (500 ⭐)", callback_data="vpn:buy_standard")],
-        [InlineKeyboardButton(text="💳 VPN + 30 Премиум (600 ⭐)", callback_data="vpn:buy_premium")],
+        [InlineKeyboardButton(text="🤖 Купить отдельно ИИ", callback_data="sub:buy_ai_menu")],
+        [InlineKeyboardButton(text="🔌 Купить отдельный VPN", callback_data="sub:buy_vpn_only_menu")],
+        [InlineKeyboardButton(text="📦 Купить всё вместе (VPN + ИИ)", callback_data="sub:buy_bundle_menu")],
         [InlineKeyboardButton(text="🔙 Назад в подписки", callback_data="sub:back_to_menu")]
     ])
     text = (
-        "🔌 <b>Подключение/Продление WireGuard VPN:</b>\n\n"
-        "Выберите тариф подписки:\n"
-        "1. <b>VPN + 150 Стандарт ИИ</b> — 500 ⭐ (Telegram Stars)\n"
-        "2. <b>VPN + 30 Премиум ИИ (Claude, GPT, Kimi, Qwen)</b> — 600 ⭐ (Telegram Stars)\n\n"
-        "Все тарифы действуют 30 дней с момента покупки."
+        "💳 <b>Выбор варианта подписки:</b>\n\n"
+        "Вы можете приобрести услуги по отдельности или в выгодных пакетах:\n\n"
+        "1. <b>ИИ-Ассистент (отдельно):</b> доступ к передовым языковым моделям.\n"
+        "2. <b>WireGuard VPN (отдельно):</b> стабильный и безопасный интернет.\n"
+        "3. <b>Всё вместе (Выгодный пакет):</b> VPN и ИИ-запросы со скидкой."
     )
     await c.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
     await c.answer()
@@ -893,14 +897,65 @@ async def cb_sub_buy_ai_menu(c: CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💳 150 Стандарт ИИ (400 ⭐)", callback_data="ai:buy_requests")],
         [InlineKeyboardButton(text="💳 30 Премиум ИИ (500 ⭐)", callback_data="ai:buy_premium")],
-        [InlineKeyboardButton(text="🔙 Назад в подписки", callback_data="sub:back_to_menu")]
+        [InlineKeyboardButton(text="🔙 Назад в меню покупок", callback_data="sub:buy_menu")]
     ])
     text = (
-        "🤖 <b>Приобретение запросов ИИ:</b>\n\n"
+        "🤖 <b>Приобретение запросов ИИ (отдельно):</b>\n\n"
         "Выберите пакет запросов:\n"
         "1. <b>150 стандартных запросов</b> — 400 ⭐\n"
         "2. <b>30 премиум запросов</b> — 500 ⭐\n\n"
         "При покупке вам будет автоматически сгенерирован и привязан персональный API-ключ OpenRouter со сроком действия 30 дней."
+    )
+    await c.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    await c.answer()
+
+@dp.callback_query(F.data == "sub:buy_vpn_only_menu")
+async def cb_sub_buy_vpn_only_menu(c: CallbackQuery):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💳 VPN на 30 дней (100 ⭐)", callback_data="vpn:buy_only")],
+        [InlineKeyboardButton(text="🔙 Назад в меню покупок", callback_data="sub:buy_menu")]
+    ])
+    text = (
+        "🔌 <b>Подписка на WireGuard VPN (отдельно):</b>\n\n"
+        "• Срок действия: <b>30 дней</b>\n"
+        "• Цена: <b>100 ⭐</b>\n\n"
+        "Обеспечивает надежный и быстрый доступ к зарубежным ресурсам."
+    )
+    await c.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    await c.answer()
+
+@dp.callback_query(F.data == "sub:buy_bundle_menu")
+async def cb_sub_buy_bundle_menu(c: CallbackQuery):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💳 VPN + 150 Стандарт (500 ⭐)", callback_data="vpn:buy_standard")],
+        [InlineKeyboardButton(text="💳 VPN + 30 Премиум (600 ⭐)", callback_data="vpn:buy_premium")],
+        [InlineKeyboardButton(text="🔙 Назад в меню покупок", callback_data="sub:buy_menu")]
+    ])
+    text = (
+        "📦 <b>Купить всё вместе (ИИ + VPN):</b>\n\n"
+        "Выберите выгодный пакет:\n"
+        "1. <b>VPN + 150 Стандарт ИИ</b> — 500 ⭐\n"
+        "2. <b>VPN + 30 Премиум ИИ</b> — 600 ⭐\n\n"
+        "Все тарифы действуют 30 дней с момента покупки."
+    )
+    await c.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    await c.answer()
+
+@dp.callback_query(F.data == "sub:buy_vpn_only")
+async def cb_sub_buy_vpn_only(c: CallbackQuery):
+    await cb_sub_buy_vpn_only_menu(c)
+
+@dp.callback_query(F.data == "sub:buy_vpn_only_direct")
+async def cb_sub_buy_vpn_only_direct(c: CallbackQuery):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💳 VPN на 30 дней (100 ⭐)", callback_data="vpn:buy_only")],
+        [InlineKeyboardButton(text="🔙 Назад в подписки", callback_data="sub:back_to_menu")]
+    ])
+    text = (
+        "🔌 <b>Подписка на WireGuard VPN (отдельно):</b>\n\n"
+        "• Срок действия: <b>30 дней</b>\n"
+        "• Цена: <b>100 ⭐</b>\n\n"
+        "Обеспечивает надежный и быстрый доступ к зарубежным ресурсам."
     )
     await c.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
     await c.answer()
@@ -2087,11 +2142,13 @@ async def vpn_menu(m: Message, state: FSMContext):
             "🔌 <b>Собственный VPN-сервис</b>\n\n"
             "Мы предоставляем стабильный, быстрый и безопасный доступ к зарубежным образовательным платформам и библиотекам.\n\n"
             "Выберите вариант подписки:\n"
-            "1. <b>VPN + 150 Стандарт ИИ</b> — 500 ⭐ (Telegram Stars)\n"
-            "2. <b>VPN + 30 Премиум ИИ (Claude, GPT, Kimi, Qwen)</b> — 600 ⭐ (Telegram Stars)\n\n"
+            "1. <b>WireGuard VPN (отдельно)</b> — 100 ⭐ (на 30 дней)\n"
+            "2. <b>VPN + 150 Стандарт ИИ</b> — 500 ⭐ (на 30 дней)\n"
+            "3. <b>VPN + 30 Премиум ИИ (Claude, GPT, Kimi, Qwen)</b> — 600 ⭐ (на 30 дней)\n\n"
             "<i>Все тарифы рассчитаны для обеспечения 30%+ чистой прибыли в месяц для развития бота.</i>"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔌 VPN на 30 дней (100 ⭐)", callback_data="vpn:buy_only")],
             [InlineKeyboardButton(text="💳 VPN + 150 Стандарт (500 ⭐)", callback_data="vpn:buy_standard")],
             [InlineKeyboardButton(text="💳 VPN + 30 Премиум (600 ⭐)", callback_data="vpn:buy_premium")]
         ])
@@ -2242,11 +2299,13 @@ async def show_vpn_menu_directly(message: Message, user_id: int = None):
             "🔌 <b>Собственный VPN-сервис</b>\n\n"
             "Мы предоставляем стабильный, быстрый и безопасный доступ к зарубежным образовательным платформам и библиотекам.\n\n"
             "Выберите вариант подписки:\n"
-            "1. <b>VPN + 150 Стандарт ИИ</b> — 500 ⭐ (Telegram Stars)\n"
-            "2. <b>VPN + 30 Премиум ИИ (Claude, GPT, Kimi, Qwen)</b> — 600 ⭐ (Telegram Stars)\n\n"
+            "1. <b>WireGuard VPN (отдельно)</b> — 100 ⭐ (на 30 дней)\n"
+            "2. <b>VPN + 150 Стандарт ИИ</b> — 500 ⭐ (на 30 дней)\n"
+            "3. <b>VPN + 30 Премиум ИИ (Claude, GPT, Kimi, Qwen)</b> — 600 ⭐ (на 30 дней)\n\n"
             "<i>Все тарифы рассчитаны для обеспечения 30%+ чистой прибыли в месяц для развития бота.</i>"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔌 VPN на 30 дней (100 ⭐)", callback_data="vpn:buy_only")],
             [InlineKeyboardButton(text="💳 VPN + 150 Стандарт (500 ⭐)", callback_data="vpn:buy_standard")],
             [InlineKeyboardButton(text="💳 VPN + 30 Премиум (600 ⭐)", callback_data="vpn:buy_premium")],
             [InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")]
@@ -2290,6 +2349,24 @@ async def cb_vpn_buy_premium(c: CallbackQuery):
         await c.answer("Счет выставлен!")
     except Exception as e:
         logger.error(f"Failed to send invoice for VPN premium: {e}")
+        await c.answer("⚠️ Не удалось выставить счет. Обратитесь к администратору.", show_alert=True)
+
+@dp.callback_query(F.data == "vpn:buy_only")
+async def cb_vpn_buy_only(c: CallbackQuery):
+    uid = c.from_user.id
+    prices = [LabeledPrice(label="WireGuard VPN на 30 дней", amount=100)]
+    try:
+        await c.message.answer_invoice(
+            title="WireGuard VPN на 30 дней",
+            description="Подписка на высокоскоростной WireGuard VPN сроком на 30 дней.",
+            payload="vpn_only_30_days",
+            provider_token="",
+            currency="XTR",
+            prices=prices
+        )
+        await c.answer("Счет выставлен!")
+    except Exception as e:
+        logger.error(f"Failed to send invoice for VPN only: {e}")
         await c.answer("⚠️ Не удалось выставить счет. Обратитесь к администратору.", show_alert=True)
 
 @dp.callback_query(F.data == "ai:buy_requests")
@@ -2463,6 +2540,64 @@ async def process_successful_payment(m: Message):
             await m.answer(
                 f"⚠️ <b>Произошла ошибка при обновлении баланса ИИ:</b>\n<code>{str(e)}</code>\n\n"
                 f"Свяжитесь с администратором для начисления.",
+                parse_mode="HTML"
+            )
+            
+    elif payload == "vpn_only_30_days":
+        await m.answer("⏳ <b>Настройка вашего VPN-подключения и генерация ключей...</b>", parse_mode="HTML")
+        try:
+            user_row = await db_manager.get_user(uid)
+            if not user_row:
+                await db_manager.register_or_update_user(uid, m.from_user.username)
+                user_row = await db_manager.get_user(uid)
+                
+            user_db_id = user_row['id'] if user_row else 1
+            
+            now = datetime.now()
+            current_vpn_expires = user_row.get('vpn_expires_at') if user_row else None
+            if current_vpn_expires and current_vpn_expires > now:
+                new_vpn_expires = current_vpn_expires + timedelta(days=30)
+            else:
+                new_vpn_expires = now + timedelta(days=30)
+                
+            config_text = await vpn_manager.generate_user_vpn_config(user_db_id)
+            await db_manager.set_user_vpn(uid, enabled=True, key=config_text, expires_at=new_vpn_expires)
+            
+            # Send VPN file
+            file_data = BufferedInputFile(config_text.encode("utf-8"), filename=f"tu_ugmk_vpn_{uid}.conf")
+            await m.answer_document(
+                document=file_data,
+                caption="✅ <b>VPN успешно подключен!</b>\n\nИмпортируйте этот файл в приложение WireGuard.\nВы также можете получить QR-код для настройки через меню.",
+                parse_mode="HTML"
+            )
+            
+            # Generate & Send QR code
+            qr = qrcode.QRCode(
+                version=1,
+                error_correction=qrcode.constants.ERROR_CORRECT_L,
+                box_size=10,
+                border=4,
+            )
+            qr.add_data(config_text)
+            qr.make(fit=True)
+            img = qr.make_image(fill_color="black", back_color="white")
+            bio = io.BytesIO()
+            img.save(bio, "PNG")
+            bio.seek(0)
+            photo_file = BufferedInputFile(bio.read(), filename="vpn_qr.png")
+            
+            await m.answer_photo(
+                photo=photo_file,
+                caption="🖼 <b>QR-код для импорта в WireGuard:</b>\nОтсканируйте его из приложения WireGuard для настройки.",
+                parse_mode="HTML"
+            )
+            
+            await m.answer("🎉 <b>VPN успешно продлен на 30 дней!</b>", parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Failed to complete VPN setup after payment: {e}")
+            await m.answer(
+                f"⚠️ <b>Произошла ошибка при настройке VPN:</b>\n<code>{str(e)}</code>\n\n"
+                f"Пожалуйста, свяжитесь с администратором. Ваша оплата зафиксирована.",
                 parse_mode="HTML"
             )
 
