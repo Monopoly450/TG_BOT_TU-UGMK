@@ -1620,8 +1620,8 @@ async def ai_menu(m: Message, state: FSMContext):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💬 Начать диалог", callback_data="ai:chat") if can_chat else
          InlineKeyboardButton(text="💬 Начать диалог (нужен ключ/баланс)", callback_data="ai:need_key")],
-        [InlineKeyboardButton(text="💳 100 Стандарт ИИ (50 ⭐)", callback_data="ai:buy_requests"),
-         InlineKeyboardButton(text="💳 100 Премиум ИИ (200 ⭐)", callback_data="ai:buy_premium")],
+        [InlineKeyboardButton(text="💳 150 Стандарт ИИ (400 ⭐)", callback_data="ai:buy_requests"),
+         InlineKeyboardButton(text="💳 30 Премиум ИИ (500 ⭐)", callback_data="ai:buy_premium")],
         [InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model"),
          InlineKeyboardButton(text="🆓 Бесплатные модели", callback_data="ai:free_models")],
         [InlineKeyboardButton(text="🔑 Установить API-ключ", callback_data="ai:set_key"),
@@ -1855,8 +1855,8 @@ async def show_ai_menu_directly(message: Message, user_id: int = None):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💬 Начать диалог", callback_data="ai:chat") if can_chat else
          InlineKeyboardButton(text="💬 Начать диалог (нужен ключ/баланс)", callback_data="ai:need_key")],
-        [InlineKeyboardButton(text="💳 100 Стандарт ИИ (50 ⭐)", callback_data="ai:buy_requests"),
-         InlineKeyboardButton(text="💳 100 Премиум ИИ (200 ⭐)", callback_data="ai:buy_premium")],
+        [InlineKeyboardButton(text="💳 150 Стандарт ИИ (400 ⭐)", callback_data="ai:buy_requests"),
+         InlineKeyboardButton(text="💳 30 Премиум ИИ (500 ⭐)", callback_data="ai:buy_premium")],
         [InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model"),
          InlineKeyboardButton(text="🆓 Бесплатные модели", callback_data="ai:free_models")],
         [InlineKeyboardButton(text="🔑 Установить API-ключ", callback_data="ai:set_key"),
@@ -1910,8 +1910,8 @@ async def cb_ai_back_to_menu(c: CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💬 Начать диалог", callback_data="ai:chat") if can_chat else
          InlineKeyboardButton(text="💬 Начать диалог (нужен ключ/баланс)", callback_data="ai:need_key")],
-        [InlineKeyboardButton(text="💳 100 Стандарт ИИ (50 ⭐)", callback_data="ai:buy_requests"),
-         InlineKeyboardButton(text="💳 100 Премиум ИИ (200 ⭐)", callback_data="ai:buy_premium")],
+        [InlineKeyboardButton(text="💳 150 Стандарт ИИ (400 ⭐)", callback_data="ai:buy_requests"),
+         InlineKeyboardButton(text="💳 30 Премиум ИИ (500 ⭐)", callback_data="ai:buy_premium")],
         [InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model"),
          InlineKeyboardButton(text="🆓 Бесплатные модели", callback_data="ai:free_models")],
         [InlineKeyboardButton(text="🔑 Установить API-ключ", callback_data="ai:set_key"),
@@ -2166,12 +2166,12 @@ async def cb_vpn_buy_premium(c: CallbackQuery):
 @dp.callback_query(F.data == "ai:buy_requests")
 async def cb_ai_buy_requests(c: CallbackQuery):
     uid = c.from_user.id
-    prices = [LabeledPrice(label="100 Стандарт ИИ-запросов", amount=50)]
+    prices = [LabeledPrice(label="150 Стандарт ИИ-запросов", amount=400)]
     try:
         await c.message.answer_invoice(
-            title="100 стандартных запросов к ИИ",
-            description="Пополнение баланса ИИ-Ассистента на 100 стандартных (или 25 премиум) запросов.",
-            payload="ai_100_requests",
+            title="150 стандартных запросов к ИИ",
+            description="Пополнение баланса ИИ-Ассистента на 150 стандартных (или 37 премиум) запросов.",
+            payload="ai_150_requests",
             provider_token="",
             currency="XTR",
             prices=prices
@@ -2184,12 +2184,12 @@ async def cb_ai_buy_requests(c: CallbackQuery):
 @dp.callback_query(F.data == "ai:buy_premium")
 async def cb_ai_buy_premium(c: CallbackQuery):
     uid = c.from_user.id
-    prices = [LabeledPrice(label="100 Премиум ИИ-запросов", amount=200)]
+    prices = [LabeledPrice(label="30 Премиум ИИ-запросов", amount=500)]
     try:
         await c.message.answer_invoice(
-            title="100 премиум запросов к ИИ",
-            description="Пополнение баланса ИИ-Ассистента на 100 премиум (или 400 стандартных) запросов.",
-            payload="ai_100_premium",
+            title="30 премиум запросов к ИИ",
+            description="Пополнение баланса ИИ-Ассистента на 30 премиум (или 120 стандартных) запросов.",
+            payload="ai_30_premium",
             provider_token="",
             currency="XTR",
             prices=prices
@@ -2273,9 +2273,9 @@ async def process_successful_payment(m: Message):
                 parse_mode="HTML"
             )
             
-    elif payload in ["ai_100_requests", "ai_100_premium"]:
-        is_premium = (payload == "ai_100_premium")
-        add_amount = 400 if is_premium else 100
+    elif payload in ["ai_150_requests", "ai_30_premium"]:
+        is_premium = (payload == "ai_30_premium")
+        add_amount = 120 if is_premium else 150
         try:
             # Increment user balance directly
             user_row = await db_manager.get_user(uid)
@@ -2286,7 +2286,7 @@ async def process_successful_payment(m: Message):
                 await conn.execute("UPDATE users SET ai_balance = ai_balance + $2 WHERE telegram_id = $1", uid, add_amount)
                 
             new_bal = await db_manager.check_user_ai_balance(uid)
-            pkg_name = "100 Премиум" if is_premium else "100 Стандарт"
+            pkg_name = "30 Премиум" if is_premium else "150 Стандарт"
             await m.answer(
                 f"🎉 <b>Оплата прошла успешно!</b>\n\n"
                 f"На ваш баланс зачислено <b>{add_amount}</b> ИИ-кредитов (соответствует {pkg_name} запросам).\n"
