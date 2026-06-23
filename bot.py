@@ -1889,7 +1889,9 @@ async def ai_chat_message(m: Message, state: FSMContext):
     model_name = data.get("ai_model", "gpt-4o-mini")
     uid = m.from_user.id
     
+    user_row = await db_manager.get_user(uid)
     has_custom_key = bool(api_key)
+    is_programmatic_key = has_custom_key and bool(user_row.get('ai_expires_at')) if user_row else False
     is_free = model_name in FREE_MODELS
     is_premium = model_name in PREMIUM_MODELS
     
@@ -1932,7 +1934,7 @@ async def ai_chat_message(m: Message, state: FSMContext):
                 model_used=model_name
             )
             
-            if not has_custom_key:
+            if not has_custom_key or is_programmatic_key:
                 if not is_free:
                     deduct_amount = 4 if is_premium else 1
                     async with db_manager.pool.acquire() as conn:
@@ -2359,6 +2361,10 @@ async def cb_vpn_activate_test_free(c: CallbackQuery):
         ai_key = await create_openrouter_key(limit_usd=limit_usd, expires_days=expires_days)
         await db_manager.set_user_ai_key(uid, ai_key, new_ai_expires, purchased_at=now)
         
+        # Set AI balance to 10 queries
+        async with db_manager.pool.acquire() as conn:
+            await conn.execute("UPDATE users SET ai_balance = ai_balance + 10 WHERE telegram_id = $1", uid)
+        
         # Send VPN file
         file_data = BufferedInputFile(config_text.encode("utf-8"), filename=f"tu_ugmk_vpn_{uid}.conf")
         await c.message.answer_document(
@@ -2549,6 +2555,11 @@ async def process_successful_payment(m: Message):
             ai_key = await create_openrouter_key(limit_usd=limit_usd, expires_days=expires_days)
             await db_manager.set_user_ai_key(uid, ai_key, new_ai_expires, purchased_at=now)
             
+            # Set AI balance queries
+            balance_add = 10 if is_test else (30 if is_premium else 150)
+            async with db_manager.pool.acquire() as conn:
+                await conn.execute("UPDATE users SET ai_balance = ai_balance + $2 WHERE telegram_id = $1", uid, balance_add)
+            
             # Send VPN file
             file_data = BufferedInputFile(config_text.encode("utf-8"), filename=f"tu_ugmk_vpn_{uid}.conf")
             await m.answer_document(
@@ -2620,6 +2631,11 @@ async def process_successful_payment(m: Message):
             limit_usd = 1.50 if is_premium else 0.15
             ai_key = await create_openrouter_key(limit_usd=limit_usd, expires_days=expires_days)
             await db_manager.set_user_ai_key(uid, ai_key, new_ai_expires, purchased_at=now)
+            
+            # Set AI balance queries
+            balance_add = 30 if is_premium else 150
+            async with db_manager.pool.acquire() as conn:
+                await conn.execute("UPDATE users SET ai_balance = ai_balance + $2 WHERE telegram_id = $1", uid, balance_add)
             
             pkg_name = "30 премиум" if is_premium else "150 стандартных"
             await m.answer(
