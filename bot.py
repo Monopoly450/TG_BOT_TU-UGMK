@@ -832,8 +832,6 @@ async def show_subscription_time_menu(m: Message | CallbackQuery, user_id: str =
         f"🔌 <b>WireGuard VPN:</b>\n"
         f"• Статус: <b>{vpn_status}</b>\n\n"
         f"🤖 <b>ИИ-Ассистент:</b>\n"
-        f"• Модель: <code>{ai_model}</code>\n"
-        f"• Персональный ключ: <b>{ai_key_status}</b>\n"
         f"• Баланс запросов: <b>{ai_balance}</b>{ai_expiry_str}\n\n"
         f"🕒 <b>Ежедневная рассылка расписания:</b>\n"
         f"• Утро: <code>{morn_time}</code>\n"
@@ -1774,7 +1772,6 @@ async def ai_menu(m: Message, state: FSMContext):
     text = (
         "🤖 <b>Панель ИИ-Ассистента</b>\n\n"
         f"🧠 Выбранная модель: <code>{model}</code>\n"
-        f"🔑 Личный API-ключ: <b>{key_status}</b>\n"
         f"💳 Баланс ИИ-запросов (OpenRouter): <b>{ai_balance}</b>"
     )
     
@@ -2013,7 +2010,6 @@ async def show_ai_menu_directly(message: Message, user_id: int = None):
     text = (
         "🤖 <b>Панель ИИ-Ассистента</b>\n\n"
         f"🧠 Выбранная модель: <code>{model}</code>\n"
-        f"🔑 Личный API-ключ: <b>{key_status}</b>\n"
         f"💳 Баланс ИИ-запросов (OpenRouter): <b>{ai_balance}</b>"
     )
     
@@ -2061,7 +2057,6 @@ async def cb_ai_back_to_menu(c: CallbackQuery):
     text = (
         "🤖 <b>Панель ИИ-Ассистента</b>\n\n"
         f"🧠 Выбранная модель: <code>{model}</code>\n"
-        f"🔑 Личный API-ключ: <b>{key_status}</b>\n"
         f"💳 Баланс ИИ-запросов (OpenRouter): <b>{ai_balance}</b>"
     )
     
