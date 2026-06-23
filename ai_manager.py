@@ -126,7 +126,7 @@ async def create_openrouter_key(limit_usd: float, expires_days: int = 30) -> str
     
     async with aiohttp.ClientSession() as session:
         async with session.post(url, headers=headers, json=payload) as resp:
-            if resp.status != 200:
+            if resp.status not in (200, 201):
                 text = await resp.text()
                 logger.error(f"OpenRouter management API error: status {resp.status}, response: {text}")
                 raise ValueError(f"Ошибка OpenRouter: {text}")
