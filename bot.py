@@ -2322,6 +2322,10 @@ async def show_vpn_menu_directly(message: Message, user_id: int = None):
 @dp.callback_query(F.data == "vpn:activate_test_free")
 async def cb_vpn_activate_test_free(c: CallbackQuery):
     uid = c.from_user.id
+    try:
+        await c.answer()
+    except Exception:
+        pass
     await c.message.answer("⏳ <b>Настройка вашего бесплатного тестового подключения...</b>", parse_mode="HTML")
     try:
         user_row = await db_manager.get_user(uid)
@@ -2401,7 +2405,6 @@ async def cb_vpn_activate_test_free(c: CallbackQuery):
             f"Он уже автоматически активирован и привязан к вашему профилю! Вы можете сразу общаться с ИИ.",
             parse_mode="HTML"
         )
-        await c.answer("Тест активирован!")
     except Exception as e:
         logger.error(f"Failed to complete free VPN test setup: {e}")
         await c.message.answer(
@@ -2409,7 +2412,6 @@ async def cb_vpn_activate_test_free(c: CallbackQuery):
             f"Пожалуйста, обратитесь к администратору.",
             parse_mode="HTML"
         )
-        await c.answer("Ошибка при активации", show_alert=True)
 
 @dp.callback_query(F.data == "vpn:buy_standard")
 async def cb_vpn_buy_standard(c: CallbackQuery):
