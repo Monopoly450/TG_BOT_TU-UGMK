@@ -927,7 +927,7 @@ async def cb_sub_buy_vpn_only_menu(c: CallbackQuery):
 @dp.callback_query(F.data == "sub:buy_bundle_menu")
 async def cb_sub_buy_bundle_menu(c: CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 Тест: VPN + 10 Премиум (1 ⭐)", callback_data="vpn:buy_test")],
+        [InlineKeyboardButton(text="🎁 Тест: VPN + 10 Премиум (Бесплатно)", callback_data="vpn:activate_test_free")],
         [InlineKeyboardButton(text="💳 VPN + 150 Стандарт (500 ⭐)", callback_data="vpn:buy_standard")],
         [InlineKeyboardButton(text="💳 VPN + 30 Премиум (600 ⭐)", callback_data="vpn:buy_premium")],
         [InlineKeyboardButton(text="🔙 Назад в меню покупок", callback_data="sub:buy_menu")]
@@ -935,7 +935,7 @@ async def cb_sub_buy_bundle_menu(c: CallbackQuery):
     text = (
         "📦 <b>Купить всё вместе (ИИ + VPN):</b>\n\n"
         "Выберите выгодный пакет:\n"
-        "• <b>Тест: VPN + 10 Премиум ИИ</b> — 1 ⭐ (для проверки)\n"
+        "• <b>Тест: VPN + 10 Премиум ИИ</b> — Бесплатно (для проверки)\n"
         "1. <b>VPN + 150 Стандарт ИИ</b> — 500 ⭐\n"
         "2. <b>VPN + 30 Премиум ИИ</b> — 600 ⭐\n\n"
         "Все тарифы действуют 30 дней с момента покупки."
@@ -2317,23 +2317,93 @@ async def show_vpn_menu_directly(message: Message, user_id: int = None):
 
 # ═══════════════════ ПЛАТЕЖНЫЕ ХЭНДЛЕРЫ И АКТИВАЦИЯ КЛЮЧЕЙ ═══════════════════
 
-@dp.callback_query(F.data == "vpn:buy_test")
-async def cb_vpn_buy_test(c: CallbackQuery):
+@dp.callback_query(F.data == "vpn:activate_test_free")
+async def cb_vpn_activate_test_free(c: CallbackQuery):
     uid = c.from_user.id
-    prices = [LabeledPrice(label="Тест: VPN + 10 Премиум ИИ", amount=1)]
+    await c.message.answer("⏳ <b>Настройка вашего бесплатного тестового подключения...</b>", parse_mode="HTML")
     try:
-        await c.message.answer_invoice(
-            title="Тест: VPN + 10 Премиум ИИ",
-            description="Тестовая подписка WireGuard VPN на 30 дней и 10 премиум запросов к ИИ.",
-            payload="vpn_sub_test",
-            provider_token="",
-            currency="XTR",
-            prices=prices
+        user_row = await db_manager.get_user(uid)
+        if not user_row:
+            await db_manager.register_or_update_user(uid, c.from_user.username)
+            user_row = await db_manager.get_user(uid)
+            
+        user_db_id = user_row['id'] if user_row else 1
+        
+        # Compute new expiration times
+        now = datetime.now()
+        
+        # VPN
+        current_vpn_expires = user_row.get('vpn_expires_at') if user_row else None
+        if current_vpn_expires and current_vpn_expires > now:
+            new_vpn_expires = current_vpn_expires + timedelta(days=30)
+        else:
+            new_vpn_expires = now + timedelta(days=30)
+            
+        # AI
+        current_ai_expires = user_row.get('ai_expires_at') if user_row else None
+        if current_ai_expires and current_ai_expires > now:
+            new_ai_expires = current_ai_expires + timedelta(days=30)
+        else:
+            new_ai_expires = now + timedelta(days=30)
+            
+        expires_days = int((new_ai_expires - now).total_seconds() / 86400)
+        if expires_days < 30:
+            expires_days = 30
+        
+        # Generate config and update user VPN status
+        config_text = await vpn_manager.generate_user_vpn_config(user_db_id)
+        await db_manager.set_user_vpn(uid, enabled=True, key=config_text, expires_at=new_vpn_expires, purchased_at=now)
+        
+        # Generate actual OpenRouter key
+        limit_usd = 0.50  # 10 premium queries
+        ai_key = await create_openrouter_key(limit_usd=limit_usd, expires_days=expires_days)
+        await db_manager.set_user_ai_key(uid, ai_key, new_ai_expires, purchased_at=now)
+        
+        # Send VPN file
+        file_data = BufferedInputFile(config_text.encode("utf-8"), filename=f"tu_ugmk_vpn_{uid}.conf")
+        await c.message.answer_document(
+            document=file_data,
+            caption="✅ <b>VPN успешно подключен!</b>\n\nИмпортируйте этот файл в приложение WireGuard.\nВы также можете получить QR-код для настройки через меню.",
+            parse_mode="HTML"
         )
-        await c.answer("Счет выставлен!")
+        
+        # Generate & Send QR code
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_L,
+            box_size=10,
+            border=4,
+        )
+        qr.add_data(config_text)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        bio = io.BytesIO()
+        img.save(bio, "PNG")
+        bio.seek(0)
+        photo_file = BufferedInputFile(bio.read(), filename="vpn_qr.png")
+        
+        await c.message.answer_photo(
+            photo=photo_file,
+            caption="🖼 <b>QR-код для импорта в WireGuard:</b>\nОтсканируйте его из приложения WireGuard для настройки.",
+            parse_mode="HTML"
+        )
+        
+        await c.message.answer(
+            f"🎉 <b>Бесплатный тест успешно активирован!</b>\n\n"
+            f"🔑 Мы сгенерировали для вас персональный API-ключ OpenRouter (10 премиум запросов):\n"
+            f"<code>{ai_key}</code>\n\n"
+            f"Он уже автоматически активирован и привязан к вашему профилю! Вы можете сразу общаться с ИИ.",
+            parse_mode="HTML"
+        )
+        await c.answer("Тест активирован!")
     except Exception as e:
-        logger.error(f"Failed to send invoice for VPN test: {e}")
-        await c.answer("⚠️ Не удалось выставить счет. Обратитесь к администратору.", show_alert=True)
+        logger.error(f"Failed to complete free VPN test setup: {e}")
+        await c.message.answer(
+            f"⚠️ <b>Произошла ошибка при настройке теста:</b>\n<code>{str(e)}</code>\n\n"
+            f"Пожалуйста, обратитесь к администратору.",
+            parse_mode="HTML"
+        )
+        await c.answer("Ошибка при активации", show_alert=True)
 
 @dp.callback_query(F.data == "vpn:buy_standard")
 async def cb_vpn_buy_standard(c: CallbackQuery):
