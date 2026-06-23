@@ -591,11 +591,7 @@
                     <h2 class="panel-title">Настройки OpenRouter</h2>
                     <form action="/settings/openrouter_keys" method="POST" style="display: flex; flex-direction: column; gap: 15px;">
                         <div class="form-group" style="margin-bottom: 0;">
-                            <label for="openrouter_key">Глобальный API-ключ OpenRouter (для запросов)</label>
-                            <input type="password" id="openrouter_key" name="openrouter_key" class="form-control" value="{{ openrouter_key }}" placeholder="sk-or-v1-...">
-                        </div>
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label for="openrouter_management_key">Management API-ключ OpenRouter (для генерации)</label>
+                            <label for="openrouter_management_key">Management API-ключ OpenRouter (для генерации ключей)</label>
                             <input type="password" id="openrouter_management_key" name="openrouter_management_key" class="form-control" value="{{ openrouter_management_key }}" placeholder="sk-or-v1-...">
                         </div>
                         <button type="submit" class="btn">Сохранить настройки</button>
