@@ -67,7 +67,7 @@ services:
 
   # 🐘 База данных (PostgreSQL) - реляционные данные
   db:
-    image: postgres:alpine
+    image: postgres:16-alpine
     container_name: postgres_db
     restart: always
     environment:
