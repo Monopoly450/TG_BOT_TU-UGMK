@@ -614,7 +614,7 @@
                     <form action="/settings/openrouter_keys" method="POST" style="display: flex; flex-direction: column; gap: 15px;">
                         <div class="form-group" style="margin-bottom: 0;">
                             <label for="openrouter_management_key">Management API-ключ OpenRouter (для генерации ключей)</label>
-                            <input type="password" id="openrouter_management_key" name="openrouter_management_key" class="form-control" value="{{ openrouter_management_key }}" placeholder="sk-or-v1-...">
+                            <input type="password" id="openrouter_management_key" name="openrouter_management_key" class="form-control" value="{{ openrouter_management_key }}" placeholder="sk-or-v1-..." autocomplete="new-password">
                         </div>
                         <button type="submit" class="btn">Сохранить настройки</button>
                     </form>
