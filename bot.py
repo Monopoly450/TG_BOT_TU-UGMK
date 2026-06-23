@@ -855,17 +855,6 @@ async def show_subscription_time_menu(m: Message | CallbackQuery, user_id: str =
     else:
         kb_rows.append([InlineKeyboardButton(text="🔌 Подключить/Продлить VPN", callback_data="sub:buy_vpn_menu")])
         
-    # AI controls row
-    ai_btn_row = []
-    ai_btn_row.append(InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model"))
-    ai_btn_row.append(InlineKeyboardButton(text="🆓 Бесплатные модели", callback_data="ai:free_models"))
-    kb_rows.append(ai_btn_row)
-    
-    kb_rows.append([
-        InlineKeyboardButton(text="🧹 Очистить контекст ИИ", callback_data="ai:clear_context"),
-        InlineKeyboardButton(text="💳 Купить запросы ИИ", callback_data="sub:buy_ai_menu")
-    ])
-    
     # Daily notification setup row
     kb_rows.append([
         InlineKeyboardButton(text="🌅 Настроить Утро", callback_data="sub:morning_time"),
@@ -1786,9 +1775,7 @@ async def ai_menu(m: Message, state: FSMContext):
         "🤖 <b>Панель ИИ-Ассистента</b>\n\n"
         f"🧠 Выбранная модель: <code>{model}</code>\n"
         f"🔑 Личный API-ключ: <b>{key_status}</b>\n"
-        f"💳 Баланс ИИ-запросов (OpenRouter): <b>{ai_balance}</b>\n\n"
-        "Вы можете использовать ИИ, установив собственный API-ключ в настройках, "
-        "или приобрести баланс ИИ-запросов за Telegram звезды."
+        f"💳 Баланс ИИ-запросов (OpenRouter): <b>{ai_balance}</b>"
     )
     
     is_free = model in FREE_MODELS
@@ -1796,11 +1783,8 @@ async def ai_menu(m: Message, state: FSMContext):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💬 Начать диалог", callback_data="ai:chat") if can_chat else
          InlineKeyboardButton(text="💬 Начать диалог (нужен ключ/баланс)", callback_data="ai:need_key")],
-        [InlineKeyboardButton(text="💳 150 Стандарт ИИ (400 ⭐)", callback_data="ai:buy_requests"),
-         InlineKeyboardButton(text="💳 30 Премиум ИИ (500 ⭐)", callback_data="ai:buy_premium")],
         [InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model"),
          InlineKeyboardButton(text="🆓 Бесплатные модели", callback_data="ai:free_models")],
-        [InlineKeyboardButton(text="🔑 Установить API-ключ", callback_data="ai:set_key")],
         [InlineKeyboardButton(text="🧹 Очистить контекст", callback_data="ai:clear_context")]
     ])
     await m.answer(text, reply_markup=kb, parse_mode="HTML")
@@ -2030,9 +2014,7 @@ async def show_ai_menu_directly(message: Message, user_id: int = None):
         "🤖 <b>Панель ИИ-Ассистента</b>\n\n"
         f"🧠 Выбранная модель: <code>{model}</code>\n"
         f"🔑 Личный API-ключ: <b>{key_status}</b>\n"
-        f"💳 Баланс ИИ-запросов (OpenRouter): <b>{ai_balance}</b>\n\n"
-        "Вы можете использовать ИИ, установив собственный API-ключ в настройках, "
-        "или приобрести баланс ИИ-запросов за Telegram звезды."
+        f"💳 Баланс ИИ-запросов (OpenRouter): <b>{ai_balance}</b>"
     )
     
     is_free = model in FREE_MODELS
@@ -2040,11 +2022,8 @@ async def show_ai_menu_directly(message: Message, user_id: int = None):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💬 Начать диалог", callback_data="ai:chat") if can_chat else
          InlineKeyboardButton(text="💬 Начать диалог (нужен ключ/баланс)", callback_data="ai:need_key")],
-        [InlineKeyboardButton(text="💳 150 Стандарт ИИ (400 ⭐)", callback_data="ai:buy_requests"),
-         InlineKeyboardButton(text="💳 30 Премиум ИИ (500 ⭐)", callback_data="ai:buy_premium")],
         [InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model"),
          InlineKeyboardButton(text="🆓 Бесплатные модели", callback_data="ai:free_models")],
-        [InlineKeyboardButton(text="🔑 Установить API-ключ", callback_data="ai:set_key")],
         [InlineKeyboardButton(text="🧹 Очистить контекст", callback_data="ai:clear_context")]
     ])
     await message.answer(text, reply_markup=kb, parse_mode="HTML")
@@ -2083,9 +2062,7 @@ async def cb_ai_back_to_menu(c: CallbackQuery):
         "🤖 <b>Панель ИИ-Ассистента</b>\n\n"
         f"🧠 Выбранная модель: <code>{model}</code>\n"
         f"🔑 Личный API-ключ: <b>{key_status}</b>\n"
-        f"💳 Баланс ИИ-запросов (OpenRouter): <b>{ai_balance}</b>\n\n"
-        "Вы можете использовать ИИ, установив собственный API-ключ в настройках, "
-        "или приобрести баланс ИИ-запросов за Telegram звезды."
+        f"💳 Баланс ИИ-запросов (OpenRouter): <b>{ai_balance}</b>"
     )
     
     is_free = model in FREE_MODELS
@@ -2093,11 +2070,8 @@ async def cb_ai_back_to_menu(c: CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💬 Начать диалог", callback_data="ai:chat") if can_chat else
          InlineKeyboardButton(text="💬 Начать диалог (нужен ключ/баланс)", callback_data="ai:need_key")],
-        [InlineKeyboardButton(text="💳 150 Стандарт ИИ (400 ⭐)", callback_data="ai:buy_requests"),
-         InlineKeyboardButton(text="💳 30 Премиум ИИ (500 ⭐)", callback_data="ai:buy_premium")],
         [InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model"),
          InlineKeyboardButton(text="🆓 Бесплатные модели", callback_data="ai:free_models")],
-        [InlineKeyboardButton(text="🔑 Установить API-ключ", callback_data="ai:set_key")],
         [InlineKeyboardButton(text="🧹 Очистить контекст", callback_data="ai:clear_context")]
     ])
     await c.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
