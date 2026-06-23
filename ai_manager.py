@@ -1,5 +1,7 @@
 import os
 import logging
+import aiohttp
+from datetime import datetime, timedelta, timezone
 from openai import AsyncOpenAI
 
 logger = logging.getLogger("ai_manager")
@@ -80,3 +82,58 @@ async def get_ai_response(prompt: str, api_key: str, model_name: str, history: l
     except Exception as e:
         logger.error(f"OpenRouter API error (model {router_model}): {e}")
         raise e
+
+
+async def create_openrouter_key(limit_usd: float, expires_days: int = 30) -> str:
+    """
+    Creates an OpenRouter API key programmatically using the Management API key.
+    """
+    mgmt_key = None
+    try:
+        mgmt_key = await db_manager.get_setting("openrouter_management_key")
+    except Exception:
+        pass
+        
+    if not mgmt_key:
+        mgmt_key = os.getenv("OPENROUTER_MANAGEMENT_KEY")
+        
+    if not mgmt_key:
+        # Fallback to standard key if management key is not set
+        mgmt_key = os.getenv("OPENROUTER_API_KEY")
+        if not mgmt_key:
+            try:
+                mgmt_key = await db_manager.get_setting("openrouter_api_key")
+            except Exception:
+                pass
+                
+    if not mgmt_key:
+        raise ValueError("Management API Key для OpenRouter не настроен. Пожалуйста, укажите его в настройках панели управления.")
+        
+    url = "https://openrouter.ai/api/v1/keys"
+    headers = {
+        "Authorization": f"Bearer {mgmt_key}",
+        "Content-Type": "application/json"
+    }
+    
+    expires_at = (datetime.now(timezone.utc) + timedelta(days=expires_days)).isoformat()
+    name = f"tg_{int(datetime.now(timezone.utc).timestamp())}"
+    
+    payload = {
+        "name": name,
+        "expires_at": expires_at,
+        "limit": limit_usd
+    }
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, headers=headers, json=payload) as resp:
+            if resp.status != 200:
+                text = await resp.text()
+                logger.error(f"OpenRouter management API error: status {resp.status}, response: {text}")
+                raise ValueError(f"Ошибка OpenRouter: {text}")
+            
+            data = await resp.json()
+            key_data = data.get("data", data)
+            api_key = key_data.get("key")
+            if not api_key:
+                raise ValueError(f"Ключ не найден в ответе OpenRouter: {data}")
+            return api_key

@@ -30,7 +30,7 @@ from aiogram.dispatcher.middlewares.base import BaseMiddleware # type: ignore
 import redis.asyncio as redis # type: ignore
 from secure_store import SecureStore
 from db_manager import db_manager
-from ai_manager import get_ai_response
+from ai_manager import get_ai_response, create_openrouter_key
 import vpn_manager
 import io
 import qrcode
@@ -1624,8 +1624,7 @@ async def ai_menu(m: Message, state: FSMContext):
          InlineKeyboardButton(text="💳 30 Премиум ИИ (500 ⭐)", callback_data="ai:buy_premium")],
         [InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model"),
          InlineKeyboardButton(text="🆓 Бесплатные модели", callback_data="ai:free_models")],
-        [InlineKeyboardButton(text="🔑 Установить API-ключ", callback_data="ai:set_key"),
-         InlineKeyboardButton(text="🔑 Активировать ключ", callback_data="ai:activate_key")],
+        [InlineKeyboardButton(text="🔑 Установить API-ключ", callback_data="ai:set_key")],
         [InlineKeyboardButton(text="🧹 Очистить контекст", callback_data="ai:clear_context"),
          InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")]
     ])
@@ -1745,11 +1744,22 @@ async def ai_chat_message(m: Message, state: FSMContext):
                 
         except Exception as e:
             logger.error(f"AI response failed: {e}")
-            await m.answer(
-                f"❌ <b>Ошибка вызова ИИ:</b>\n<code>{str(e)}</code>\n\n"
-                "Пожалуйста, обратитесь к администратору.",
-                parse_mode="HTML"
-            )
+            err_msg = str(e).lower()
+            if has_custom_key and any(x in err_msg for x in ["budget", "limit", "payment", "expired", "402", "403", "unauthorized", "invalid key", "credential"]):
+                await db_manager.set_user_ai_key(uid, None)
+                await state.clear()
+                await m.answer(
+                    "⚠️ <b>Ваш персональный ключ OpenRouter исчерпал баланс или истек.</b>\n\n"
+                    "Бот автоматически сбросил ключ. Пожалуйста, приобретите новый пакет запросов в меню ИИ.",
+                    reply_markup=get_main_menu(),
+                    parse_mode="HTML"
+                )
+            else:
+                await m.answer(
+                    f"❌ <b>Ошибка вызова ИИ:</b>\n<code>{str(e)}</code>\n\n"
+                    "Пожалуйста, обратитесь к администратору.",
+                    parse_mode="HTML"
+                )
 
 @dp.callback_query(F.data == "ai:set_key")
 async def cb_ai_set_key(c: CallbackQuery, state: FSMContext):
@@ -1859,8 +1869,7 @@ async def show_ai_menu_directly(message: Message, user_id: int = None):
          InlineKeyboardButton(text="💳 30 Премиум ИИ (500 ⭐)", callback_data="ai:buy_premium")],
         [InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model"),
          InlineKeyboardButton(text="🆓 Бесплатные модели", callback_data="ai:free_models")],
-        [InlineKeyboardButton(text="🔑 Установить API-ключ", callback_data="ai:set_key"),
-         InlineKeyboardButton(text="🔑 Активировать ключ", callback_data="ai:activate_key")],
+        [InlineKeyboardButton(text="🔑 Установить API-ключ", callback_data="ai:set_key")],
         [InlineKeyboardButton(text="🧹 Очистить контекст", callback_data="ai:clear_context"),
          InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")]
     ])
@@ -1914,8 +1923,7 @@ async def cb_ai_back_to_menu(c: CallbackQuery):
          InlineKeyboardButton(text="💳 30 Премиум ИИ (500 ⭐)", callback_data="ai:buy_premium")],
         [InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model"),
          InlineKeyboardButton(text="🆓 Бесплатные модели", callback_data="ai:free_models")],
-        [InlineKeyboardButton(text="🔑 Установить API-ключ", callback_data="ai:set_key"),
-         InlineKeyboardButton(text="🔑 Активировать ключ", callback_data="ai:activate_key")],
+        [InlineKeyboardButton(text="🔑 Установить API-ключ", callback_data="ai:set_key")],
         [InlineKeyboardButton(text="🧹 Очистить контекст", callback_data="ai:clear_context"),
          InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")]
     ])
@@ -2223,9 +2231,10 @@ async def process_successful_payment(m: Message):
             config_text = await vpn_manager.generate_user_vpn_config(user_db_id)
             await db_manager.set_user_vpn(uid, enabled=True, key=config_text)
             
-            # Generate AI key (150 credits for standard, 120 credits for premium)
-            limit = 120 if is_premium else 150
-            ai_key = await db_manager.generate_ai_key(request_limit=limit)
+            # Generate actual OpenRouter key
+            limit_usd = 1.50 if is_premium else 0.15
+            ai_key = await create_openrouter_key(limit_usd=limit_usd, expires_days=30)
+            await db_manager.set_user_ai_key(uid, ai_key)
             
             # Send VPN file
             file_data = BufferedInputFile(config_text.encode("utf-8"), filename=f"tu_ugmk_vpn_{uid}.conf")
@@ -2259,9 +2268,9 @@ async def process_successful_payment(m: Message):
             pkg_name = "30 премиум" if is_premium else "150 стандартных"
             await m.answer(
                 f"🎉 <b>Спасибо за покупку!</b>\n\n"
-                f"🔑 Мы сгенерировали для вас уникальный ключ ИИ-доступа ({pkg_name} запросов):\n"
+                f"🔑 Мы сгенерировали для вас персональный API-ключ OpenRouter ({pkg_name} запросов):\n"
                 f"<code>{ai_key}</code>\n\n"
-                f"Отправьте его боту для активации, либо поделитесь с другом!",
+                f"Он уже автоматически активирован и привязан к вашему профилю! Вы можете сразу общаться с ИИ.",
                 parse_mode="HTML"
             )
             
@@ -2275,22 +2284,22 @@ async def process_successful_payment(m: Message):
             
     elif payload in ["ai_150_requests", "ai_30_premium"]:
         is_premium = (payload == "ai_30_premium")
-        add_amount = 120 if is_premium else 150
         try:
-            # Increment user balance directly
             user_row = await db_manager.get_user(uid)
             if not user_row:
                 await db_manager.register_or_update_user(uid, m.from_user.username)
                 
-            async with db_manager.pool.acquire() as conn:
-                await conn.execute("UPDATE users SET ai_balance = ai_balance + $2 WHERE telegram_id = $1", uid, add_amount)
-                
-            new_bal = await db_manager.check_user_ai_balance(uid)
-            pkg_name = "30 Премиум" if is_premium else "150 Стандарт"
+            # Generate actual OpenRouter key
+            limit_usd = 1.50 if is_premium else 0.15
+            ai_key = await create_openrouter_key(limit_usd=limit_usd, expires_days=30)
+            await db_manager.set_user_ai_key(uid, ai_key)
+            
+            pkg_name = "30 премиум" if is_premium else "150 стандартных"
             await m.answer(
                 f"🎉 <b>Оплата прошла успешно!</b>\n\n"
-                f"На ваш баланс зачислено <b>{add_amount}</b> ИИ-кредитов (соответствует {pkg_name} запросам).\n"
-                f"Текущий баланс: <b>{new_bal}</b> кредитов.",
+                f"🔑 Персональный API-ключ OpenRouter с лимитом на {pkg_name} запросов привязан к вашему профилю:\n"
+                f"<code>{ai_key}</code>\n\n"
+                f"Вы можете сразу приступать к общению с ИИ!",
                 parse_mode="HTML"
             )
         except Exception as e:

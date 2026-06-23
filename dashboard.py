@@ -53,6 +53,7 @@ async def index(request: Request, notification: str = None):
         unused_keys_count = sum(1 for k in ai_keys if k['used_by'] is None)
         
         openrouter_key = await db_manager.get_setting("openrouter_api_key") or ""
+        openrouter_management_key = await db_manager.get_setting("openrouter_management_key") or ""
         
         return templates.TemplateResponse(
             request=request,
@@ -64,7 +65,8 @@ async def index(request: Request, notification: str = None):
                 "active_vpn_count": active_vpn_count,
                 "unused_keys_count": unused_keys_count,
                 "notification": notification,
-                "openrouter_key": openrouter_key
+                "openrouter_key": openrouter_key,
+                "openrouter_management_key": openrouter_management_key
             }
         )
     except Exception as e:
@@ -216,17 +218,21 @@ async def generate_key(
         logger.error(f"Error generating AI key: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/settings/openrouter_key")
-async def update_openrouter_key(
+@app.post("/settings/openrouter_keys")
+async def update_openrouter_keys(
     request: Request,
-    openrouter_key: str = Form(...)
+    openrouter_key: str = Form(None),
+    openrouter_management_key: str = Form(None)
 ):
     if not is_authenticated(request):
         return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
         
     try:
-        await db_manager.set_setting("openrouter_api_key", openrouter_key.strip())
-        return RedirectResponse(url="/?notification=Ключ OpenRouter успешно обновлен!", status_code=status.HTTP_303_SEE_OTHER)
+        if openrouter_key is not None:
+            await db_manager.set_setting("openrouter_api_key", openrouter_key.strip())
+        if openrouter_management_key is not None:
+            await db_manager.set_setting("openrouter_management_key", openrouter_management_key.strip())
+        return RedirectResponse(url="/?notification=Настройки OpenRouter успешно обновлены!", status_code=status.HTTP_303_SEE_OTHER)
     except Exception as e:
-        logger.error(f"Error saving OpenRouter key: {e}")
+        logger.error(f"Error saving OpenRouter keys: {e}")
         raise HTTPException(status_code=500, detail=str(e))
