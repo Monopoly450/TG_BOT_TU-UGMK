@@ -4,6 +4,8 @@ from openai import AsyncOpenAI
 
 logger = logging.getLogger("ai_manager")
 
+from db_manager import db_manager
+
 # Read global OpenRouter key from environment
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
@@ -20,10 +22,18 @@ async def get_ai_response(prompt: str, api_key: str, model_name: str, history: l
     Sends a message to OpenRouter with conversation history.
     history parameter is a list of dicts: [{"role": "user"|"assistant", "content": "..."}]
     """
-    # Use global OpenRouter key if no custom user key is provided
-    key = api_key if api_key else OPENROUTER_API_KEY
+    # Use custom key, then database key, then env key
+    key = api_key
     if not key:
-        raise ValueError("Ключ API OpenRouter не настроен в файле .env.")
+        try:
+            key = await db_manager.get_setting("openrouter_api_key")
+        except Exception:
+            key = None
+        if not key:
+            key = OPENROUTER_API_KEY
+            
+    if not key:
+        raise ValueError("Ключ API OpenRouter не настроен. Укажите его в панели управления или .env файле.")
 
     # Get mapped OpenRouter model identifier
     router_model = MODEL_MAP.get(model_name, model_name)

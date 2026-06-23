@@ -104,6 +104,11 @@ class DBManager:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(poll_id, telegram_id)
                 );
+                
+                CREATE TABLE IF NOT EXISTS settings (
+                    key VARCHAR(255) PRIMARY KEY,
+                    value TEXT
+                );
             """)
             logger.info("PostgreSQL database tables initialized.")
 
@@ -313,5 +318,17 @@ class DBManager:
             return await conn.fetch("""
                 SELECT * FROM ai_requests WHERE telegram_id = $1 ORDER BY created_at DESC LIMIT 50
             """, telegram_id)
+
+    async def get_setting(self, key: str) -> str:
+        async with self.pool.acquire() as conn:
+            return await conn.fetchval("SELECT value FROM settings WHERE key = $1", key)
+
+    async def set_setting(self, key: str, value: str):
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO settings (key, value)
+                VALUES ($1, $2)
+                ON CONFLICT (key) DO UPDATE SET value = $2
+            """, key, value)
 
 db_manager = DBManager()

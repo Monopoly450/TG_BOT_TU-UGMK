@@ -586,6 +586,18 @@
 
             <!-- Right Side: AI Keys Generator and List -->
             <div style="display: flex; flex-direction: column; gap: 30px;">
+                <!-- OpenRouter Key Settings -->
+                <div class="glass-card panel">
+                    <h2 class="panel-title">Глобальный ключ OpenRouter</h2>
+                    <form action="/settings/openrouter_key" method="POST" style="display: flex; flex-direction: column; gap: 15px;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="openrouter_key">API-ключ OpenRouter</label>
+                            <input type="password" id="openrouter_key" name="openrouter_key" class="form-control" value="{{ openrouter_key }}" placeholder="sk-or-v1-..." required>
+                        </div>
+                        <button type="submit" class="btn">Сохранить ключ</button>
+                    </form>
+                </div>
+
                 <!-- Key generator -->
                 <div class="glass-card panel">
                     <h2 class="panel-title">Генератор ИИ-ключей</h2>

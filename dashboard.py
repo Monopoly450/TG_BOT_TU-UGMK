@@ -52,6 +52,8 @@ async def index(request: Request, notification: str = None):
             
         unused_keys_count = sum(1 for k in ai_keys if k['used_by'] is None)
         
+        openrouter_key = await db_manager.get_setting("openrouter_api_key") or ""
+        
         return templates.TemplateResponse(
             request=request,
             name="index.html",
@@ -61,7 +63,8 @@ async def index(request: Request, notification: str = None):
                 "ai_keys": ai_keys,
                 "active_vpn_count": active_vpn_count,
                 "unused_keys_count": unused_keys_count,
-                "notification": notification
+                "notification": notification,
+                "openrouter_key": openrouter_key
             }
         )
     except Exception as e:
@@ -211,4 +214,19 @@ async def generate_key(
         return RedirectResponse(url=f"/?notification={msg}", status_code=status.HTTP_303_SEE_OTHER)
     except Exception as e:
         logger.error(f"Error generating AI key: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/settings/openrouter_key")
+async def update_openrouter_key(
+    request: Request,
+    openrouter_key: str = Form(...)
+):
+    if not is_authenticated(request):
+        return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+        
+    try:
+        await db_manager.set_setting("openrouter_api_key", openrouter_key.strip())
+        return RedirectResponse(url="/?notification=Ключ OpenRouter успешно обновлен!", status_code=status.HTTP_303_SEE_OTHER)
+    except Exception as e:
+        logger.error(f"Error saving OpenRouter key: {e}")
         raise HTTPException(status_code=500, detail=str(e))
