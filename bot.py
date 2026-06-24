@@ -760,6 +760,42 @@ async def talk_links(m: Message):
     ])
     await m.answer("🎥 <b>Ссылки на онлайн-комнаты Толк:</b>\nВыберите нужную комнату для подключения:", reply_markup=kb, parse_mode="HTML")
 
+@dp.message(Command("debug_ai"))
+async def cmd_debug_ai(m: Message, state: FSMContext):
+    uid = m.from_user.id
+    user_row = await db_manager.get_user(uid)
+    state_data = await state.get_data()
+    
+    db_global_key = None
+    try:
+        db_global_key = await db_manager.get_setting("openrouter_api_key")
+    except Exception:
+        pass
+        
+    def mask_key(k):
+        if not k: return "None"
+        k = str(k).strip()
+        if len(k) < 15: return "too_short"
+        return f"{k[:10]}...{k[-4:]}"
+        
+    custom_key = user_row.get("custom_ai_key") if user_row else None
+    ai_balance = user_row.get("ai_balance") if user_row else 0
+    ai_expires = user_row.get("ai_expires_at") if user_row else None
+    ai_purchased = user_row.get("ai_purchased_at") if user_row else None
+    state_key = state_data.get("ai_key")
+    
+    text = (
+        "🔬 <b>AI Debug Information:</b>\n\n"
+        f"👤 <b>Telegram ID:</b> <code>{uid}</code>\n"
+        f"🔑 <b>custom_ai_key (DB):</b> <code>{mask_key(custom_key)}</code>\n"
+        f"💳 <b>ai_balance (DB):</b> <code>{ai_balance}</code>\n"
+        f"📅 <b>ai_expires_at (DB):</b> <code>{ai_expires}</code>\n"
+        f"📥 <b>ai_purchased_at (DB):</b> <code>{ai_purchased}</code>\n"
+        f"🌐 <b>global_key (DB settings):</b> <code>{mask_key(db_global_key)}</code>\n"
+        f"🧠 <b>ai_key (FSM state):</b> <code>{mask_key(state_key)}</code>"
+    )
+    await m.answer(text, parse_mode="HTML")
+
 @dp.message(CommandStart())
 async def start(m: Message, state: FSMContext):      
     await register_user(m.from_user.id)
