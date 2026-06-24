@@ -517,6 +517,24 @@ async def api_ai_history(uid: int, init_data: str):
             pass
     return {"history": []}
 
+@app.get("/api/request_history")
+async def api_request_history(uid: int, init_data: str):
+    tg_user = verify_telegram_init_data(init_data)
+    if not tg_user or tg_user["id"] != uid:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+        
+    requests = await db_manager.get_user_ai_requests(uid)
+    serialized = []
+    for r in requests:
+        serialized.append({
+            "id": r["id"],
+            "prompt": r["prompt"],
+            "response": r["response"],
+            "model_used": r["model_used"],
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None
+        })
+    return {"requests": serialized}
+
 @app.post("/api/ai_chat")
 async def api_ai_chat(request: Request):
     body = await request.json()
