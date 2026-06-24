@@ -7,7 +7,7 @@
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     
     <!-- Telegram WebApp SDK -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -32,7 +32,7 @@
             --accent-color: #10b981;
             --brand-gold: #fbb601;
             --danger-color: #ef4444;
-            --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            --font-family: 'Inter', 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
             --nav-bg: rgba(255, 255, 255, 0.9);
             --chat-msg-ai-bg: #f1f3f5;
         }
@@ -405,26 +405,171 @@
             border-bottom-left-radius: 4px;
         }
 
-        .chat-msg.ai pre {
+        .chat-msg, 
+        .chat-msg *, 
+        pre, 
+        code, 
+        pre *, 
+        code *,
+        .event-card,
+        .event-card *,
+        .history-item,
+        .history-item * {
+            user-select: text !important;
+            -webkit-user-select: text !important;
+            -moz-user-select: text !important;
+            -ms-user-select: text !important;
+            -webkit-touch-callout: default !important;
+        }
+
+        .chat-msg.ai pre,
+        .history-item-response pre {
+            position: relative;
             background: #1e1e2e;
-            padding: 8px;
+            padding: 32px 12px 12px 12px;
             border-radius: 8px;
             overflow-x: auto;
-            margin: 8px 0;
-            border: 1px solid rgba(0, 0, 0, 0.1);
+            margin: 12px 0;
+            border: 1px solid rgba(0, 0, 0, 0.15);
+            text-align: left;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.15);
         }
 
-        .chat-msg.ai code {
+        .chat-msg.ai code,
+        .history-item-response code {
+            font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 13px;
+            color: #e5e7eb;
+        }
+
+        /* Inline code styling */
+        .chat-msg.ai p code,
+        .chat-msg.ai li code,
+        .history-item-response p code,
+        .history-item-response li code {
+            background: rgba(150, 16, 23, 0.08);
+            color: var(--primary-color);
+            padding: 2px 6px;
+            border-radius: 6px;
             font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
             font-size: 12px;
+            font-weight: 600;
+            border: 1px solid rgba(150, 16, 23, 0.15);
+            word-break: break-word;
         }
 
-        .chat-msg.ai p {
-            margin-bottom: 6px;
+        /* Copy Code Button */
+        .code-copy-btn {
+            position: absolute;
+            top: 6px;
+            right: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            color: #e5e7eb;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 6px;
+            padding: 4px 8px;
+            font-size: 11px;
+            font-family: var(--font-family);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            user-select: none !important;
+            -webkit-user-select: none !important;
+            z-index: 10;
+        }
+        .code-copy-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+        .code-copy-btn:active {
+            background: rgba(255, 255, 255, 0.3);
         }
 
-        .chat-msg.ai p:last-child {
+        .chat-msg.ai p,
+        .history-item-response p {
+            margin-bottom: 8px;
+            line-height: 1.6;
+        }
+
+        .chat-msg.ai p:last-child,
+        .history-item-response p:last-child {
             margin-bottom: 0;
+        }
+
+        /* Lists formatting */
+        .chat-msg.ai ul,
+        .chat-msg.ai ol,
+        .history-item-response ul,
+        .history-item-response ol {
+            margin-bottom: 8px;
+            padding-left: 20px;
+            list-style-position: outside;
+        }
+
+        .chat-msg.ai li,
+        .history-item-response li {
+            margin-bottom: 4px;
+            line-height: 1.5;
+        }
+
+        .chat-msg.ai ul,
+        .history-item-response ul {
+            list-style-type: disc;
+        }
+
+        .chat-msg.ai ol,
+        .history-item-response ol {
+            list-style-type: decimal;
+        }
+
+        /* Headers */
+        .chat-msg.ai h1, .chat-msg.ai h2, .chat-msg.ai h3, .chat-msg.ai h4,
+        .history-item-response h1, .history-item-response h2, .history-item-response h3, .history-item-response h4 {
+            margin-top: 14px;
+            margin-bottom: 6px;
+            font-weight: 600;
+            color: var(--text-color);
+            line-height: 1.4;
+        }
+
+        .chat-msg.ai h1, .history-item-response h1 { font-size: 18px; }
+        .chat-msg.ai h2, .history-item-response h2 { font-size: 16px; }
+        .chat-msg.ai h3, .history-item-response h3 { font-size: 15px; }
+        .chat-msg.ai h4, .history-item-response h4 { font-size: 14px; }
+
+        /* Tables styling */
+        .chat-msg.ai table,
+        .history-item-response table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 12px 0;
+            font-size: 13px;
+        }
+
+        .chat-msg.ai th, .chat-msg.ai td,
+        .history-item-response th, .history-item-response td {
+            border: 1px solid var(--border-color);
+            padding: 8px;
+            text-align: left;
+        }
+
+        .chat-msg.ai th,
+        .history-item-response th {
+            background: rgba(0, 0, 0, 0.05);
+            font-weight: 600;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            .chat-msg.ai th,
+            .history-item-response th {
+                background: rgba(255, 255, 255, 0.05);
+            }
+        }
+
+        .chat-msg.ai hr,
+        .history-item-response hr {
+            border: none;
+            border-top: 1px solid var(--border-color);
+            margin: 14px 0;
         }
 
         .chat-input-bar {
@@ -2128,6 +2273,7 @@
                         item.querySelectorAll('pre code').forEach((block) => {
                             hljs.highlightElement(block);
                         });
+                        addCopyButtons(item);
                         
                         listContainer.appendChild(item);
                     });
@@ -2152,6 +2298,70 @@
             );
         }
 
+        // Helper to add Copy buttons to code blocks
+        function addCopyButtons(container) {
+            container.querySelectorAll('pre').forEach((preBlock) => {
+                if (preBlock.querySelector('.code-copy-btn')) return;
+                preBlock.style.position = 'relative';
+                const btn = document.createElement('button');
+                btn.className = 'code-copy-btn';
+                btn.innerText = 'Копировать';
+                
+                btn.onclick = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const code = preBlock.querySelector('code');
+                    const textToCopy = code ? code.innerText : preBlock.innerText;
+                    
+                    const performCopy = () => {
+                        btn.innerText = 'Скопировано!';
+                        btn.style.borderColor = 'var(--accent-color)';
+                        btn.style.color = 'var(--accent-color)';
+                        setTimeout(() => {
+                            btn.innerText = 'Копировать';
+                            btn.style.borderColor = '';
+                            btn.style.color = '';
+                        }, 2000);
+                    };
+
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(textToCopy)
+                            .then(performCopy)
+                            .catch(err => {
+                                console.error('Clipboard write failed, trying fallback:', err);
+                                fallbackCopy(textToCopy, performCopy);
+                            });
+                    } else {
+                        fallbackCopy(textToCopy, performCopy);
+                    }
+                };
+                preBlock.appendChild(btn);
+            });
+        }
+
+        function fallbackCopy(text, callback) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.top = '0';
+            textarea.style.left = '0';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            textarea.setSelectionRange(0, 99999); // For mobile devices
+            try {
+                const successful = document.execCommand('copy');
+                if (successful) {
+                    callback();
+                } else {
+                    console.error('Fallback copy command was unsuccessful');
+                }
+            } catch (err) {
+                console.error('Fallback copy error:', err);
+            }
+            document.body.removeChild(textarea);
+        }
+
         // Render Chat Messages
         function appendMessage(role, text) {
             const container = document.getElementById("chat-messages");
@@ -2167,6 +2377,9 @@
                 bubble.querySelectorAll('pre code').forEach((block) => {
                     hljs.highlightElement(block);
                 });
+
+                // Add copy buttons to code blocks
+                addCopyButtons(bubble);
             } else {
                 bubble.innerText = text;
             }
