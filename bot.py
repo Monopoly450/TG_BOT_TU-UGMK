@@ -2025,7 +2025,15 @@ async def ai_chat_message(m: Message, state: FSMContext):
         except Exception as e:
             logger.error(f"AI response failed: {e}")
             err_msg = str(e).lower()
-            if has_custom_key and any(x in err_msg for x in ["budget", "limit", "payment", "expired", "402", "403", "401", "unauthorized", "invalid key", "credential", "user not found"]):
+            is_rate_limit = "rate" in err_msg or "429" in err_msg or type(e).__name__ == "RateLimitError"
+            
+            if is_rate_limit:
+                await m.answer(
+                    "⏳ <b>Превышен лимит запросов (Rate Limit) от провайдера OpenRouter.</b>\n\n"
+                    "Пожалуйста, подождите несколько минут или смените модель ИИ в настройках.",
+                    parse_mode="HTML"
+                )
+            elif has_custom_key and any(x in err_msg for x in ["budget", "limit", "payment", "expired", "402", "403", "401", "unauthorized", "invalid key", "credential", "user not found"]):
                 await db_manager.set_user_ai_key(uid, None)
                 await state.clear()
                 await m.answer(
