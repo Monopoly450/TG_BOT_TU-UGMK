@@ -1959,11 +1959,11 @@ async def ai_chat_message(m: Message, state: FSMContext):
         except Exception as e:
             logger.error(f"AI response failed: {e}")
             err_msg = str(e).lower()
-            if has_custom_key and any(x in err_msg for x in ["budget", "limit", "payment", "expired", "402", "403", "unauthorized", "invalid key", "credential"]):
+            if has_custom_key and any(x in err_msg for x in ["budget", "limit", "payment", "expired", "402", "403", "401", "unauthorized", "invalid key", "credential", "user not found"]):
                 await db_manager.set_user_ai_key(uid, None)
                 await state.clear()
                 await m.answer(
-                    "⚠️ <b>Ваш персональный ключ OpenRouter исчерпал баланс или истек.</b>\n\n"
+                    "⚠️ <b>Ваш персональный ключ OpenRouter исчерпал баланс, истек или был удален.</b>\n\n"
                     "Бот автоматически сбросил ключ. Пожалуйста, приобретите новый пакет запросов в меню ИИ.",
                     reply_markup=get_main_menu(),
                     parse_mode="HTML"

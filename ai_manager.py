@@ -40,16 +40,23 @@ async def get_ai_response(prompt: str, api_key: str, model_name: str, history: l
     """
     # Use custom key, then database key, then env key
     key = api_key
+    key_source = "user_custom_key"
     if not key:
+        key_source = "db_global_key"
         try:
             key = await db_manager.get_setting("openrouter_api_key")
         except Exception:
             key = None
         if not key:
+            key_source = "env_global_key"
             key = OPENROUTER_API_KEY
             
     if not key:
         raise ValueError("Ключ API OpenRouter не настроен. Укажите его в панели управления или .env файле.")
+
+    # Log key info for debugging (safe mask)
+    masked_key = f"{key[:10]}...{key[-4:]}" if len(key) > 15 else "too_short"
+    logger.info(f"Using API key from {key_source}: {masked_key} for model {model_name}")
 
     # Get mapped OpenRouter model identifier
     router_model = MODEL_MAP.get(model_name, model_name)
