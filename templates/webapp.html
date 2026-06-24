@@ -435,7 +435,7 @@
 
         .chat-input {
             flex: 1;
-            background: var(--container-bg);
+            background: var(--bg-color);
             border: 1px solid var(--border-color);
             border-radius: 12px;
             padding: 12px;
@@ -444,6 +444,15 @@
             outline: none;
             font-family: var(--font-family);
             box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.05);
+            transition: all 0.2s ease;
+        }
+        .chat-input::placeholder {
+            color: var(--text-muted);
+            opacity: 0.8;
+        }
+        .chat-input:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 2px rgba(150, 16, 23, 0.15);
         }
 
         .chat-send-btn {
@@ -740,7 +749,7 @@
         /* Search controls & tab segment controller */
         .search-type-selector {
             display: flex;
-            background: #f3f4f6;
+            background: var(--bg-color);
             border-radius: 12px;
             padding: 4px;
             margin-bottom: 12px;
@@ -769,7 +778,7 @@
             overflow-y: auto;
             border: 1px solid var(--border-color);
             border-radius: 12px;
-            background: #ffffff;
+            background: var(--container-bg);
             margin-bottom: 12px;
             display: none;
             box-shadow: 0 4px 12px rgba(0,0,0,0.08);
@@ -792,7 +801,7 @@
             border-bottom: none;
         }
         .search-result-item:active {
-            background: #f1f3f5;
+            background: var(--border-color);
         }
         
         /* Favorites styling */
@@ -813,7 +822,7 @@
             gap: 6px;
             padding: 6px 12px;
             border-radius: 20px;
-            background: #ffffff;
+            background: var(--container-bg);
             border: 1px solid var(--border-color);
             font-size: 12px;
             font-weight: 500;
@@ -862,7 +871,7 @@
 
         /* Ecosystem layouts */
         .event-card {
-            background: #ffffff;
+            background: var(--container-bg);
             border: 1px solid var(--border-color);
             border-radius: 16px;
             padding: 14px;
@@ -907,7 +916,7 @@
             justify-content: space-between;
             align-items: center;
             padding: 12px 14px;
-            background: #ffffff;
+            background: var(--container-bg);
             border: 1px solid var(--border-color);
             border-radius: 12px;
             margin-bottom: 8px;
@@ -929,7 +938,7 @@
             align-items: center;
             justify-content: center;
             padding: 12px;
-            background: #ffffff;
+            background: var(--container-bg);
             border: 1px solid var(--border-color);
             border-radius: 12px;
             text-align: center;
@@ -954,7 +963,7 @@
 
         /* Purchase packages styling */
         .package-card {
-            background: #ffffff;
+            background: var(--container-bg);
             border: 1px solid var(--border-color);
             border-radius: 16px;
             padding: 14px;
