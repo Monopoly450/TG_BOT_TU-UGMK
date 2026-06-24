@@ -463,6 +463,8 @@ async def api_user_status(uid: int, init_data: str):
     morn_time = await dao.hget("user_morning_time", str(uid)) or "08:00"
     eve_time = await dao.hget("user_evening_time", str(uid)) or "Отключено"
     bot_name = await get_bot_username()
+    is_starosta = bool(await dao.hget("starosta_group_saved", str(uid)))
+    starosta_name = await dao.hget("starosta_name", str(uid)) or "Староста"
     
     return {
         "telegram_id": uid,
@@ -478,7 +480,10 @@ async def api_user_status(uid: int, init_data: str):
         "vpn_key": user_row['vpn_key'],
         "morning_time": morn_time,
         "evening_time": eve_time,
-        "bot_username": bot_name
+        "bot_username": bot_name,
+        "is_starosta": is_starosta,
+        "starosta_name": starosta_name,
+        "starosta_group": await dao.hget("starosta_group_saved", str(uid))
     }
 
 @app.get("/api/groups")
@@ -838,3 +843,140 @@ async def api_ecosystem(uid: int, init_data: str):
         })
         
     return {"events": serialized_events, "channels": serialized_channels}
+
+# --- STAROSTA API ENDPOINTS ---
+from datetime import datetime
+
+async def send_telegram_message(token: str, chat_id: int, text: str):
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "HTML"
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload) as response:
+                return response.status == 200
+    except Exception as e:
+        logger.error(f"Failed to send Telegram message to {chat_id}: {e}")
+        return False
+
+@app.post("/api/starosta/add_event")
+async def api_starosta_add_event(request: Request):
+    body = await request.json()
+    uid = body.get("uid")
+    init_data = body.get("init_data")
+    title = body.get("title")
+    description = body.get("description")
+    event_date_str = body.get("event_date")
+    link = body.get("link")
+    
+    tg_user = verify_telegram_init_data(init_data)
+    if not tg_user or tg_user["id"] != uid:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+        
+    is_starosta = bool(await dao.hget("starosta_group_saved", str(uid)))
+    if not is_starosta:
+        raise HTTPException(status_code=403, detail="Forbidden: Not a starosta")
+        
+    event_date = None
+    if event_date_str:
+        try:
+            event_date = datetime.fromisoformat(event_date_str.replace("Z", "+00:00"))
+        except ValueError:
+            pass
+            
+    event_id = await db_manager.add_event(title, description, event_date, link)
+    return {"status": "ok", "event_id": event_id}
+
+@app.post("/api/starosta/broadcast")
+async def api_starosta_broadcast(request: Request):
+    body = await request.json()
+    uid = body.get("uid")
+    init_data = body.get("init_data")
+    text = body.get("text")
+    target = body.get("target")
+    
+    tg_user = verify_telegram_init_data(init_data)
+    if not tg_user or tg_user["id"] != uid:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+        
+    is_starosta = bool(await dao.hget("starosta_group_saved", str(uid)))
+    if not is_starosta:
+        raise HTTPException(status_code=403, detail="Forbidden: Not a starosta")
+        
+    starosta_name = await dao.hget("starosta_name", str(uid)) or "Староста"
+    starosta_group = await dao.hget("starosta_group_saved", str(uid))
+    
+    subs = await dao.hgetall("user_subs")
+    if target == "group":
+        if not starosta_group:
+            raise HTTPException(status_code=400, detail="Starosta group not configured")
+        target_users = [user_id for user_id, gid in subs.items() if gid == starosta_group]
+    else:
+        target_users = list(subs.keys())
+        
+    if not target_users:
+        return {"status": "ok", "delivered": 0, "total": 0}
+        
+    token = os.getenv("BOT_TOKEN")
+    if not token:
+        raise HTTPException(status_code=500, detail="Bot token not configured")
+        
+    broadcast_text = f"📢 <b>{starosta_name}:</b>\n\n{text}"
+    
+    async def run_broadcast_task():
+        success = 0
+        for target_uid in target_users:
+            ok = await send_telegram_message(token, int(target_uid), broadcast_text)
+            if ok:
+                success += 1
+            await asyncio.sleep(0.05)
+        logger.info(f"Starosta broadcast by {uid} finished. Delivered to {success}/{len(target_users)}")
+        
+    asyncio.create_task(run_broadcast_task())
+    return {"status": "ok", "total": len(target_users)}
+
+@app.post("/api/starosta/setup")
+async def api_starosta_setup(request: Request):
+    body = await request.json()
+    uid = body.get("uid")
+    init_data = body.get("init_data")
+    password = body.get("password")
+    name = body.get("name")
+    group = body.get("group")
+    
+    tg_user = verify_telegram_init_data(init_data)
+    if not tg_user or tg_user["id"] != uid:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+        
+    uid_str = str(uid)
+    custom_pass = await dao.hget("starosta_pass", uid_str)
+    correct_pass = custom_pass if custom_pass else os.getenv("STAROSTA_PASS", "ugmk2026")
+    
+    if password != correct_pass:
+        raise HTTPException(status_code=403, detail="Неверный пароль старосты")
+        
+    if name:
+        await dao.hset("starosta_name", uid_str, name)
+    if group:
+        await dao.hset("starosta_group_saved", uid_str, group)
+        
+    return {"status": "ok", "message": "Статус старосты успешно активирован"}
+
+@app.post("/api/starosta/logout")
+async def api_starosta_logout(request: Request):
+    body = await request.json()
+    uid = body.get("uid")
+    init_data = body.get("init_data")
+    
+    tg_user = verify_telegram_init_data(init_data)
+    if not tg_user or tg_user["id"] != uid:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+        
+    uid_str = str(uid)
+    await dao.hdel("starosta_group_saved", uid_str)
+    await dao.hdel("starosta_name", uid_str)
+    
+    return {"status": "ok", "message": "Вы вышли из режима старосты"}

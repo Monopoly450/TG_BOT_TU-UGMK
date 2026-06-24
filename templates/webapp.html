@@ -1176,13 +1176,27 @@
             <!-- User Info Card -->
             <div class="card glass" style="display: flex; flex-direction: column; gap: 12px;">
                 <div style="display: flex; align-items: center; gap: 16px;">
-                    <div style="background: var(--primary-gradient); width: 50px; height: 50px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 700; color: white;">
+                    <div id="profile-avatar-container" style="background: var(--primary-gradient); width: 50px; height: 50px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 700; color: white; overflow: hidden; position: relative;">
                         <span id="profile-avatar">U</span>
                     </div>
                     <div>
                         <h3 id="profile-username" style="font-size: 16px; font-weight: 600;">Пользователь</h3>
                         <p id="profile-id" style="font-size: 12px; color: var(--text-muted);">ID: 000000</p>
                     </div>
+                </div>
+            </div>
+
+            <!-- 🛡️ Панель старосты -->
+            <div class="card glass" style="display: flex; flex-direction: column; gap: 8px; border: 1px solid rgba(139, 0, 0, 0.3); background: linear-gradient(135deg, rgba(139, 0, 0, 0.03), rgba(212, 175, 55, 0.03)); margin-top: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 20px;">🛡️</span>
+                        <div>
+                            <h4 style="font-size: 14px; font-weight: 600; margin: 0;">Панель старосты</h4>
+                            <p style="font-size: 11px; color: var(--text-muted); margin: 2px 0 0 0;">Управление рассылкой и афишей</p>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" style="width: auto; padding: 6px 12px; font-size: 12px; border-radius: 8px; font-weight: 500;" onclick="handleStarostaAccess()">Открыть</button>
                 </div>
             </div>
 
@@ -1452,6 +1466,99 @@
         </div>
     </div>
 
+    <!-- Starosta Authorization Modal -->
+    <div id="starosta-auth-modal" class="modal-overlay">
+        <div class="modal-content glass">
+            <div class="modal-header">
+                <h3>🔑 Доступ к панели старосты</h3>
+                <button class="modal-close" onclick="closeStarostaAuthModal()">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px; padding: 16px;">
+                <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 4px 0;">
+                    Введите пароль старосты, чтобы активировать функции добавления мероприятий и рассылок.
+                </p>
+                
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label" style="font-size: 12px; margin-bottom: 4px;">Пароль доступа:</label>
+                    <input type="password" id="starosta-auth-pwd" class="chat-input" placeholder="Введите пароль старосты" style="width: 100%; box-sizing: border-box;">
+                </div>
+                
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label" style="font-size: 12px; margin-bottom: 4px;">Ваше имя и фамилия (для подписи):</label>
+                    <input type="text" id="starosta-auth-name" class="chat-input" placeholder="Иван Иванов" style="width: 100%; box-sizing: border-box;">
+                </div>
+                
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label" style="font-size: 12px; margin-bottom: 4px;">Ваша учебная группа:</label>
+                    <select id="starosta-auth-group" class="select-input" style="margin-bottom: 0; width: 100%; box-sizing: border-box;">
+                        <!-- Популируется динамически -->
+                    </select>
+                </div>
+                
+                <button class="btn btn-primary" style="margin-top: 10px;" onclick="submitStarostaAuth()">Подтвердить пароль</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Starosta Dashboard Modal -->
+    <div id="starosta-modal" class="modal-overlay">
+        <div class="modal-content glass" style="max-height: 90vh; overflow-y: auto;">
+            <div class="modal-header">
+                <h3>🛡️ Панель старосты (<span id="starosta-group-badge">-</span>)</h3>
+                <button class="modal-close" onclick="closeStarostaModal()">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 20px; padding: 16px;">
+                <!-- Event Section -->
+                <div style="border-bottom: 1px dashed var(--border-color); padding-bottom: 20px; display: flex; flex-direction: column; gap: 10px;">
+                    <h4 style="font-size: 14px; font-weight: 600; color: var(--primary-color); margin: 0 0 4px 0;">📅 Добавить мероприятие в Афишу</h4>
+                    
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <input type="text" id="event-title" class="chat-input" placeholder="Название мероприятия" style="width: 100%; box-sizing: border-box;">
+                    </div>
+                    
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <textarea id="event-description" class="chat-input" placeholder="Описание, дата, время и место..." style="width: 100%; height: 80px; resize: none; box-sizing: border-box;"></textarea>
+                    </div>
+                    
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label class="form-label" style="font-size: 11px; margin-bottom: 4px; color: var(--text-muted);">Дата/Время мероприятия (необязательно):</label>
+                        <input type="datetime-local" id="event-date" class="chat-input" style="width: 100%; box-sizing: border-box; height: 42px; padding: 8px 12px;">
+                    </div>
+                    
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <input type="text" id="event-link" class="chat-input" placeholder="Ссылка на подробности (необязательно)" style="width: 100%; box-sizing: border-box;">
+                    </div>
+                    
+                    <button class="btn btn-primary" style="margin-top: 6px;" onclick="addStarostaEvent()">Опубликовать мероприятие</button>
+                </div>
+
+                <!-- Broadcast Section -->
+                <div style="border-bottom: 1px dashed var(--border-color); padding-bottom: 20px; display: flex; flex-direction: column; gap: 10px;">
+                    <h4 style="font-size: 14px; font-weight: 600; color: var(--primary-color); margin: 0 0 4px 0;">📢 Сделать рассылку сообщений</h4>
+                    
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label class="form-label" style="font-size: 11px; margin-bottom: 4px; color: var(--text-muted);">Получатели:</label>
+                        <select id="broadcast-target" class="select-input" style="margin-bottom: 0; width: 100%; box-sizing: border-box;">
+                            <option value="group">Только моей группе (<span class="st-group-name">-</span>)</option>
+                            <option value="all">Всем пользователям бота</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <textarea id="broadcast-text" class="chat-input" placeholder="Введите текст сообщения..." style="width: 100%; height: 90px; resize: none; box-sizing: border-box;"></textarea>
+                    </div>
+                    
+                    <button class="btn btn-primary" style="margin-top: 6px;" onclick="sendStarostaBroadcast()">Запустить рассылку</button>
+                </div>
+
+                <!-- Log out section -->
+                <div style="display: flex; justify-content: center; padding-top: 8px;">
+                    <button class="btn" style="width: auto; padding: 8px 16px; font-size: 13px; border-radius: 10px; border: 1px solid var(--danger-color); color: var(--danger-color); background: transparent;" onclick="logoutStarosta()">Выйти из режима старосты</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         // Global State variables
         let tg = window.Telegram.WebApp;
@@ -1463,6 +1570,9 @@
         let selectedGroup = "";
         let currentWeekOffset = 0;
         let vpnConfigText = "";
+        let isUserStarosta = false;
+        let starostaGroup = "";
+        let starostaName = "";
         
         let currentTargetType = "group";
         let currentTargetName = "";
@@ -1533,9 +1643,37 @@
             tg.expand();
             
             // Render Profile Avatar
-            const initial = (user.username || user.first_name || 'U')[0].toUpperCase();
-            document.getElementById("profile-avatar").innerText = initial;
-            document.getElementById("profile-username").innerText = user.username ? `@${user.username}` : user.first_name;
+            const avatarContainer = document.getElementById("profile-avatar-container");
+            const avatarSpan = document.getElementById("profile-avatar");
+            
+            if (user.photo_url) {
+                avatarSpan.style.display = "none";
+                const img = document.createElement("img");
+                img.src = user.photo_url;
+                img.style.width = "100%";
+                img.style.height = "100%";
+                img.style.objectFit = "cover";
+                img.style.borderRadius = "50%";
+                
+                const oldImg = avatarContainer.querySelector("img");
+                if (oldImg) oldImg.remove();
+                avatarContainer.appendChild(img);
+                avatarContainer.style.background = "none";
+            } else {
+                avatarSpan.style.display = "inline";
+                const initial = (user.first_name || user.username || 'U')[0].toUpperCase();
+                avatarSpan.innerText = initial;
+                const oldImg = avatarContainer.querySelector("img");
+                if (oldImg) oldImg.remove();
+            }
+
+            let fullName = "";
+            if (user.first_name) fullName += user.first_name;
+            if (user.last_name) fullName += (fullName ? " " : "") + user.last_name;
+            if (!fullName) fullName = user.username ? `@${user.username}` : "Пользователь";
+            else if (user.username) fullName += ` (@${user.username})`;
+
+            document.getElementById("profile-username").innerText = fullName;
             document.getElementById("profile-id").innerText = `ID: ${user.id}`;
 
             try {
@@ -1649,6 +1787,14 @@
                         botUsername = status.bot_username;
                     }
                     
+                    // Update starosta info
+                    isUserStarosta = status.is_starosta || false;
+                    starostaGroup = status.starosta_group || "";
+                    starostaName = status.starosta_name || "";
+                    
+                    document.getElementById("starosta-group-badge").innerText = starostaGroup || "-";
+                    document.querySelectorAll(".st-group-name").forEach(el => el.innerText = starostaGroup || "-");
+                    
                     // VPN values
                     const vpnValEl = document.getElementById("vpn-status-val");
                     const toggleSwitch = document.getElementById("vpn-toggle-switch");
@@ -1701,6 +1847,21 @@
                         
                         if (selectedGroup) {
                             select.value = selectedGroup;
+                        }
+                    }
+                    
+                    const authSelect = document.getElementById("starosta-auth-group");
+                    if (authSelect) {
+                        authSelect.innerHTML = '<option value="">-- Выберите вашу группу --</option>';
+                        groups.forEach(g => {
+                            const opt = document.createElement("option");
+                            opt.value = g;
+                            opt.innerText = g;
+                            authSelect.appendChild(opt);
+                        });
+                        
+                        if (selectedGroup) {
+                            authSelect.value = selectedGroup;
                         }
                     }
                 }
@@ -2432,6 +2593,213 @@
             document.body.appendChild(element);
             element.click();
             document.body.removeChild(element);
+        }
+
+        // --- Helper for Telegram Popups ---
+        function showMessage(title, message) {
+            if (tg.showPopup) {
+                tg.showPopup({ title: title, message: message, buttons: [{ type: "ok" }] });
+            } else {
+                alert(title + ": " + message);
+            }
+        }
+
+        // --- Starosta Dashboard Functions ---
+        function handleStarostaAccess() {
+            if (isUserStarosta) {
+                openStarostaModal();
+            } else {
+                // Prefill name and group
+                const defaultName = (user.first_name || "") + (user.last_name ? " " + user.last_name : "");
+                document.getElementById("starosta-auth-name").value = defaultName || starostaName;
+                if (selectedGroup) {
+                    document.getElementById("starosta-auth-group").value = selectedGroup;
+                }
+                openStarostaAuthModal();
+            }
+        }
+
+        function openStarostaAuthModal() {
+            document.getElementById("starosta-auth-modal").classList.add("active");
+        }
+
+        function closeStarostaAuthModal() {
+            document.getElementById("starosta-auth-modal").classList.remove("active");
+            document.getElementById("starosta-auth-pwd").value = "";
+        }
+
+        async function submitStarostaAuth() {
+            const password = document.getElementById("starosta-auth-pwd").value.trim();
+            const name = document.getElementById("starosta-auth-name").value.trim();
+            const group = document.getElementById("starosta-auth-group").value;
+
+            if (!password) {
+                showMessage("Ошибка", "Пожалуйста, введите пароль");
+                return;
+            }
+            if (!name) {
+                showMessage("Ошибка", "Пожалуйста, введите имя и фамилию");
+                return;
+            }
+            if (!group) {
+                showMessage("Ошибка", "Пожалуйста, выберите группу");
+                return;
+            }
+
+            try {
+                const res = await fetch("/api/starosta/setup", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        uid: user.id,
+                        init_data: initData,
+                        password: password,
+                        name: name,
+                        group: group
+                    })
+                });
+
+                if (res.ok) {
+                    showMessage("Успешно", "Панель старосты активирована!");
+                    isUserStarosta = true;
+                    starostaGroup = group;
+                    starostaName = name;
+                    
+                    // Update UI elements
+                    document.getElementById("starosta-group-badge").innerText = group;
+                    document.querySelectorAll(".st-group-name").forEach(el => el.innerText = group);
+                    
+                    closeStarostaAuthModal();
+                    openStarostaModal();
+                } else {
+                    const data = await res.json();
+                    showMessage("Ошибка", data.detail || "Неверный пароль");
+                }
+            } catch (err) {
+                console.error("Auth failed:", err);
+                showMessage("Ошибка", "Сбой подключения: " + err.message);
+            }
+        }
+
+        function openStarostaModal() {
+            document.getElementById("starosta-group-badge").innerText = starostaGroup;
+            document.querySelectorAll(".st-group-name").forEach(el => el.innerText = starostaGroup);
+            document.getElementById("starosta-modal").classList.add("active");
+        }
+
+        function closeStarostaModal() {
+            document.getElementById("starosta-modal").classList.remove("active");
+        }
+
+        async function addStarostaEvent() {
+            const title = document.getElementById("event-title").value.trim();
+            const description = document.getElementById("event-description").value.trim();
+            const eventDate = document.getElementById("event-date").value;
+            const link = document.getElementById("event-link").value.trim();
+
+            if (!title) {
+                showMessage("Внимание", "Укажите название мероприятия");
+                return;
+            }
+            if (!description) {
+                showMessage("Внимание", "Заполните описание мероприятия");
+                return;
+            }
+
+            try {
+                const res = await fetch("/api/starosta/add_event", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        uid: user.id,
+                        init_data: initData,
+                        title: title,
+                        description: description,
+                        event_date: eventDate || null,
+                        link: link || null
+                    })
+                });
+
+                if (res.ok) {
+                    showMessage("Успех", "Мероприятие опубликовано в Афише!");
+                    // Clear inputs
+                    document.getElementById("event-title").value = "";
+                    document.getElementById("event-description").value = "";
+                    document.getElementById("event-date").value = "";
+                    document.getElementById("event-link").value = "";
+                } else {
+                    const data = await res.json();
+                    showMessage("Ошибка", data.detail || "Не удалось опубликовать мероприятие");
+                }
+            } catch (err) {
+                console.error("Add event failed:", err);
+                showMessage("Ошибка", "Сбой сети: " + err.message);
+            }
+        }
+
+        async function sendStarostaBroadcast() {
+            const text = document.getElementById("broadcast-text").value.trim();
+            const target = document.getElementById("broadcast-target").value;
+
+            if (!text) {
+                showMessage("Внимание", "Введите текст рассылки");
+                return;
+            }
+
+            try {
+                const res = await fetch("/api/starosta/broadcast", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        uid: user.id,
+                        init_data: initData,
+                        text: text,
+                        target: target
+                    })
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    showMessage("Успех", `Рассылка запущена! Сообщение доставляется в фоновом режиме. Всего получателей: ${data.total}`);
+                    document.getElementById("broadcast-text").value = "";
+                } else {
+                    const data = await res.json();
+                    showMessage("Ошибка", data.detail || "Не удалось отправить рассылку");
+                }
+            } catch (err) {
+                console.error("Broadcast failed:", err);
+                showMessage("Ошибка", "Сбой сети: " + err.message);
+            }
+        }
+
+        async function logoutStarosta() {
+            try {
+                const res = await fetch("/api/starosta/logout", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        uid: user.id,
+                        init_data: initData
+                    })
+                });
+
+                if (res.ok) {
+                    showMessage("Успешно", "Вы вышли из режима старосты");
+                    isUserStarosta = false;
+                    starostaGroup = "";
+                    starostaName = "";
+                    
+                    // Clear UI
+                    document.getElementById("starosta-group-badge").innerText = "-";
+                    document.querySelectorAll(".st-group-name").forEach(el => el.innerText = "-");
+                    
+                    closeStarostaModal();
+                } else {
+                    showMessage("Ошибка", "Не удалось выйти из режима старосты");
+                }
+            } catch (err) {
+                console.error("Logout failed:", err);
+            }
         }
     </script>
 </body>
