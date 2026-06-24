@@ -101,6 +101,7 @@ async def get_ai_response(prompt: str, api_key: str, model_name: str, history: l
         response = await client.chat.completions.create(
             model=router_model,
             messages=messages,
+            max_tokens=4096,
             extra_headers={
                 "HTTP-Referer": "https://tu-ugmk-bot.ru",
                 "X-Title": "TU UGMK Bot"
