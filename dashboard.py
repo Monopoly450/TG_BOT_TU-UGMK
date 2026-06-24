@@ -4,6 +4,7 @@ import base64
 import logging
 import asyncio
 import aiohttp
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi import FastAPI, Request, Form, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -36,6 +37,7 @@ async def get_bot_username() -> str:
     return "TU_UGMK_bot"
 
 app = FastAPI(title="TU UGMK Bot Admin Dashboard")
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 templates = Jinja2Templates(directory="templates")
 
 ADMIN_DASHBOARD_PASS = os.getenv("ADMIN_DASHBOARD_PASS", "admin_ugmk_pass")
@@ -432,15 +434,15 @@ async def api_verify(request: Request):
     
     # Auto-create key silently if they don't have one
     if not has_key:
-        try:
-            ai_key = await create_openrouter_key(limit_usd=0.00, expires_days=30)
-            expires_at = datetime.now() + timedelta(days=30)
-            await db_manager.set_user_ai_key(uid, ai_key, expires_at)
-            has_key = True
-            user_row = await get_active_user_row(uid)
-            logger.info(f"Automatically created free-tier key for user {uid} via verify")
-        except Exception as e:
-            logger.error(f"Failed to auto-create key for user {uid} via verify: {e}")
+        async def create_key_task(telegram_id: int):
+            try:
+                ai_key = await create_openrouter_key(limit_usd=0.00, expires_days=30)
+                expires_at = datetime.now() + timedelta(days=30)
+                await db_manager.set_user_ai_key(telegram_id, ai_key, expires_at)
+                logger.info(f"Automatically created free-tier key for user {telegram_id} in background via verify")
+            except Exception as e:
+                logger.error(f"Failed to auto-create key for user {telegram_id} in background via verify: {e}")
+        asyncio.create_task(create_key_task(uid))
             
     # Calculate can_chat for the selected model
     ai_balance = user_row['ai_balance'] or 0
@@ -516,15 +518,15 @@ async def api_user_status(uid: int, init_data: str):
     
     # Auto-create key silently if they don't have one
     if not has_key:
-        try:
-            ai_key = await create_openrouter_key(limit_usd=0.00, expires_days=30)
-            expires_at = datetime.now() + timedelta(days=30)
-            await db_manager.set_user_ai_key(uid, ai_key, expires_at)
-            has_key = True
-            user_row = await get_active_user_row(uid)
-            logger.info(f"Automatically created free-tier key for user {uid} via API status")
-        except Exception as e:
-            logger.error(f"Failed to auto-create key for user {uid} via API status: {e}")
+        async def create_key_task(telegram_id: int):
+            try:
+                ai_key = await create_openrouter_key(limit_usd=0.00, expires_days=30)
+                expires_at = datetime.now() + timedelta(days=30)
+                await db_manager.set_user_ai_key(telegram_id, ai_key, expires_at)
+                logger.info(f"Automatically created free-tier key for user {telegram_id} in background via API status")
+            except Exception as e:
+                logger.error(f"Failed to auto-create key for user {telegram_id} in background via API status: {e}")
+        asyncio.create_task(create_key_task(uid))
             
     # Calculate can_chat for the selected model
     ai_balance = user_row['ai_balance'] or 0

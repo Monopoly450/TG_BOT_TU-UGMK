@@ -13,12 +13,12 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     
     <!-- Markdown & Highlight.js -->
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" defer></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" defer></script>
     
     <!-- QR Code Generator -->
-    <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js" defer></script>
 
     <style>
         :root {
@@ -1874,6 +1874,28 @@
         let searchTimeout = null;
         let botUsername = "TU_UGMK_bot";
 
+        // Start verification request as early as possible (non-blocking)
+        const earlyVerifyPromise = (async () => {
+            try {
+                let checkInitData = window.Telegram.WebApp.initData || "";
+                let checkUser = window.Telegram.WebApp.initDataUnsafe?.user || { id: 7243986920, username: "test_user" };
+                if (!checkInitData) {
+                    checkInitData = `test_user_id=${checkUser.id}&username=${checkUser.username}`;
+                }
+                const response = await fetch("/api/verify", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ init_data: checkInitData })
+                });
+                if (response.ok) {
+                    return await response.json();
+                }
+            } catch (err) {
+                console.error("Early verify request failed:", err);
+            }
+            return null;
+        })();
+
         function applyTelegramTheme() {
             if (tg.themeParams) {
                 const isDark = tg.colorScheme === 'dark' || (tg.themeParams.bg_color && isColorDark(tg.themeParams.bg_color));
@@ -1971,20 +1993,24 @@
             document.getElementById("profile-id").innerText = `ID: ${user.id}`;
 
             try {
-                // If local testing outside Telegram, mock initData
-                if (!initData) {
-                    initData = `test_user_id=${user.id}&username=${user.username}`;
+                // Await early verify request, or retry if it failed
+                let verifyData = await earlyVerifyPromise;
+                if (!verifyData) {
+                    console.log("Retrying verification request...");
+                    if (!initData) {
+                        initData = `test_user_id=${user.id}&username=${user.username}`;
+                    }
+                    const response = await fetch("/api/verify", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ init_data: initData })
+                    });
+                    if (response.ok) {
+                        verifyData = await response.json();
+                    }
                 }
 
-                // Verify user via FastAPI (which also pre-fetches status & schedule to avoid sequential requests)
-                const response = await fetch("/api/verify", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ init_data: initData })
-                });
-
-                if (response.ok) {
-                    const verifyData = await response.json();
+                if (verifyData && verifyData.status === "ok") {
                     
                     // Populates UI instantly with preloaded status data from verify endpoint
                     await refreshUserData(verifyData.user_status);
