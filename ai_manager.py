@@ -17,7 +17,7 @@ MODEL_MAP = {
     # Premium
     "kimi-k2.7-code": "moonshotai/kimi-k2.7-code",
     "claude-opus-4.8": "anthropic/claude-opus-4.8",
-    "gpt-4": "openai/gpt-4",
+    "gpt-4": "openai/gpt-4o",
     "gpt-5.5": "openai/gpt-5.5",
     
     # Standard
