@@ -1489,9 +1489,11 @@
                 });
 
                 if (response.ok) {
+                    // Load user data first (blocks UI because we need selectedGroup to render schedule)
                     await refreshUserData();
-                    await loadGroups();
-                    await loadChatHistory();
+                    
+                    // Hide the loading screen immediately so the UI is visible and interactive
+                    document.getElementById("init-screen").style.display = "none";
                     
                     if (selectedGroup) {
                         currentTargetType = "group";
@@ -1512,8 +1514,9 @@
                         }
                     }
                     
-                    // Hide init screen
-                    document.getElementById("init-screen").style.display = "none";
+                    // Load groups and chat history asynchronously in the background
+                    loadGroups().catch(err => console.error("Background groups load failed:", err));
+                    loadChatHistory().catch(err => console.error("Background chat history load failed:", err));
                 } else {
                     document.getElementById("init-screen").innerHTML = `
                         <p style="color: var(--danger-color); font-weight: bold; font-size: 16px;">Ошибка авторизации</p>
