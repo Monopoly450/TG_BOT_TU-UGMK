@@ -123,18 +123,34 @@
         /* Main Content Container */
         main {
             flex: 1;
-            overflow-y: auto;
+            overflow: hidden;
             padding: 16px;
             padding-bottom: 90px; /* Space for navbar */
+            display: flex;
+            flex-direction: column;
+            position: relative;
         }
 
         .tab-content {
             display: none;
             animation: fadeIn 0.3s ease;
+            height: 100%;
+            overflow-y: auto;
         }
 
         .tab-content.active {
             display: block;
+        }
+
+        #tab-chat.tab-content {
+            display: none;
+            flex-direction: column;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        #tab-chat.tab-content.active {
+            display: flex;
         }
 
         @keyframes fadeIn {
@@ -350,7 +366,8 @@
         .chat-container {
             display: flex;
             flex-direction: column;
-            height: calc(100vh - 170px);
+            flex: 1;
+            overflow: hidden;
             margin-bottom: 10px;
         }
 
@@ -805,7 +822,7 @@
                         </optgroup>
                     </select>
                     <button class="btn btn-secondary" style="width: auto; padding: 8px 10px; border-radius: 10px; font-size: 13px; white-space: nowrap;" onclick="openHistoryModal()">📜 История</button>
-                    <button class="btn btn-secondary" style="width: auto; padding: 8px 10px; border-radius: 10px; font-size: 13px; white-space: nowrap;" onclick="clearChatContext()">🧹 Очистить</button>
+                    <button class="btn btn-secondary" style="width: auto; padding: 8px 10px; border-radius: 10px; font-size: 13px; white-space: nowrap;" onclick="clearChatContext()">🧹 Новый чат</button>
                 </div>
             </div>
 
@@ -956,6 +973,9 @@
             <div class="modal-header">
                 <h3>📜 История запросов к ИИ</h3>
                 <button class="modal-close" onclick="closeHistoryModal()">&times;</button>
+            </div>
+            <div style="padding: 12px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: center;">
+                <button class="btn btn-primary" style="width: auto; padding: 10px 16px; font-size: 14px; border-radius: 12px; font-weight: 500;" onclick="startNewChatFromHistory()">🧹 Начать новый чат</button>
             </div>
             <div class="modal-body" id="history-list">
                 <div class="spinner" style="margin: 20px auto;"></div>
@@ -1284,6 +1304,11 @@
         function closeHistoryModal() {
             const modal = document.getElementById("history-modal");
             modal.classList.remove("active");
+        }
+
+        async function startNewChatFromHistory() {
+            await clearChatContext();
+            closeHistoryModal();
         }
 
         async function loadRequestHistory() {
