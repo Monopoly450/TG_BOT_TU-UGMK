@@ -19,7 +19,8 @@ from aiogram.client.session.middlewares.base import BaseRequestMiddleware # type
 from aiogram.types import ( # type: ignore
     Message, CallbackQuery, InlineKeyboardButton,    
     InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton,
-    LabeledPrice, PreCheckoutQuery, SuccessfulPayment, BufferedInputFile
+    LabeledPrice, PreCheckoutQuery, SuccessfulPayment, BufferedInputFile,
+    WebAppInfo
 )
 from aiogram.filters import CommandStart, Command # type: ignore
 from aiogram.fsm.storage.memory import MemoryStorage # type: ignore
@@ -38,6 +39,7 @@ import qrcode
 # ═══════════════════ НАСТРОЙКИ ═══════════════════
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 PROXY_URL = os.getenv("PROXY_URL")
+WEBAPP_URL = os.getenv("WEBAPP_URL", "https://your-bot-domain.ru")
 
 if not BOT_TOKEN:
     raise ValueError("⚠️ BOT_TOKEN не найден! Убедитесь, что он указан в .env файле или переменных окружения.")
@@ -338,6 +340,7 @@ def get_main_menu(val=None):
         ]
     else:
         kb = [
+            [KeyboardButton(text="🚀 Открыть Mini App", web_app=WebAppInfo(url=f"{WEBAPP_URL}/webapp"))],
             [KeyboardButton(text="📅 Мое расписание"), KeyboardButton(text="🔔 Моя подписка")],
             [KeyboardButton(text="🤖 ИИ-Ассистент"), KeyboardButton(text="🏫 Экосистема")],
             [KeyboardButton(text="⭐ Избранное"), KeyboardButton(text="💻 Толк")],
@@ -2321,6 +2324,7 @@ async def show_ai_menu_directly(message: Message | CallbackQuery, user_id: int =
     has_real_key = has_key and not is_programmatic
     can_chat = has_real_key or (ai_balance > 0) or is_free
     kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🚀 Чат в Mini App", web_app=WebAppInfo(url=f"{WEBAPP_URL}/webapp?tab=chat"))],
         [InlineKeyboardButton(text="💬 Начать диалог", callback_data="ai:chat") if can_chat else
          InlineKeyboardButton(text="💬 Начать диалог (нужен ключ/баланс)", callback_data="ai:need_key")],
         [InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model")],
@@ -2352,6 +2356,7 @@ async def cb_ai_back_to_menu(c: CallbackQuery):
     has_real_key = has_key and not is_programmatic
     can_chat = has_real_key or (ai_balance > 0) or is_free
     kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🚀 Чат в Mini App", web_app=WebAppInfo(url=f"{WEBAPP_URL}/webapp?tab=chat"))],
         [InlineKeyboardButton(text="💬 Начать диалог", callback_data="ai:chat") if can_chat else
          InlineKeyboardButton(text="💬 Начать диалог (нужен ключ/баланс)", callback_data="ai:need_key")],
         [InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model")],
