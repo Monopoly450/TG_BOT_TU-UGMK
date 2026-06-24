@@ -33,6 +33,20 @@
             --brand-gold: #fbb601;
             --danger-color: #ef4444;
             --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            --nav-bg: rgba(255, 255, 255, 0.9);
+            --chat-msg-ai-bg: #f1f3f5;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg-color: #181818;
+                --container-bg: #242424;
+                --border-color: #2e2e2e;
+                --text-color: #e5e7eb;
+                --text-muted: #9ca3af;
+                --nav-bg: rgba(30, 30, 30, 0.9);
+                --chat-msg-ai-bg: #2a2a2a;
+            }
         }
 
         * {
@@ -74,7 +88,7 @@
             justify-content: space-between;
             align-items: center;
             border-bottom: 1px solid var(--border-color);
-            background: #ffffff;
+            background: var(--container-bg);
             z-index: 10;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
         }
@@ -151,7 +165,7 @@
             display: flex;
             justify-content: space-around;
             align-items: center;
-            background: rgba(255, 255, 255, 0.9);
+            background: var(--nav-bg);
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
             border-top: 1px solid var(--border-color);
@@ -236,20 +250,20 @@
         }
 
         .btn-secondary {
-            background: #ffffff;
+            background: var(--container-bg);
             color: var(--text-color);
             border: 1px solid var(--border-color);
         }
 
         .btn-secondary:active {
-            background: #f1f3f5;
+            background: rgba(0, 0, 0, 0.05);
         }
 
         .select-input {
             width: 100%;
             padding: 12px;
             border-radius: 12px;
-            background: #ffffff;
+            background: var(--container-bg);
             border: 1px solid var(--border-color);
             color: var(--text-color);
             font-size: 14px;
@@ -261,7 +275,7 @@
         }
 
         .select-input option {
-            background-color: #ffffff;
+            background-color: var(--container-bg);
             color: var(--text-color);
         }
 
@@ -385,7 +399,7 @@
 
         .chat-msg.ai {
             align-self: flex-start;
-            background: #f1f3f5;
+            background: var(--chat-msg-ai-bg, #f1f3f5);
             border: 1px solid var(--border-color);
             color: var(--text-color);
             border-bottom-left-radius: 4px;
@@ -421,7 +435,7 @@
 
         .chat-input {
             flex: 1;
-            background: #ffffff;
+            background: var(--container-bg);
             border: 1px solid var(--border-color);
             border-radius: 12px;
             padding: 12px;
@@ -1456,14 +1470,63 @@
         let searchTimeout = null;
         let botUsername = "TU_UGMK_bot";
 
-        // Apply Theme Parameters from Telegram
-        if (tg.themeParams && tg.themeParams.bg_color) {
-            document.body.style.backgroundColor = tg.themeParams.bg_color;
-            document.documentElement.style.setProperty('--bg-color', tg.themeParams.bg_color);
-            document.documentElement.style.setProperty('--text-color', tg.themeParams.text_color);
-            document.documentElement.style.setProperty('--primary-color', tg.themeParams.button_color);
-            tg.setHeaderColor(tg.themeParams.bg_color);
+        function applyTelegramTheme() {
+            if (tg.themeParams) {
+                const isDark = tg.colorScheme === 'dark' || (tg.themeParams.bg_color && isColorDark(tg.themeParams.bg_color));
+                
+                if (tg.themeParams.bg_color) {
+                    document.body.style.backgroundColor = tg.themeParams.bg_color;
+                    document.documentElement.style.setProperty('--bg-color', tg.themeParams.bg_color);
+                } else {
+                    document.documentElement.style.setProperty('--bg-color', isDark ? '#181818' : '#f3f4f6');
+                }
+                
+                if (tg.themeParams.text_color) {
+                    document.documentElement.style.setProperty('--text-color', tg.themeParams.text_color);
+                } else {
+                    document.documentElement.style.setProperty('--text-color', isDark ? '#e5e7eb' : '#1f2937');
+                }
+                
+                if (tg.themeParams.button_color) {
+                    document.documentElement.style.setProperty('--primary-color', tg.themeParams.button_color);
+                }
+                
+                if (isDark) {
+                    document.documentElement.style.setProperty('--container-bg', tg.themeParams.secondary_bg_color || '#242424');
+                    document.documentElement.style.setProperty('--border-color', '#333333');
+                    document.documentElement.style.setProperty('--text-muted', '#9ca3af');
+                    document.documentElement.style.setProperty('--nav-bg', 'rgba(30, 30, 30, 0.9)');
+                    document.documentElement.style.setProperty('--chat-msg-ai-bg', '#2a2a2a');
+                } else {
+                    document.documentElement.style.setProperty('--container-bg', tg.themeParams.secondary_bg_color || '#ffffff');
+                    document.documentElement.style.setProperty('--border-color', '#e5e7eb');
+                    document.documentElement.style.setProperty('--text-muted', '#4b5563');
+                    document.documentElement.style.setProperty('--nav-bg', 'rgba(255, 255, 255, 0.9)');
+                    document.documentElement.style.setProperty('--chat-msg-ai-bg', '#f1f3f5');
+                }
+                
+                if (tg.themeParams.bg_color) {
+                    tg.setHeaderColor(tg.themeParams.bg_color);
+                }
+            }
         }
+        
+        function isColorDark(hexColor) {
+            if (!hexColor || hexColor[0] !== '#') return false;
+            let c = hexColor.substring(1);
+            if (c.length === 3) {
+                c = c[0] + c[0] + c[1] + c[1] + c[2] + c[2];
+            }
+            const rgb = parseInt(c, 16);
+            const r = (rgb >> 16) & 0xff;
+            const g = (rgb >> 8) & 0xff;
+            const b = (rgb >> 0) & 0xff;
+            const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+            return luma < 128;
+        }
+
+        // Apply theme on start
+        applyTelegramTheme();
 
         // Verify Launch on startup
         document.addEventListener("DOMContentLoaded", async () => {

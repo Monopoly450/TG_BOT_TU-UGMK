@@ -340,7 +340,6 @@ def get_main_menu(val=None):
         ]
     else:
         kb = [
-            [KeyboardButton(text="🚀 Открыть Mini App", web_app=WebAppInfo(url=f"{WEBAPP_URL}/webapp"))],
             [KeyboardButton(text="📅 Мое расписание"), KeyboardButton(text="🔔 Моя подписка")],
             [KeyboardButton(text="🤖 ИИ-Ассистент"), KeyboardButton(text="🏫 Экосистема")],
             [KeyboardButton(text="⭐ Избранное"), KeyboardButton(text="💻 Толк")],
