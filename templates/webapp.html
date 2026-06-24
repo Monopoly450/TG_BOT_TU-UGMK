@@ -1307,10 +1307,12 @@
                     <span class="vpn-status-label">Статус подключения</span>
                     <span class="vpn-status-value inactive" id="vpn-status-val">Отключено</span>
                 </div>
-                <label class="switch">
-                    <input type="checkbox" id="vpn-toggle-switch" onchange="toggleVpn()">
-                    <span class="slider"></span>
-                </label>
+                <!-- Shield Icon instead of the toggle switch -->
+                <div id="vpn-status-icon" style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 50%; background: rgba(239, 68, 68, 0.1); color: var(--danger-color); transition: all 0.3s ease;">
+                    <svg style="width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2;" viewBox="0 0 24 24">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                    </svg>
+                </div>
             </div>
 
             <div id="vpn-active-details" style="display: none;">
@@ -2189,14 +2191,18 @@
                     
                     // VPN values
                     const vpnValEl = document.getElementById("vpn-status-val");
-                    const toggleSwitch = document.getElementById("vpn-toggle-switch");
+                    const vpnIconEl = document.getElementById("vpn-status-icon");
                     const activeDetails = document.getElementById("vpn-active-details");
                     const inactiveDetails = document.getElementById("vpn-inactive-details");
                     
                     if (status.vpn_enabled) {
                         vpnValEl.innerText = "Активно";
                         vpnValEl.className = "vpn-status-value active";
-                        toggleSwitch.checked = true;
+                        if (vpnIconEl) {
+                            vpnIconEl.style.background = "rgba(16, 185, 129, 0.1)";
+                            vpnIconEl.style.color = "var(--accent-color)";
+                            vpnIconEl.style.boxShadow = "0 0 15px rgba(16, 185, 129, 0.2)";
+                        }
                         activeDetails.style.display = "block";
                         inactiveDetails.style.display = "none";
                         document.getElementById("profile-vpn-expiry").innerText = status.vpn_expires_at || "—";
@@ -2208,7 +2214,11 @@
                     } else {
                         vpnValEl.innerText = "Отключено";
                         vpnValEl.className = "vpn-status-value inactive";
-                        toggleSwitch.checked = false;
+                        if (vpnIconEl) {
+                            vpnIconEl.style.background = "rgba(239, 68, 68, 0.1)";
+                            vpnIconEl.style.color = "var(--danger-color)";
+                            vpnIconEl.style.boxShadow = "none";
+                        }
                         activeDetails.style.display = "none";
                         inactiveDetails.style.display = "block";
                         document.getElementById("profile-vpn-expiry").innerText = status.vpn_expires_at ? `${status.vpn_expires_at} (Истекла)` : "—";
@@ -2659,78 +2669,9 @@
                 sendChatMessage();
             }
         }
-        // Toggle VPN
+        // Toggle VPN (Deprecated - VPN toggles automatically based on subscription)
         async function toggleVpn() {
-            const toggleSwitch = document.getElementById("vpn-toggle-switch");
-            const vpnValEl = document.getElementById("vpn-status-val");
-            const activeDetails = document.getElementById("vpn-active-details");
-            const inactiveDetails = document.getElementById("vpn-inactive-details");
-            const qrEl = document.getElementById("qrcode");
-            
-            const isChecking = toggleSwitch.checked;
-            
-            if (isChecking) {
-                // 1. Check if user is subscribed to VPN
-                if (!currentUserStatus || !currentUserStatus.vpn_expires_at) {
-                    alert("Ошибка: У вас нет активной подписки на VPN.");
-                    toggleSwitch.checked = false;
-                    return;
-                }
-                
-                // Parse date %d.%m.%Y and check if expired
-                const parts = currentUserStatus.vpn_expires_at.split('.');
-                const expiryDate = new Date(parts[2], parts[1] - 1, parts[0], 23, 59, 59);
-                if (expiryDate < new Date()) {
-                    alert("Ошибка: Срок действия подписки на VPN истек.");
-                    toggleSwitch.checked = false;
-                    return;
-                }
-                
-                // 2. Instantaneous UI update for ON state
-                vpnValEl.innerText = "Активно";
-                vpnValEl.className = "vpn-status-value active";
-                activeDetails.style.display = "block";
-                inactiveDetails.style.display = "none";
-                document.getElementById("profile-vpn-expiry").innerText = currentUserStatus.vpn_expires_at;
-                
-                if (currentUserStatus.vpn_key) {
-                    renderQrCode(currentUserStatus.vpn_key);
-                } else {
-                    qrEl.innerHTML = `<div class="spinner" style="margin: 20px auto;"></div><p style="font-size: 12px; color: var(--text-muted); text-align: center;">Создание новой конфигурации на сервере...</p>`;
-                }
-            } else {
-                // Instantaneous UI update for OFF state
-                vpnValEl.innerText = "Отключено";
-                vpnValEl.className = "vpn-status-value inactive";
-                activeDetails.style.display = "none";
-                inactiveDetails.style.display = "block";
-                document.getElementById("profile-vpn-expiry").innerText = currentUserStatus && currentUserStatus.vpn_expires_at ? `${currentUserStatus.vpn_expires_at} (Истекла)` : "—";
-            }
-            
-            try {
-                const res = await fetch("/api/vpn_toggle", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ uid: user.id, init_data: initData })
-                });
-                
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data.user_status) {
-                        await refreshUserData(data.user_status);
-                    } else {
-                        await refreshUserData();
-                    }
-                } else {
-                    const errData = await res.json().catch(() => ({}));
-                    alert("Ошибка изменения статуса VPN: " + (errData.detail || "Неизвестная ошибка"));
-                    await refreshUserData();
-                }
-            } catch (err) {
-                console.error("Toggle VPN failed:", err);
-                alert(`Ошибка сети: ${err.message}`);
-                await refreshUserData();
-            }
+            console.log("toggleVpn is no longer active as subscription is managed automatically");
         }
 
         // Render QR Code

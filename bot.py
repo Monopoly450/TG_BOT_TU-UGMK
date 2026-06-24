@@ -954,6 +954,8 @@ async def show_subscription_time_menu(m: Message | CallbackQuery, user_id: str =
     group_name = user_row['group_name'] if user_row and user_row['group_name'] else "❌ Не выбрана"
     vpn_enabled = user_row['vpn_enabled'] if user_row else False
     vpn_expires_at = user_row.get('vpn_expires_at') if user_row else None
+    if vpn_enabled and vpn_expires_at and vpn_expires_at < datetime.now():
+        vpn_enabled = False
     ai_model = user_row['ai_model'] if user_row else 'gpt-4o-mini'
     has_key = bool(user_row['custom_ai_key']) if user_row else False
     ai_balance = user_row['ai_balance'] if user_row else 0
@@ -2562,7 +2564,10 @@ async def vpn_menu(m: Message, state: FSMContext):
         user_row = await db_manager.get_user(uid)
         
     vpn_enabled = user_row['vpn_enabled'] if user_row else False
-    
+    vpn_expires_at = user_row.get('vpn_expires_at') if user_row else None
+    if vpn_enabled and vpn_expires_at and vpn_expires_at < datetime.now():
+        vpn_enabled = False
+        
     if vpn_enabled:
         text = (
             "🔌 <b>Ваша подписка на VPN активна!</b>\n\n"
@@ -2574,8 +2579,7 @@ async def vpn_menu(m: Message, state: FSMContext):
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📁 Скачать файл .conf", callback_data="vpn:get_file"),
-             InlineKeyboardButton(text="🖼 Показать QR-код", callback_data="vpn:get_qr")],
-            [InlineKeyboardButton(text="❌ Отключить VPN", callback_data="vpn:disable")]
+             InlineKeyboardButton(text="🖼 Показать QR-код", callback_data="vpn:get_qr")]
         ])
     else:
         text = (
@@ -2718,7 +2722,10 @@ async def show_vpn_menu_directly(message: Message, user_id: int = None):
     uid = user_id or message.chat.id
     user_row = await db_manager.get_user(uid)
     vpn_enabled = user_row['vpn_enabled'] if user_row else False
-    
+    vpn_expires_at = user_row.get('vpn_expires_at') if user_row else None
+    if vpn_enabled and vpn_expires_at and vpn_expires_at < datetime.now():
+        vpn_enabled = False
+        
     if vpn_enabled:
         text = (
             "🔌 <b>Ваша подписка на VPN активна!</b>\n\n"
@@ -2731,7 +2738,6 @@ async def show_vpn_menu_directly(message: Message, user_id: int = None):
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📁 Скачать файл .conf", callback_data="vpn:get_file"),
              InlineKeyboardButton(text="🖼 Показать QR-код", callback_data="vpn:get_qr")],
-            [InlineKeyboardButton(text="❌ Отключить VPN", callback_data="vpn:disable")],
             [InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")]
         ])
     else:

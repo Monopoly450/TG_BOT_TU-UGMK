@@ -364,12 +364,25 @@ async def update_vpn_expiry(request: Request):
             else:
                 new_expiry = now + timedelta(days=days)
                 
+            # If the user doesn't have a key, generate one
+            config_text = user_row.get('vpn_key')
+            if not config_text:
+                try:
+                    config_text = await vpn_manager.generate_user_vpn_config(user_row['id'])
+                except Exception as ge:
+                    logger.error(f"Failed to generate config on update vpn expiry: {ge}")
+                    config_text = None
+                    
             async with db_manager.pool.acquire() as conn:
-                await conn.execute("UPDATE users SET vpn_expires_at = $2 WHERE telegram_id = $1", telegram_id, new_expiry)
+                if config_text:
+                    await conn.execute("UPDATE users SET vpn_expires_at = $2, vpn_enabled = TRUE, vpn_key = $3 WHERE telegram_id = $1", telegram_id, new_expiry, config_text)
+                else:
+                    await conn.execute("UPDATE users SET vpn_expires_at = $2, vpn_enabled = TRUE WHERE telegram_id = $1", telegram_id, new_expiry)
                 
             return {
                 "status": "ok",
-                "vpn_expires_at": new_expiry.strftime("%d.%m.%Y %H:%M:%S")
+                "vpn_expires_at": new_expiry.strftime("%d.%m.%Y %H:%M:%S"),
+                "vpn_enabled": True
             }
     except Exception as e:
         logger.error(f"Error updating VPN expiry: {e}")
@@ -653,13 +666,17 @@ async def _build_user_status_dict(uid: int, user_row):
     bot_name = await get_bot_username()
     is_starosta = bool(await dao.hget("starosta_group_saved", str(uid)))
     starosta_name = await dao.hget("starosta_name", str(uid)) or "Староста"
-    
+    vpn_expires_at = user_row['vpn_expires_at']
+    vpn_enabled = user_row['vpn_enabled'] or False
+    if vpn_expires_at and vpn_expires_at < datetime.now():
+        vpn_enabled = False
+        
     return {
         "telegram_id": uid,
         "ai_model": model,
         "ai_balance": ai_balance,
-        "vpn_enabled": user_row['vpn_enabled'] or False,
-        "vpn_expires_at": user_row['vpn_expires_at'].strftime("%d.%m.%Y") if user_row['vpn_expires_at'] else None,
+        "vpn_enabled": vpn_enabled,
+        "vpn_expires_at": vpn_expires_at.strftime("%d.%m.%Y") if vpn_expires_at else None,
         "ai_expires_at": user_row['ai_expires_at'].strftime("%d.%m.%Y") if user_row['ai_expires_at'] else None,
         "group_name": group,
         "has_custom_key": has_key,
