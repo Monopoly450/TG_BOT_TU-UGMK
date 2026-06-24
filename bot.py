@@ -1872,6 +1872,21 @@ PREMIUM_MODELS = [
     "gpt-5.5"
 ]
 
+async def get_active_user_row(uid: int):
+    user_row = await db_manager.get_user(uid)
+    if not user_row:
+        return None
+        
+    ai_expires_at = user_row.get('ai_expires_at')
+    if ai_expires_at and ai_expires_at < datetime.now():
+        await db_manager.set_user_ai_key(uid, None)
+        async with db_manager.pool.acquire() as conn:
+            await conn.execute("UPDATE users SET ai_balance = 0 WHERE telegram_id = $1", uid)
+        user_row = await db_manager.get_user(uid)
+        logger.info(f"Cleared expired key and balance for user {uid}")
+        
+    return user_row
+
 @dp.message(F.text == "🤖 ИИ-Ассистент")
 @dp.message(Command("ai"))
 async def ai_menu(m: Message, state: FSMContext):
@@ -1879,14 +1894,26 @@ async def ai_menu(m: Message, state: FSMContext):
     msg = await m.answer("🤖 Открываю панель ИИ...", reply_markup=get_submenu_keyboard())
     await clear_chat_history(m.chat.id, exclude_ids=[msg.message_id])
     uid = m.from_user.id
-    user_row = await db_manager.get_user(uid)
+    user_row = await get_active_user_row(uid)
     
     if not user_row:
         await db_manager.register_or_update_user(uid, m.from_user.username)
-        user_row = await db_manager.get_user(uid)
+        user_row = await get_active_user_row(uid)
         
     model = user_row['ai_model'] if user_row else 'gpt-4o-mini'
     has_key = bool(user_row['custom_ai_key']) if user_row else False
+    
+    if not has_key:
+        try:
+            ai_key = await create_openrouter_key(limit_usd=0.00, expires_days=30)
+            expires_at = datetime.now() + timedelta(days=30)
+            await db_manager.set_user_ai_key(uid, ai_key, expires_at)
+            has_key = True
+            user_row = await get_active_user_row(uid)
+            logger.info(f"Automatically created free-tier key for user {uid} on menu open")
+        except Exception as e:
+            logger.error(f"Failed to auto-create free-tier key for user {uid}: {e}")
+            
     ai_balance = user_row['ai_balance'] if user_row else 0
     key_status = "✅ Установлен" if has_key else "❌ Не установлен"
     
@@ -1897,7 +1924,10 @@ async def ai_menu(m: Message, state: FSMContext):
     )
     
     is_free = model in FREE_MODELS
-    can_chat = has_key or (ai_balance > 0) or is_free
+    is_programmatic = has_key and bool(user_row.get('ai_expires_at')) if user_row else False
+    has_real_key = has_key and not is_programmatic
+    can_chat = has_real_key or (ai_balance > 0) or is_free
+    
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💬 Начать диалог", callback_data="ai:chat") if can_chat else
          InlineKeyboardButton(text="💬 Начать диалог (нужен ключ/баланс)", callback_data="ai:need_key")],
@@ -1909,14 +1939,28 @@ async def ai_menu(m: Message, state: FSMContext):
 @dp.callback_query(F.data == "ai:chat")
 async def cb_ai_chat(c: CallbackQuery, state: FSMContext):
     uid = c.from_user.id
-    user_row = await db_manager.get_user(uid)
+    user_row = await get_active_user_row(uid)
     has_key = bool(user_row['custom_ai_key']) if user_row else False
     ai_balance = user_row['ai_balance'] if user_row else 0
     model = user_row['ai_model'] if user_row else 'gpt-4o-mini'
     
     is_free = model in FREE_MODELS
     
-    if not has_key and ai_balance <= 0 and not is_free:
+    if not has_key:
+        try:
+            ai_key = await create_openrouter_key(limit_usd=0.00, expires_days=30)
+            expires_at = datetime.now() + timedelta(days=30)
+            await db_manager.set_user_ai_key(uid, ai_key, expires_at)
+            has_key = True
+            user_row = await get_active_user_row(uid)
+            logger.info(f"Automatically created free-tier key for user {uid} on chat start")
+        except Exception as e:
+            logger.error(f"Failed to auto-create free-tier key for user {uid}: {e}")
+            
+    is_programmatic = has_key and bool(user_row.get('ai_expires_at')) if user_row else False
+    has_real_key = has_key and not is_programmatic
+    
+    if not has_real_key and ai_balance <= 0 and not is_free:
         await c.answer("⚠️ У вас нет личного ключа и баланс запросов равен 0!", show_alert=True)
         return
         
@@ -1974,7 +2018,7 @@ async def ai_chat_message(m: Message, state: FSMContext):
     model_name = data.get("ai_model", "gpt-4o-mini")
     uid = m.from_user.id
     
-    user_row = await db_manager.get_user(uid)
+    user_row = await get_active_user_row(uid)
     has_custom_key = bool(api_key)
     is_programmatic_key = has_custom_key and bool(user_row.get('ai_expires_at')) if user_row else False
     is_free = model_name in FREE_MODELS
@@ -2020,7 +2064,7 @@ async def ai_chat_message(m: Message, state: FSMContext):
         await m.answer("⚠️ <b>Бот принимает только текстовые сообщения, голосовые сообщения или фотографии.</b>", parse_mode="HTML")
         return
 
-    if not has_custom_key and not is_free:
+    if (not has_custom_key or is_programmatic_key) and not is_free:
         balance = await db_manager.check_user_ai_balance(uid)
         required_balance = 4 if is_premium else 1
         if balance < required_balance:
@@ -2213,6 +2257,18 @@ async def cb_ai_set_model_save(c: CallbackQuery):
     history_key = f"ai_history:{c.from_user.id}"
     await dao.delete(history_key)
     
+    uid = c.from_user.id
+    user_row = await get_active_user_row(uid)
+    has_key = bool(user_row['custom_ai_key']) if user_row else False
+    if not has_key:
+        try:
+            ai_key = await create_openrouter_key(limit_usd=0.00, expires_days=30)
+            expires_at = datetime.now() + timedelta(days=30)
+            await db_manager.set_user_ai_key(uid, ai_key, expires_at)
+            logger.info(f"Automatically created free-tier key for user {uid} on model selection")
+        except Exception as e:
+            logger.error(f"Failed to auto-create free-tier key for user {uid}: {e}")
+            
     await c.answer(f"Модель изменена на {model}. Контекст очищен.")
     await show_ai_menu_directly(c, user_id=c.from_user.id)
 
@@ -2232,9 +2288,26 @@ async def cb_ai_close(c: CallbackQuery, state: FSMContext):
 
 async def show_ai_menu_directly(message: Message | CallbackQuery, user_id: int = None):
     uid = user_id or message.from_user.id
-    user_row = await db_manager.get_user(int(uid))
+    user_row = await get_active_user_row(int(uid))
+    if not user_row:
+        username = message.from_user.username if hasattr(message, 'from_user') else None
+        await db_manager.register_or_update_user(int(uid), username)
+        user_row = await get_active_user_row(int(uid))
+        
     model = user_row['ai_model'] if user_row else 'gpt-4o-mini'
     has_key = bool(user_row['custom_ai_key']) if user_row else False
+    
+    if not has_key:
+        try:
+            ai_key = await create_openrouter_key(limit_usd=0.00, expires_days=30)
+            expires_at = datetime.now() + timedelta(days=30)
+            await db_manager.set_user_ai_key(int(uid), ai_key, expires_at)
+            has_key = True
+            user_row = await get_active_user_row(int(uid))
+            logger.info(f"Automatically created free-tier key for user {uid} on menu display")
+        except Exception as e:
+            logger.error(f"Failed to auto-create free-tier key for user {uid}: {e}")
+            
     ai_balance = user_row['ai_balance'] if user_row else 0
     
     text = (
@@ -2244,7 +2317,9 @@ async def show_ai_menu_directly(message: Message | CallbackQuery, user_id: int =
     )
     
     is_free = model in FREE_MODELS
-    can_chat = has_key or (ai_balance > 0) or is_free
+    is_programmatic = has_key and bool(user_row.get('ai_expires_at')) if user_row else False
+    has_real_key = has_key and not is_programmatic
+    can_chat = has_real_key or (ai_balance > 0) or is_free
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💬 Начать диалог", callback_data="ai:chat") if can_chat else
          InlineKeyboardButton(text="💬 Начать диалог (нужен ключ/баланс)", callback_data="ai:need_key")],
@@ -2260,7 +2335,7 @@ async def show_ai_menu_directly(message: Message | CallbackQuery, user_id: int =
 @dp.callback_query(F.data == "ai:back_to_menu")
 async def cb_ai_back_to_menu(c: CallbackQuery):
     uid = c.from_user.id
-    user_row = await db_manager.get_user(uid)
+    user_row = await get_active_user_row(uid)
     model = user_row['ai_model'] if user_row else 'gpt-4o-mini'
     has_key = bool(user_row['custom_ai_key']) if user_row else False
     ai_balance = user_row['ai_balance'] if user_row else 0
@@ -2273,7 +2348,9 @@ async def cb_ai_back_to_menu(c: CallbackQuery):
     )
     
     is_free = model in FREE_MODELS
-    can_chat = has_key or (ai_balance > 0) or is_free
+    is_programmatic = has_key and bool(user_row.get('ai_expires_at')) if user_row else False
+    has_real_key = has_key and not is_programmatic
+    can_chat = has_real_key or (ai_balance > 0) or is_free
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💬 Начать диалог", callback_data="ai:chat") if can_chat else
          InlineKeyboardButton(text="💬 Начать диалог (нужен ключ/баланс)", callback_data="ai:need_key")],
