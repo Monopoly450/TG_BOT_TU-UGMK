@@ -2076,8 +2076,20 @@ async def ai_chat_message(m: Message, state: FSMContext):
                 else:
                     formatted_response += f"\n\n<i>(🆓 Бесплатный запрос)</i>"
             
-            history_prompt = prompt if not image_data_b64 else f"[Изображение] {prompt}"
-            history.append({"role": "user", "content": history_prompt})
+            if image_data_b64:
+                history_content = [
+                    {"type": "text", "text": prompt if prompt else "Что на изображении?"},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{image_data_b64}"
+                        }
+                    }
+                ]
+            else:
+                history_content = prompt
+                
+            history.append({"role": "user", "content": history_content})
             history.append({"role": "assistant", "content": clean_response})
             history = history[-10:]
             

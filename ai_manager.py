@@ -64,6 +64,8 @@ async def get_ai_response(prompt: str, api_key: str, model_name: str, history: l
     if "/" not in router_model:
         router_model = f"openai/{router_model}"  # default fallback
 
+    supports_vision = any(x in router_model.lower() for x in ["gpt-4o", "gpt-5.5", "claude-opus", "claude-3-opus", "claude-3.5", "vision"])
+
     try:
         # Initialize OpenAI-compatible client pointing to OpenRouter
         client = AsyncOpenAI(
@@ -74,7 +76,11 @@ async def get_ai_response(prompt: str, api_key: str, model_name: str, history: l
         # Build chat messages sequence
         messages = []
         for h in history:
-            messages.append({"role": h["role"], "content": h["content"]})
+            content = h["content"]
+            if isinstance(content, list) and not supports_vision:
+                text_parts = [item["text"] for item in content if item.get("type") == "text"]
+                content = " ".join(text_parts)
+            messages.append({"role": h["role"], "content": content})
             
         if image_data_b64:
             messages.append({
