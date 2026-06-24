@@ -293,3 +293,113 @@ VPN_SERVER_ENDPOINT=185.12.34.56:51820
 1.  Нажать кнопку **«🔑 Активировать ключ»** в меню бота **«🤖 ИИ-Ассистент»** и отправить ключ.
 2.  Использовать команду: `/activate UGMK-AI-5FA23C91`.
 3.  **Умный перехват**: Просто отправить промокод `UGMK-AI-5FA23C91` в чат бота. Бот автоматически распознает его и зачислит баланс.
+
+---
+
+## 🚀 Развертывание и настройка Telegram Mini App (Web App)
+
+В кодовую базу бота интегрирована поддержка Telegram Mini App. Приложение объединяет расписание, ИИ-ассистента, управление VPN и профиль в едином стеклянном веб-интерфейсе.
+
+Чтобы веб-приложение открывалось и работало внутри Telegram, необходим публичный URL-адрес с протоколом **HTTPS** (требование безопасности Telegram).
+
+### 1. Локальный запуск и тестирование
+
+Если вы хотите запустить и проверить работу веб-приложения на локальном компьютере или виртуалке (например, в VMware/VirtualBox):
+
+#### Шаг А. Создание туннеля (публичного HTTPS-адреса)
+Поскольку локальные адреса вроде `localhost:8080` не откроются в Telegram, используйте бесплатные туннели:
+
+*   **Вариант 1. Через Localhost.run (работает везде, не требует установки)**:
+    Выполните команду на вашей машине/виртуалке (туннелирует порт `8080`):
+    ```bash
+    ssh -o StrictHostKeyChecking=no -R 80:localhost:8080 nokey@localhost.run
+    ```
+    Скопируйте полученную ссылку, например: `https://a1b2c3d4.lhr.life`.
+
+*   **Вариант 2. Через ngrok (требует регистрации)**:
+    Если вы запускаете туннель на основном ПК (или на виртуалке, где IP не заблокирован ngrok):
+    ```bash
+    ngrok http 8080
+    ```
+    Скопируйте ссылку Forwarding: `https://...ngrok-free.app`.
+
+#### Шаг Б. Настройка `.env` и запуск
+1.  Откройте ваш файл `.env` и укажите скопированный адрес в `WEBAPP_URL`:
+    ```env
+    WEBAPP_URL=https://a1b2c3d4.lhr.life
+    ```
+2.  Перезапустите контейнеры, чтобы бот обновил ссылки в кнопках:
+    ```bash
+    docker compose down
+    docker compose up -d --build
+    ```
+3.  Откройте бота в Telegram, отправьте команду `/start` для обновления меню и нажмите кнопку **🚀 Открыть Mini App**.
+
+---
+
+### 2. Развертывание на реальном (продакшн) сервере
+
+Для постоянной работы приложения на вашем боевом сервере:
+
+#### Шаг А. Настройка домена и DNS
+1.  Привяжите доменное имя (например, `your-bot-domain.ru`) к IP-адресу вашего сервера через DNS-панель вашего регистратора (A-запись).
+2.  Откройте порты `80` и `443` на сервере для внешнего трафика.
+
+#### Шаг Б. Установка Nginx и SSL (Let's Encrypt)
+Для перенаправления трафика и обеспечения HTTPS-соединения:
+
+1.  Установите Nginx и Certbot:
+    ```bash
+    sudo apt update
+    sudo apt install nginx certbot python3-certbot-nginx -y
+    ```
+2.  Получите SSL-сертификат:
+    ```bash
+    sudo certbot --nginx -d your-bot-domain.ru
+    ```
+3.  Настройте Nginx как Reverse Proxy. Откройте конфигурационный файл вашего домена:
+    ```bash
+    sudo nano /etc/nginx/sites-available/your-bot-domain.ru
+    ```
+    Вставьте следующую конфигурацию (замените `your-bot-domain.ru` на ваш домен):
+    ```nginx
+    server {
+        listen 443 ssl;
+        server_name your-bot-domain.ru;
+
+        ssl_certificate /etc/letsencrypt/live/your-bot-domain.ru/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/your-bot-domain.ru/privkey.pem;
+
+        location / {
+            proxy_pass http://127.0.0.1:8080;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }
+    ```
+4.  Включите конфигурацию и перезапустите Nginx:
+    ```bash
+    sudo ln -s /etc/nginx/sites-available/your-bot-domain.ru /etc/nginx/sites-enabled/
+    sudo nginx -t
+    sudo systemctl restart nginx
+    ```
+
+#### Шаг В. Настройка `.env` и старт на сервере
+1.  В файле `.env` на сервере укажите ваш HTTPS-домен:
+    ```env
+    WEBAPP_URL=https://your-bot-domain.ru
+    ```
+2.  Запустите проект:
+    ```bash
+    docker compose down
+    docker compose up -d --build
+    ```
+
+#### Шаг Г. Настройка Menu Button в Telegram
+Чтобы пользователи могли запускать приложение в один клик по кнопке в левом нижнем углу чата:
+1.  Напишите [@BotFather](https://t.me/BotFather) в Telegram.
+2.  Отправьте `/mybots` -> Выберите вашего бота -> **Bot Settings** -> **Menu Button** -> **Configure Menu Button**.
+3.  Отправьте ссылку на веб-приложение: `https://your-bot-domain.ru/webapp`
+4.  Укажите название кнопки (например, `🚀 Mini App`).
