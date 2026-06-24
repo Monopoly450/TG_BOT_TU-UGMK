@@ -1941,6 +1941,27 @@ async def cb_ai_chat(c: CallbackQuery, state: FSMContext):
 async def cb_ai_need_key(c: CallbackQuery):
     await c.answer("⚠️ У вас нет личного ключа и ваш баланс ИИ равен 0. Пожалуйста, пополните баланс!", show_alert=True)
 
+def format_ai_response_to_html(text: str) -> str:
+    import html
+    escaped = html.escape(text)
+    
+    def replace_code_block(match):
+        code = match.group(2)
+        return f"<pre><code>{code.strip()}</code></pre>"
+        
+    pattern_block = re.compile(r'```([a-zA-Z0-9+#-]+)?(?:\s*\n)?(.*?)\n?```', re.DOTALL)
+    processed = pattern_block.sub(replace_code_block, escaped)
+    
+    pattern_inline = re.compile(r'`([^`\n]+)`')
+    processed = pattern_inline.sub(r'<code>\1</code>', processed)
+    
+    processed = re.sub(r'\*\*([^*]+)\*\*', r'<b>\1</b>', processed)
+    processed = re.sub(r'__([^_]+)__', r'<b>\1</b>', processed)
+    processed = re.sub(r'(?<!\*)\*([^*]+)\*(?!\*)', r'<i>\1</i>', processed)
+    processed = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2">\1</a>', processed)
+    
+    return processed
+
 @dp.message(UserStates.waiting_for_ai_prompt)
 async def ai_chat_message(m: Message, state: FSMContext):
     if m.text == "❌ Выйти из чата ИИ":
@@ -2043,6 +2064,7 @@ async def ai_chat_message(m: Message, state: FSMContext):
             )
             
             clean_response = response_text
+            formatted_response = format_ai_response_to_html(clean_response)
             
             if not has_custom_key or is_programmatic_key:
                 if not is_free:
@@ -2050,9 +2072,9 @@ async def ai_chat_message(m: Message, state: FSMContext):
                     async with db_manager.pool.acquire() as conn:
                         await conn.execute("UPDATE users SET ai_balance = GREATEST(0, ai_balance - $2) WHERE telegram_id = $1", uid, deduct_amount)
                     new_bal = await db_manager.check_user_ai_balance(uid)
-                    response_text += f"\n\n<i>(Осталось запросов: {new_bal} 💳)</i>"
+                    formatted_response += f"\n\n<i>(Осталось запросов: {new_bal} 💳)</i>"
                 else:
-                    response_text += f"\n\n<i>(🆓 Бесплатный запрос)</i>"
+                    formatted_response += f"\n\n<i>(🆓 Бесплатный запрос)</i>"
             
             history_prompt = prompt if not image_data_b64 else f"[Изображение] {prompt}"
             history.append({"role": "user", "content": history_prompt})
@@ -2065,11 +2087,11 @@ async def ai_chat_message(m: Message, state: FSMContext):
                 try: await transcription_msg.delete()
                 except Exception: pass
                 
-            if len(response_text) > 4096:
-                for chunk in [response_text[i:i+4000] for i in range(0, len(response_text), 4000)]:
+            if len(formatted_response) > 4096:
+                for chunk in [formatted_response[i:i+4000] for i in range(0, len(formatted_response), 4000)]:
                     await m.answer(chunk)
             else:
-                await m.answer(response_text, parse_mode="HTML")
+                await m.answer(formatted_response, parse_mode="HTML")
                 
         except Exception as e:
             if transcription_msg:
