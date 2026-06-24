@@ -4,21 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>TU UGMK Assistant</title>
-    <!-- Google Fonts -->
+    <!-- Google Fonts (asynchronous) -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet"></noscript>
     
     <!-- Telegram WebApp SDK -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     
-    <!-- Markdown & Highlight.js -->
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" defer></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" defer></script>
-    
-    <!-- QR Code Generator -->
-    <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js" defer></script>
+    <!-- Highlight.js Stylesheet (asynchronous) -->
+    <link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css"></noscript>
 
     <style>
         :root {
@@ -1896,6 +1893,39 @@
             return null;
         })();
 
+        // Start loading heavy libraries dynamically in background immediately (non-blocking)
+        function loadScriptAsync(src) {
+            return new Promise((resolve) => {
+                const s = document.createElement('script');
+                s.src = src;
+                s.async = true;
+                s.onload = () => resolve(true);
+                s.onerror = () => {
+                    console.error("Failed to load script: " + src);
+                    resolve(false);
+                };
+                document.head.appendChild(s);
+            });
+        }
+        
+        loadScriptAsync("https://cdn.jsdelivr.net/npm/marked/marked.min.js");
+        loadScriptAsync("https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js");
+        loadScriptAsync("https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js");
+
+        function safeParseMarkdown(text) {
+            if (typeof marked !== 'undefined' && marked.parse) {
+                return marked.parse(text);
+            }
+            if (!text) return '';
+            return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
+        }
+
+        function safeHighlightElement(block) {
+            if (typeof hljs !== 'undefined' && hljs.highlightElement) {
+                hljs.highlightElement(block);
+            }
+        }
+
         function applyTelegramTheme() {
             if (tg.themeParams) {
                 const isDark = tg.colorScheme === 'dark' || (tg.themeParams.bg_color && isColorDark(tg.themeParams.bg_color));
@@ -2406,12 +2436,12 @@
                                 <span style="color:var(--primary-color);">${model}</span>
                             </div>
                             <div class="history-item-prompt">❓ ${escapeHTML(req.prompt || '')}</div>
-                            <div class="history-item-response">${marked.parse(req.response || '')}</div>
+                            <div class="history-item-response">${safeParseMarkdown(req.response || '')}</div>
                         `;
                         
                         // Apply syntax highlighting inside responses
                         item.querySelectorAll('pre code').forEach((block) => {
-                            hljs.highlightElement(block);
+                            safeHighlightElement(block);
                         });
                         addCopyButtons(item);
                         
@@ -2511,11 +2541,11 @@
             
             if (displayRole === 'ai') {
                 // Parse markdown & escape HTML inside pre tags
-                bubble.innerHTML = marked.parse(text);
+                bubble.innerHTML = safeParseMarkdown(text);
                 
                 // Apply syntax highlighting
                 bubble.querySelectorAll('pre code').forEach((block) => {
-                    hljs.highlightElement(block);
+                    safeHighlightElement(block);
                 });
 
                 // Add copy buttons to code blocks
@@ -2634,18 +2664,32 @@
         }
 
         // Render QR Code
-        function renderQrCode(text) {
+        async function renderQrCode(text) {
             const qrEl = document.getElementById("qrcode");
             qrEl.innerHTML = ""; // Clear existing
             
-            QRCode.toCanvas(document.createElement("canvas"), text, {
-                width: 200,
-                height: 200,
-                margin: 0
-            }, function (error, canvas) {
-                if (error) console.error(error);
-                qrEl.appendChild(canvas);
-            });
+            if (typeof QRCode === 'undefined') {
+                qrEl.innerText = "Генерация QR-кода...";
+                // Wait up to 5 seconds
+                for (let i = 0; i < 50; i++) {
+                    await new Promise(r => setTimeout(r, 100));
+                    if (typeof QRCode !== 'undefined') break;
+                }
+                qrEl.innerHTML = ""; // Clear again
+            }
+            
+            if (typeof QRCode !== 'undefined') {
+                QRCode.toCanvas(document.createElement("canvas"), text, {
+                    width: 200,
+                    height: 200,
+                    margin: 0
+                }, function (error, canvas) {
+                    if (error) console.error(error);
+                    qrEl.appendChild(canvas);
+                });
+            } else {
+                qrEl.innerHTML = `<p style="color:var(--danger-color); text-align:center; font-size:12px;">Ошибка: библиотека QR-кодов не загружена.</p>`;
+            }
         }
 
         // Render Active Target Header with Favorites Star

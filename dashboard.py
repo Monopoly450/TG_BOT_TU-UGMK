@@ -15,26 +15,34 @@ import vpn_manager
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("dashboard")
 
-_bot_username = None
+_bot_username = os.getenv("BOT_USERNAME", "TU_UGMK_bot")
+_bot_username_fetched = False
 
 async def get_bot_username() -> str:
-    global _bot_username
-    if _bot_username:
+    global _bot_username, _bot_username_fetched
+    if _bot_username_fetched:
         return _bot_username
     token = os.getenv("BOT_TOKEN")
     if not token:
-        return "TU_UGMK_bot"
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"https://api.telegram.org/bot{token}/getMe") as response:
-                if response.status == 200:
-                    data = await response.json()
-                    if data.get("ok"):
-                        _bot_username = data["result"]["username"]
-                        return _bot_username
-    except Exception:
-        pass
-    return "TU_UGMK_bot"
+        _bot_username_fetched = True
+        return _bot_username
+        
+    async def fetch_username():
+        global _bot_username, _bot_username_fetched
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"https://api.telegram.org/bot{token}/getMe", timeout=2.0) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        if data.get("ok"):
+                            _bot_username = data["result"]["username"]
+                            _bot_username_fetched = True
+                            logger.info(f"Fetched bot username: {_bot_username}")
+        except Exception as e:
+            logger.error(f"Failed to fetch bot username in background: {e}")
+            
+    asyncio.create_task(fetch_username())
+    return _bot_username
 
 app = FastAPI(title="TU UGMK Bot Admin Dashboard")
 app.add_middleware(GZipMiddleware, minimum_size=1000)
