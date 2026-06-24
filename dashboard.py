@@ -235,6 +235,229 @@ async def update_balance(
         logger.error(f"Error updating AI balance: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.post("/user/toggle_blacklist")
+async def toggle_blacklist(request: Request):
+    if not is_authenticated(request):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+        
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+        
+    telegram_id = body.get("telegram_id")
+    is_blacklisted = body.get("is_blacklisted")
+    
+    if telegram_id is None or is_blacklisted is None:
+        raise HTTPException(status_code=400, detail="Missing telegram_id or is_blacklisted")
+        
+    try:
+        telegram_id = int(telegram_id)
+        is_blacklisted = bool(is_blacklisted)
+        
+        await db_manager.set_user_blacklist(telegram_id, is_blacklisted)
+        
+        # Update Redis cache instantly
+        cache_key = f"user_blacklisted:{telegram_id}"
+        await dao.setex(cache_key, 300, "1" if is_blacklisted else "0")
+        
+        # If blacklisted, disable VPN config just in case
+        if is_blacklisted:
+            await db_manager.set_user_vpn(telegram_id, enabled=False)
+            user_row = await db_manager.get_user(telegram_id)
+            if user_row and user_row['vpn_key'] and vpn_manager.VPN_SSH_HOST:
+                try:
+                    priv_key_match = re.search(r'PrivateKey\s*=\s*([a-zA-Z0-9+/=]+)', user_row['vpn_key'])
+                    if priv_key_match:
+                        priv_key_b64 = priv_key_match.group(1)
+                        priv_bytes = base64.b64decode(priv_key_b64)
+                        from cryptography.hazmat.primitives.asymmetric import x25519
+                        from cryptography.hazmat.primitives import serialization
+                        private_key = x25519.X25519PrivateKey.from_private_bytes(priv_bytes)
+                        public_key = private_key.public_key()
+                        pub_bytes = public_key.public_bytes(
+                            encoding=serialization.Encoding.Raw,
+                            format=serialization.PublicFormat.Raw
+                        )
+                        pub_key_b64 = base64.b64encode(pub_bytes).decode('utf-8')
+                        
+                        import asyncssh
+                        async with asyncssh.connect(
+                            vpn_manager.VPN_SSH_HOST,
+                            username=vpn_manager.VPN_SSH_USER,
+                            password=vpn_manager.VPN_SSH_PASSWORD,
+                            known_hosts=None
+                        ) as conn:
+                            await conn.run(f"sudo wg set wg0 peer {pub_key_b64} remove")
+                            await conn.run(f"sudo sed -i '/{pub_key_b64}/,+2d' /etc/wireguard/wg0.conf")
+                except Exception as pe:
+                    logger.error(f"Failed to remove peer on blacklist toggle: {pe}")
+                    
+        return {"status": "ok", "telegram_id": telegram_id, "is_blacklisted": is_blacklisted}
+    except Exception as e:
+        logger.error(f"Error toggling blacklist: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/user/update_vpn_expiry")
+async def update_vpn_expiry(request: Request):
+    if not is_authenticated(request):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+        
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+        
+    telegram_id = body.get("telegram_id")
+    action = body.get("action")
+    
+    if telegram_id is None or action is None:
+        raise HTTPException(status_code=400, detail="Missing telegram_id or action")
+        
+    try:
+        telegram_id = int(telegram_id)
+        user_row = await db_manager.get_user(telegram_id)
+        if not user_row:
+            raise HTTPException(status_code=404, detail="User not found")
+            
+        if action == "reset":
+            async with db_manager.pool.acquire() as conn:
+                await conn.execute("UPDATE users SET vpn_expires_at = NULL, vpn_enabled = FALSE WHERE telegram_id = $1", telegram_id)
+                
+            if user_row['vpn_key'] and vpn_manager.VPN_SSH_HOST:
+                try:
+                    priv_key_match = re.search(r'PrivateKey\s*=\s*([a-zA-Z0-9+/=]+)', user_row['vpn_key'])
+                    if priv_key_match:
+                        priv_key_b64 = priv_key_match.group(1)
+                        priv_bytes = base64.b64decode(priv_key_b64)
+                        from cryptography.hazmat.primitives.asymmetric import x25519
+                        from cryptography.hazmat.primitives import serialization
+                        private_key = x25519.X25519PrivateKey.from_private_bytes(priv_bytes)
+                        public_key = private_key.public_key()
+                        pub_bytes = public_key.public_bytes(
+                            encoding=serialization.Encoding.Raw,
+                            format=serialization.PublicFormat.Raw
+                        )
+                        pub_key_b64 = base64.b64encode(pub_bytes).decode('utf-8')
+                        
+                        import asyncssh
+                        async with asyncssh.connect(
+                            vpn_manager.VPN_SSH_HOST,
+                            username=vpn_manager.VPN_SSH_USER,
+                            password=vpn_manager.VPN_SSH_PASSWORD,
+                            known_hosts=None
+                        ) as conn:
+                            await conn.run(f"sudo wg set wg0 peer {pub_key_b64} remove")
+                            await conn.run(f"sudo sed -i '/{pub_key_b64}/,+2d' /etc/wireguard/wg0.conf")
+                except Exception as pe:
+                    logger.error(f"Failed to remove peer on reset expiry: {pe}")
+            
+            return {"status": "ok", "vpn_expires_at": None, "vpn_enabled": False}
+        else:
+            days = int(action)
+            current_expiry = user_row.get("vpn_expires_at")
+            now = datetime.now()
+            
+            if current_expiry and current_expiry > now:
+                new_expiry = current_expiry + timedelta(days=days)
+            else:
+                new_expiry = now + timedelta(days=days)
+                
+            async with db_manager.pool.acquire() as conn:
+                await conn.execute("UPDATE users SET vpn_expires_at = $2 WHERE telegram_id = $1", telegram_id, new_expiry)
+                
+            return {
+                "status": "ok",
+                "vpn_expires_at": new_expiry.strftime("%d.%m.%Y %H:%M:%S")
+            }
+    except Exception as e:
+        logger.error(f"Error updating VPN expiry: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/user/toggle_vpn_ajax")
+async def toggle_vpn_ajax(request: Request):
+    if not is_authenticated(request):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+        
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+        
+    telegram_id = body.get("telegram_id")
+    vpn_enabled = body.get("vpn_enabled")
+    
+    if telegram_id is None or vpn_enabled is None:
+        raise HTTPException(status_code=400, detail="Missing telegram_id or vpn_enabled")
+        
+    try:
+        telegram_id = int(telegram_id)
+        enabled = bool(vpn_enabled)
+        user_row = await db_manager.get_user(telegram_id)
+        if not user_row:
+            raise HTTPException(status_code=404, detail="User not found")
+            
+        if enabled:
+            if not user_row['vpn_key']:
+                config_text = await vpn_manager.generate_user_vpn_config(user_row['id'])
+                await db_manager.set_user_vpn(telegram_id, enabled=True, key=config_text)
+            else:
+                try:
+                    ip_match = re.search(r'Address\s*=\s*([0-9.]+)', user_row['vpn_key'])
+                    priv_key_match = re.search(r'PrivateKey\s*=\s*([a-zA-Z0-9+/=]+)', user_row['vpn_key'])
+                    if ip_match and priv_key_match:
+                        client_ip = ip_match.group(1)
+                        priv_key_b64 = priv_key_match.group(1)
+                        from cryptography.hazmat.primitives.asymmetric import x25519
+                        from cryptography.hazmat.primitives import serialization
+                        priv_bytes = base64.b64decode(priv_key_b64)
+                        private_key = x25519.X25519PrivateKey.from_private_bytes(priv_bytes)
+                        public_key = private_key.public_key()
+                        pub_bytes = public_key.public_bytes(
+                            encoding=serialization.Encoding.Raw,
+                            format=serialization.PublicFormat.Raw
+                        )
+                        pub_key_b64 = base64.b64encode(pub_bytes).decode('utf-8')
+                        await vpn_manager.register_peer_on_server(pub_key_b64, client_ip)
+                except Exception as pe:
+                    logger.error(f"Failed to register peer: {pe}")
+                await db_manager.set_user_vpn(telegram_id, enabled=True)
+        else:
+            await db_manager.set_user_vpn(telegram_id, enabled=False)
+            if user_row['vpn_key'] and vpn_manager.VPN_SSH_HOST:
+                try:
+                    priv_key_match = re.search(r'PrivateKey\s*=\s*([a-zA-Z0-9+/=]+)', user_row['vpn_key'])
+                    if priv_key_match:
+                        priv_key_b64 = priv_key_match.group(1)
+                        priv_bytes = base64.b64decode(priv_key_b64)
+                        from cryptography.hazmat.primitives.asymmetric import x25519
+                        from cryptography.hazmat.primitives import serialization
+                        private_key = x25519.X25519PrivateKey.from_private_bytes(priv_bytes)
+                        public_key = private_key.public_key()
+                        pub_bytes = public_key.public_bytes(
+                            encoding=serialization.Encoding.Raw,
+                            format=serialization.PublicFormat.Raw
+                        )
+                        pub_key_b64 = base64.b64encode(pub_bytes).decode('utf-8')
+                        
+                        import asyncssh
+                        async with asyncssh.connect(
+                            vpn_manager.VPN_SSH_HOST,
+                            username=vpn_manager.VPN_SSH_USER,
+                            password=vpn_manager.VPN_SSH_PASSWORD,
+                            known_hosts=None
+                        ) as conn:
+                            await conn.run(f"sudo wg set wg0 peer {pub_key_b64} remove")
+                            await conn.run(f"sudo sed -i '/{pub_key_b64}/,+2d' /etc/wireguard/wg0.conf")
+                except Exception as pe:
+                    logger.error(f"Failed to remove peer: {pe}")
+                    
+        return {"status": "ok", "vpn_enabled": enabled}
+    except Exception as e:
+        logger.error(f"Error toggling VPN status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/keys/generate")
 async def generate_key(
     request: Request,
@@ -402,6 +625,9 @@ async def get_active_user_row(uid: int):
     if not user_row:
         return None
         
+    if user_row.get('is_blacklisted'):
+        raise HTTPException(status_code=403, detail="Вы находитесь в черном списке")
+        
     ai_expires_at = user_row.get('ai_expires_at')
     if ai_expires_at and ai_expires_at < datetime.now():
         await db_manager.set_user_ai_key(uid, None)
@@ -412,141 +638,16 @@ async def get_active_user_row(uid: int):
         
     return user_row
 
-@app.get("/webapp", response_class=HTMLResponse)
-async def webapp(request: Request):
-    return templates.TemplateResponse(request=request, name="webapp.html")
-
-@app.post("/api/verify")
-async def api_verify(request: Request):
-    body = await request.json()
-    init_data = body.get("init_data")
-    if not init_data:
-        raise HTTPException(status_code=400, detail="Missing init_data")
-        
-    tg_user = verify_telegram_init_data(init_data)
-    if not tg_user:
-        raise HTTPException(status_code=401, detail="Unauthorized init_data")
-        
-    uid = tg_user["id"]
-    username = tg_user.get("username")
-    
-    # Load or register user
-    user_row = await get_active_user_row(uid)
-    if not user_row:
-        await db_manager.register_or_update_user(uid, username)
-        user_row = await get_active_user_row(uid)
-        
-    # Get user status details
+async def _build_user_status_dict(uid: int, user_row):
     model = user_row['ai_model'] or 'gpt-4o-mini'
     has_key = bool(user_row['custom_ai_key'])
-    
-    # Auto-create key silently if they don't have one
-    if not has_key:
-        async def create_key_task(telegram_id: int):
-            try:
-                ai_key = await create_openrouter_key(limit_usd=0.00, expires_days=30)
-                expires_at = datetime.now() + timedelta(days=30)
-                await db_manager.set_user_ai_key(telegram_id, ai_key, expires_at)
-                logger.info(f"Automatically created free-tier key for user {telegram_id} in background via verify")
-            except Exception as e:
-                logger.error(f"Failed to auto-create key for user {telegram_id} in background via verify: {e}")
-        asyncio.create_task(create_key_task(uid))
-            
-    # Calculate can_chat for the selected model
     ai_balance = user_row['ai_balance'] or 0
     is_free = model in FREE_MODELS
     is_programmatic = has_key and bool(user_row.get('ai_expires_at'))
     has_real_key = has_key and not is_programmatic
     can_chat = has_real_key or (ai_balance > 0) or is_free
     
-    # Retrieve group
     group = await dao.hget("user_subs", str(uid)) or user_row['group_name']
-    
-    # Retrieve notification settings
-    morn_time = await dao.hget("user_morning_time", str(uid)) or "08:00"
-    eve_time = await dao.hget("user_evening_time", str(uid)) or "Отключено"
-    bot_name = await get_bot_username()
-    is_starosta = bool(await dao.hget("starosta_group_saved", str(uid)))
-    starosta_name = await dao.hget("starosta_name", str(uid)) or "Староста"
-    
-    # Pre-fetch current week's schedule if cached
-    schedule = {}
-    if group:
-        tz = timezone(timedelta(hours=5))
-        mon = datetime.now(tz).date() - timedelta(days=datetime.now(tz).weekday())
-        sd = mon.strftime("%d.%m.%Y")
-        cache_key = f"data:v39:{sd}:group:{group}"
-        try:
-            if await dao.exists(cache_key):
-                schedule = json.loads(await dao.get(cache_key))
-            else:
-                # Add to queue in background so it starts parsing, but do NOT block!
-                await dao.lpush('schedule_jobs', json.dumps({"week_offset": 0, "target_type": "group", "target_value": group}))
-        except Exception as e:
-            logger.error(f"Failed to check cache in verify: {e}")
-            
-    return {
-        "status": "ok",
-        "user": tg_user,
-        "user_status": {
-            "telegram_id": uid,
-            "ai_model": model,
-            "ai_balance": ai_balance,
-            "vpn_enabled": user_row['vpn_enabled'] or False,
-            "vpn_expires_at": user_row['vpn_expires_at'].strftime("%d.%m.%Y") if user_row['vpn_expires_at'] else None,
-            "ai_expires_at": user_row['ai_expires_at'].strftime("%d.%m.%Y") if user_row['ai_expires_at'] else None,
-            "group_name": group,
-            "has_custom_key": has_key,
-            "is_programmatic_key": is_programmatic,
-            "can_chat": can_chat,
-            "vpn_key": user_row['vpn_key'],
-            "morning_time": morn_time,
-            "evening_time": eve_time,
-            "bot_username": bot_name,
-            "is_starosta": is_starosta,
-            "starosta_name": starosta_name,
-            "starosta_group": await dao.hget("starosta_group_saved", str(uid)),
-            "is_admin": uid in ADMIN_IDS
-        },
-        "initial_schedule": schedule
-    }
-
-@app.get("/api/user_status")
-async def api_user_status(uid: int, init_data: str):
-    tg_user = verify_telegram_init_data(init_data)
-    if not tg_user or tg_user["id"] != uid:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-        
-    user_row = await get_active_user_row(uid)
-    if not user_row:
-        raise HTTPException(status_code=404, detail="User not found")
-        
-    model = user_row['ai_model'] or 'gpt-4o-mini'
-    has_key = bool(user_row['custom_ai_key'])
-    
-    # Auto-create key silently if they don't have one
-    if not has_key:
-        async def create_key_task(telegram_id: int):
-            try:
-                ai_key = await create_openrouter_key(limit_usd=0.00, expires_days=30)
-                expires_at = datetime.now() + timedelta(days=30)
-                await db_manager.set_user_ai_key(telegram_id, ai_key, expires_at)
-                logger.info(f"Automatically created free-tier key for user {telegram_id} in background via API status")
-            except Exception as e:
-                logger.error(f"Failed to auto-create key for user {telegram_id} in background via API status: {e}")
-        asyncio.create_task(create_key_task(uid))
-            
-    # Calculate can_chat for the selected model
-    ai_balance = user_row['ai_balance'] or 0
-    is_free = model in FREE_MODELS
-    is_programmatic = has_key and bool(user_row.get('ai_expires_at'))
-    has_real_key = has_key and not is_programmatic
-    can_chat = has_real_key or (ai_balance > 0) or is_free
-    
-    # Retrieve group
-    group = await dao.hget("user_subs", str(uid)) or user_row['group_name']
-    
-    # Retrieve notification settings
     morn_time = await dao.hget("user_morning_time", str(uid)) or "08:00"
     eve_time = await dao.hget("user_evening_time", str(uid)) or "Отключено"
     bot_name = await get_bot_username()
@@ -573,6 +674,95 @@ async def api_user_status(uid: int, init_data: str):
         "starosta_group": await dao.hget("starosta_group_saved", str(uid)),
         "is_admin": uid in ADMIN_IDS
     }
+
+@app.get("/webapp", response_class=HTMLResponse)
+async def webapp(request: Request):
+    return templates.TemplateResponse(request=request, name="webapp.html")
+
+@app.post("/api/verify")
+async def api_verify(request: Request):
+    body = await request.json()
+    init_data = body.get("init_data")
+    if not init_data:
+        raise HTTPException(status_code=400, detail="Missing init_data")
+        
+    tg_user = verify_telegram_init_data(init_data)
+    if not tg_user:
+        raise HTTPException(status_code=401, detail="Unauthorized init_data")
+        
+    uid = tg_user["id"]
+    username = tg_user.get("username")
+    
+    # Load or register user
+    user_row = await get_active_user_row(uid)
+    if not user_row:
+        await db_manager.register_or_update_user(uid, username)
+        user_row = await get_active_user_row(uid)
+        
+    # Auto-create key silently if they don't have one
+    has_key = bool(user_row['custom_ai_key'])
+    if not has_key:
+        async def create_key_task(telegram_id: int):
+            try:
+                ai_key = await create_openrouter_key(limit_usd=0.00, expires_days=30)
+                expires_at = datetime.now() + timedelta(days=30)
+                await db_manager.set_user_ai_key(telegram_id, ai_key, expires_at)
+                logger.info(f"Automatically created free-tier key for user {telegram_id} in background via verify")
+            except Exception as e:
+                logger.error(f"Failed to auto-create key for user {telegram_id} in background via verify: {e}")
+        asyncio.create_task(create_key_task(uid))
+            
+    # Retrieve user status
+    user_status = await _build_user_status_dict(uid, user_row)
+    
+    # Pre-fetch current week's schedule if cached
+    schedule = {}
+    group = user_status["group_name"]
+    if group:
+        tz = timezone(timedelta(hours=5))
+        mon = datetime.now(tz).date() - timedelta(days=datetime.now(tz).weekday())
+        sd = mon.strftime("%d.%m.%Y")
+        cache_key = f"data:v39:{sd}:group:{group}"
+        try:
+            if await dao.exists(cache_key):
+                schedule = json.loads(await dao.get(cache_key))
+            else:
+                # Add to queue in background so it starts parsing, but do NOT block!
+                await dao.lpush('schedule_jobs', json.dumps({"week_offset": 0, "target_type": "group", "target_value": group}))
+        except Exception as e:
+            logger.error(f"Failed to check cache in verify: {e}")
+            
+    return {
+        "status": "ok",
+        "user": tg_user,
+        "user_status": user_status,
+        "initial_schedule": schedule
+    }
+
+@app.get("/api/user_status")
+async def api_user_status(uid: int, init_data: str):
+    tg_user = verify_telegram_init_data(init_data)
+    if not tg_user or tg_user["id"] != uid:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+        
+    user_row = await get_active_user_row(uid)
+    if not user_row:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    has_key = bool(user_row['custom_ai_key'])
+    if not has_key:
+        async def create_key_task(telegram_id: int):
+            try:
+                ai_key = await create_openrouter_key(limit_usd=0.00, expires_days=30)
+                expires_at = datetime.now() + timedelta(days=30)
+                await db_manager.set_user_ai_key(telegram_id, ai_key, expires_at)
+                logger.info(f"Automatically created free-tier key for user {telegram_id} in background via API status")
+            except Exception as e:
+                logger.error(f"Failed to auto-create key for user {telegram_id} in background via API status: {e}")
+        asyncio.create_task(create_key_task(uid))
+        
+    return await _build_user_status_dict(uid, user_row)
+
 
 @app.get("/api/groups")
 async def api_groups():
@@ -773,6 +963,13 @@ async def api_vpn_toggle(request: Request):
         
     enabled = not (user_row['vpn_enabled'] or False)
     
+    # If enabling VPN, check if subscription is valid
+    if enabled:
+        now = datetime.now()
+        vpn_expires_at = user_row.get('vpn_expires_at')
+        if not vpn_expires_at or vpn_expires_at < now:
+            raise HTTPException(status_code=403, detail="VPN подписка отсутствует или истекла")
+            
     try:
         user_db_id = user_row['id']
         if enabled:
@@ -840,11 +1037,13 @@ async def api_vpn_toggle(request: Request):
             
         # Fetch updated status
         updated_user = await get_active_user_row(uid)
+        user_status = await _build_user_status_dict(uid, updated_user)
         return {
             "status": "ok",
             "msg": msg,
             "vpn_enabled": updated_user['vpn_enabled'] or False,
-            "vpn_key": updated_user['vpn_key']
+            "vpn_key": updated_user['vpn_key'],
+            "user_status": user_status
         }
     except Exception as e:
         logger.error(f"Error toggling VPN status in webapp: {e}")

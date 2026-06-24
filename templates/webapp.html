@@ -1870,6 +1870,7 @@
         let activeSearchType = "group";
         let searchTimeout = null;
         let botUsername = "TU_UGMK_bot";
+        let currentUserStatus = null;
 
         // Start verification request as early as possible (non-blocking)
         const earlyVerifyPromise = (async () => {
@@ -1884,6 +1885,10 @@
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ init_data: checkInitData })
                 });
+                if (response.status === 403) {
+                    const err = await response.json();
+                    return { is_blacklisted: true, detail: err.detail };
+                }
                 if (response.ok) {
                     return await response.json();
                 }
@@ -2018,13 +2023,27 @@
             if (user.last_name) fullName += (fullName ? " " : "") + user.last_name;
             if (!fullName) fullName = user.username ? `@${user.username}` : "Пользователь";
             else if (user.username) fullName += ` (@${user.username})`;
-
             document.getElementById("profile-username").innerText = fullName;
             document.getElementById("profile-id").innerText = `ID: ${user.id}`;
 
+            function showBlacklistScreen(msg) {
+                document.body.innerHTML = `
+                    <div style="display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; background-color: #0b0f19; color: #f8fafc; font-family: 'Inter', sans-serif; padding: 20px; text-align: center;">
+                        <div style="font-size: 64px; margin-bottom: 20px;">⚠️</div>
+                        <h2 style="font-size: 24px; font-weight: 700; margin-bottom: 12px; color: #ef4444;">Доступ ограничен</h2>
+                        <p style="font-size: 15px; color: #94a3b8; max-width: 320px; line-height: 1.6;">${msg || 'Вы заблокированы и находитесь в черном списке.'}</p>
+                    </div>
+                `;
+                const initScreen = document.getElementById("init-screen");
+                if (initScreen) initScreen.style.display = "none";
+            }
+
             try {
-                // Await early verify request, or retry if it failed
                 let verifyData = await earlyVerifyPromise;
+                if (verifyData && verifyData.is_blacklisted) {
+                    showBlacklistScreen(verifyData.detail);
+                    return;
+                }
                 if (!verifyData) {
                     console.log("Retrying verification request...");
                     if (!initData) {
@@ -2035,13 +2054,17 @@
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ init_data: initData })
                     });
+                    if (response.status === 403) {
+                        const err = await response.json();
+                        showBlacklistScreen(err.detail);
+                        return;
+                    }
                     if (response.ok) {
                         verifyData = await response.json();
                     }
                 }
 
                 if (verifyData && verifyData.status === "ok") {
-                    
                     // Populates UI instantly with preloaded status data from verify endpoint
                     await refreshUserData(verifyData.user_status);
                     
@@ -2118,7 +2141,7 @@
                 }
                 
                 if (status) {
-                    // Update header and profile widgets
+                    currentUserStatus = status;
                     document.getElementById("ai-balance-val").innerText = status.ai_balance;
                     document.getElementById("profile-ai-balance").innerText = `${status.ai_balance} 💳`;
                     document.getElementById("profile-group").innerText = status.group_name || "Не выбрана";
@@ -2636,12 +2659,53 @@
                 sendChatMessage();
             }
         }
-
         // Toggle VPN
         async function toggleVpn() {
-            const container = document.getElementById("tab-vpn");
-            // Show spinner inside VPN container
-            const originalHTML = container.innerHTML;
+            const toggleSwitch = document.getElementById("vpn-toggle-switch");
+            const vpnValEl = document.getElementById("vpn-status-val");
+            const activeDetails = document.getElementById("vpn-active-details");
+            const inactiveDetails = document.getElementById("vpn-inactive-details");
+            const qrEl = document.getElementById("qrcode");
+            
+            const isChecking = toggleSwitch.checked;
+            
+            if (isChecking) {
+                // 1. Check if user is subscribed to VPN
+                if (!currentUserStatus || !currentUserStatus.vpn_expires_at) {
+                    alert("Ошибка: У вас нет активной подписки на VPN.");
+                    toggleSwitch.checked = false;
+                    return;
+                }
+                
+                // Parse date %d.%m.%Y and check if expired
+                const parts = currentUserStatus.vpn_expires_at.split('.');
+                const expiryDate = new Date(parts[2], parts[1] - 1, parts[0], 23, 59, 59);
+                if (expiryDate < new Date()) {
+                    alert("Ошибка: Срок действия подписки на VPN истек.");
+                    toggleSwitch.checked = false;
+                    return;
+                }
+                
+                // 2. Instantaneous UI update for ON state
+                vpnValEl.innerText = "Активно";
+                vpnValEl.className = "vpn-status-value active";
+                activeDetails.style.display = "block";
+                inactiveDetails.style.display = "none";
+                document.getElementById("profile-vpn-expiry").innerText = currentUserStatus.vpn_expires_at;
+                
+                if (currentUserStatus.vpn_key) {
+                    renderQrCode(currentUserStatus.vpn_key);
+                } else {
+                    qrEl.innerHTML = `<div class="spinner" style="margin: 20px auto;"></div><p style="font-size: 12px; color: var(--text-muted); text-align: center;">Создание новой конфигурации на сервере...</p>`;
+                }
+            } else {
+                // Instantaneous UI update for OFF state
+                vpnValEl.innerText = "Отключено";
+                vpnValEl.className = "vpn-status-value inactive";
+                activeDetails.style.display = "none";
+                inactiveDetails.style.display = "block";
+                document.getElementById("profile-vpn-expiry").innerText = currentUserStatus && currentUserStatus.vpn_expires_at ? `${currentUserStatus.vpn_expires_at} (Истекла)` : "—";
+            }
             
             try {
                 const res = await fetch("/api/vpn_toggle", {
@@ -2651,14 +2715,20 @@
                 });
                 
                 if (res.ok) {
-                    await refreshUserData();
+                    const data = await res.json();
+                    if (data.user_status) {
+                        await refreshUserData(data.user_status);
+                    } else {
+                        await refreshUserData();
+                    }
                 } else {
-                    alert("Ошибка изменения статуса VPN.");
+                    const errData = await res.json().catch(() => ({}));
+                    alert("Ошибка изменения статуса VPN: " + (errData.detail || "Неизвестная ошибка"));
                     await refreshUserData();
                 }
             } catch (err) {
                 console.error("Toggle VPN failed:", err);
-                alert(`Ошибка: ${err.message}`);
+                alert(`Ошибка сети: ${err.message}`);
                 await refreshUserData();
             }
         }

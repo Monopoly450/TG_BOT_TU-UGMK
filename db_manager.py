@@ -54,6 +54,7 @@ class DBManager:
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS ai_expires_at TIMESTAMP;
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS vpn_purchased_at TIMESTAMP;
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS ai_purchased_at TIMESTAMP;
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blacklisted BOOLEAN DEFAULT FALSE;
                 
                 CREATE TABLE IF NOT EXISTS ai_keys (
                     id SERIAL PRIMARY KEY,
@@ -151,6 +152,15 @@ class DBManager:
                 VALUES ($1, $2)
                 ON CONFLICT (telegram_id) DO UPDATE SET ai_model = $2
             """, telegram_id, model)
+
+    async def set_user_blacklist(self, telegram_id: int, is_blacklisted: bool):
+        async with self.pool.acquire() as conn:
+            await conn.execute("UPDATE users SET is_blacklisted = $2 WHERE telegram_id = $1", telegram_id, is_blacklisted)
+
+    async def is_user_blacklisted(self, telegram_id: int) -> bool:
+        async with self.pool.acquire() as conn:
+            val = await conn.fetchval("SELECT is_blacklisted FROM users WHERE telegram_id = $1", telegram_id)
+            return bool(val)
 
     async def get_user_ai_key(self, telegram_id: int) -> str:
         row = await self.get_user(telegram_id)

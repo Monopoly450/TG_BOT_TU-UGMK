@@ -118,6 +118,30 @@ class MaintenanceMiddleware(BaseMiddleware):
             logger.error(f"Maintenance check failed: {e}")
         return await handler(event, data)
 
+class BlacklistMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event, data):
+        try:
+            user = event.from_user
+            if user:
+                user_id = user.id
+                cache_key = f"user_blacklisted:{user_id}"
+                cached_val = await dao.get(cache_key)
+                if cached_val is not None:
+                    is_blacklisted = (cached_val == "1")
+                else:
+                    is_blacklisted = await db_manager.is_user_blacklisted(user_id)
+                    await dao.setex(cache_key, 300, "1" if is_blacklisted else "0")
+                
+                if is_blacklisted:
+                    if isinstance(event, Message):
+                        await event.answer("⚠️ Вы заблокированы и находитесь в черном списке.")
+                    elif isinstance(event, CallbackQuery):
+                        await event.answer("⚠️ Вы заблокированы и находитесь в черном списке.", show_alert=True)
+                    return
+        except Exception as e:
+            logger.error(f"Blacklist check failed: {e}")
+        return await handler(event, data)
+
 class IncomingMessageTracker(BaseMiddleware):        
     async def __call__(self, handler, event: Message, data: Dict[str, Any]):
         if getattr(event, "chat", None) and getattr(event, "message_id", None):
@@ -174,7 +198,9 @@ class AntiFloodMiddleware(BaseMiddleware):
         return await handler(event, data)
 
 dp = Dispatcher(storage=MemoryStorage())
-dp.message.middleware(IncomingMessageTracker())      
+dp.message.middleware(IncomingMessageTracker())
+dp.message.middleware(BlacklistMiddleware())
+dp.callback_query.middleware(BlacklistMiddleware())
 dp.message.middleware(MaintenanceMiddleware())       
 dp.callback_query.middleware(MaintenanceMiddleware())
 dp.message.middleware(AntiFloodMiddleware())

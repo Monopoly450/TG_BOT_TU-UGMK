@@ -8,22 +8,21 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    
-    <style>
+        <style>
         :root {
             --bg-color: #0b0f19;
-            --card-bg: rgba(30, 41, 59, 0.4);
-            --card-border: rgba(255, 255, 255, 0.08);
+            --card-bg: rgba(22, 28, 45, 0.45);
+            --card-border: rgba(255, 255, 255, 0.05);
             --text-primary: #f8fafc;
             --text-secondary: #94a3b8;
             --primary: #6366f1;
             --primary-hover: #4f46e5;
             --accent: #d946ef;
             --success: #10b981;
-            --success-glow: rgba(16, 185, 129, 0.2);
+            --success-glow: rgba(16, 185, 129, 0.15);
             --danger: #ef4444;
-            --danger-glow: rgba(239, 68, 68, 0.2);
-            --input-bg: rgba(15, 23, 42, 0.6);
+            --danger-glow: rgba(239, 68, 68, 0.15);
+            --input-bg: rgba(15, 23, 42, 0.7);
         }
 
         * {
@@ -36,8 +35,8 @@
             font-family: 'Inter', sans-serif;
             background-color: var(--bg-color);
             background-image: 
-                radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.15) 0px, transparent 50%),
-                radial-gradient(at 100% 100%, rgba(217, 70, 239, 0.1) 0px, transparent 50%);
+                radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.12) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(217, 70, 239, 0.08) 0px, transparent 50%);
             color: var(--text-primary);
             min-height: 100vh;
             display: flex;
@@ -46,7 +45,45 @@
             align-items: center;
             overflow-x: hidden;
         }
-
+        
+        .user-link {
+            color: #60a5fa !important;
+            text-decoration: none;
+            transition: color 0.2s ease, text-shadow 0.2s ease;
+            font-weight: 600;
+        }
+        .user-link:hover {
+            color: #93c5fd !important;
+            text-decoration: underline;
+            text-shadow: 0 0 8px rgba(96, 165, 250, 0.4);
+        }
+        
+        .blacklist-badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .text-success {
+            background-color: rgba(16, 185, 129, 0.1);
+            color: #10b981;
+        }
+        
+        .text-danger {
+            background-color: rgba(239, 68, 68, 0.1);
+            color: #ef4444;
+        }
+        
+        tr {
+            transition: background-color 0.2s ease;
+        }
+        tr:hover td {
+            background-color: rgba(255, 255, 255, 0.015);
+        }
+    </style>
         /* Glow effects */
         .glass-card {
             background: var(--card-bg);
@@ -532,8 +569,9 @@
         <div class="content-grid">
             <!-- Left Side: User Table -->
             <div class="glass-card panel">
-                <div class="panel-header">
+                <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; gap: 15px; flex-wrap: wrap;">
                     <h2 class="panel-title">Управление пользователями</h2>
+                    <input type="text" id="user-search-input" class="form-control" placeholder="Поиск по ID, имени, группе..." style="max-width: 250px; font-size: 13px; padding: 6px 12px; margin-bottom: 0;" onkeyup="filterUsersTable()">
                 </div>
                 
                 <div class="table-container">
@@ -542,6 +580,7 @@
                             <tr>
                                 <th>Пользователь</th>
                                 <th>Группа</th>
+                                <th>ЧС</th>
                                 <th>VPN Подписка</th>
                                 <th>ИИ-Ассистент</th>
                             </tr>
@@ -552,9 +591,9 @@
                                 <td>
                                     <div style="font-weight: 600;">
                                         {% if user.username %}
-                                            <a href="https://t.me/{{ user.username }}" target="_blank" style="color: var(--primary); text-decoration: none;">@{{ user.username }}</a>
+                                            <a href="https://t.me/{{ user.username }}" target="_blank" class="user-link">@{{ user.username }}</a>
                                         {% else %}
-                                            Без имени
+                                            <a href="tg://user?id={{ user.telegram_id }}" class="user-link">ID: {{ user.telegram_id }} (Без имени)</a>
                                         {% endif %}
                                     </div>
                                     <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">ID: {{ user.telegram_id }}</div>
@@ -562,21 +601,41 @@
                                 </td>
                                 <td>{{ user.group_name or "—" }}</td>
                                 <td>
+                                    <div style="display: flex; flex-direction: column; gap: 4px; align-items: flex-start;">
+                                        <label class="switch">
+                                            <input type="checkbox" class="blacklist-toggle" data-uid="{{ user.telegram_id }}" {% if user.is_blacklisted %}checked{% endif %} onchange="toggleBlacklist(this)">
+                                            <span class="slider"></span>
+                                        </label>
+                                        <span class="blacklist-badge {% if user.is_blacklisted %}text-danger{% else %}text-success{% endif %}" id="blacklist-badge-{{ user.telegram_id }}" style="font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px;">
+                                            {% if user.is_blacklisted %}Забанен{% else %}Активен{% endif %}
+                                        </span>
+                                    </div>
+                                </td>
+                                <td>
                                     <div style="display: flex; align-items: center; gap: 8px;">
-                                        <form action="/user/toggle_vpn" method="POST" style="display:inline;">
-                                            <input type="hidden" name="telegram_id" value="{{ user.telegram_id }}">
-                                            <label class="switch">
-                                                <input type="checkbox" name="vpn_enabled" {% if user.vpn_enabled %}checked{% endif %} onchange="this.form.submit()">
-                                                <span class="slider"></span>
-                                            </label>
-                                        </form>
-                                        <span style="font-weight: 500; font-size: 12px;" class="{% if user.vpn_enabled %}badge badge-active{% else %}badge badge-inactive{% endif %}">
+                                        <label class="switch">
+                                            <input type="checkbox" class="vpn-status-checkbox" data-uid="{{ user.telegram_id }}" {% if user.vpn_enabled %}checked{% endif %} onchange="ajaxToggleVpn(this)">
+                                            <span class="slider"></span>
+                                        </label>
+                                        <span id="vpn-status-badge-{{ user.telegram_id }}" style="font-weight: 500; font-size: 12px;" class="{% if user.vpn_enabled %}badge badge-active{% else %}badge badge-inactive{% endif %}">
                                             {% if user.vpn_enabled %}Активен{% else %}Откл.{% endif %}
                                         </span>
                                     </div>
-                                    <div style="font-size: 11px; color: var(--text-secondary); margin-top: 6px; line-height: 1.4;">
-                                        <div>Куплено: {{ user.vpn_purchased_at.strftime('%d.%m.%Y %H:%M') if user.vpn_purchased_at else '—' }}</div>
-                                        <div>До: {{ user.vpn_expires_at.strftime('%d.%m.%Y %H:%M') if user.vpn_expires_at else '—' }}</div>
+                                    <div class="vpn-expiry-text" id="vpn-expiry-{{ user.telegram_id }}" style="font-size: 11px; color: var(--text-secondary); margin-top: 6px; line-height: 1.4;">
+                                        {% if user.vpn_expires_at %}
+                                            До: {{ user.vpn_expires_at.strftime('%d.%m.%Y %H:%M') }}
+                                        {% else %}
+                                            Нет подписки
+                                        {% endif %}
+                                    </div>
+                                    <div style="margin-top: 8px;">
+                                        <select class="form-control vpn-expiry-select" data-uid="{{ user.telegram_id }}" onchange="updateVpnExpiry(this)" style="font-size: 11px; padding: 4px 8px; border-radius: 6px; width: 100%; max-width: 140px; background-color: var(--input-bg); border: 1px solid var(--card-border); color: var(--text-primary); cursor: pointer;">
+                                            <option value="">-- Управление VPN --</option>
+                                            <option value="30">+30 дней</option>
+                                            <option value="90">+90 дней</option>
+                                            <option value="365">+365 дней</option>
+                                            <option value="reset">Сбросить подписку</option>
+                                        </select>
                                     </div>
                                 </td>
                                 <td>
@@ -605,7 +664,6 @@
                     </table>
                 </div>
             </div>
-
             <!-- Right Side: AI Keys Generator and List -->
             <div style="display: flex; flex-direction: column; gap: 30px;">
                 <!-- OpenRouter Key Settings -->
@@ -665,7 +723,6 @@
             </div>
         </div>
     </div>
-
     <script>
         function copyKey(value) {
             navigator.clipboard.writeText(value).then(() => {
@@ -673,6 +730,117 @@
             }).catch(err => {
                 console.error("Ошибка при копировании: ", err);
             });
+        }
+        
+        function filterUsersTable() {
+            const input = document.getElementById("user-search-input");
+            const filter = input.value.toLowerCase();
+            const table = document.querySelector(".table-container table");
+            const rows = table.getElementsByTagName("tr");
+
+            for (let i = 1; i < rows.length; i++) {
+                const row = rows[i];
+                const cells = row.getElementsByTagName("td");
+                let match = false;
+                
+                for (let j = 0; j < cells.length; j++) {
+                    const cell = cells[j];
+                    if (cell) {
+                        const txt = cell.innerText || cell.textContent;
+                        if (txt.toLowerCase().indexOf(filter) > -1) {
+                            match = true;
+                            break;
+                        }
+                    }
+                }
+                row.style.display = match ? "" : "none";
+            }
+        }
+
+        async function toggleBlacklist(checkbox) {
+            const uid = checkbox.dataset.uid;
+            const isBlacklisted = checkbox.checked;
+            const badge = document.getElementById(`blacklist-badge-${uid}`);
+            
+            badge.innerText = isBlacklisted ? "Забанен" : "Активен";
+            badge.className = isBlacklisted ? "blacklist-badge text-danger" : "blacklist-badge text-success";
+            
+            try {
+                const res = await fetch("/user/toggle_blacklist", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ telegram_id: uid, is_blacklisted: isBlacklisted })
+                });
+                if (!res.ok) {
+                    throw new Error("HTTP error " + res.status);
+                }
+            } catch (err) {
+                console.error("Blacklist toggle failed:", err);
+                alert("Не удалось обновить статус черного списка: " + err.message);
+                checkbox.checked = !isBlacklisted;
+                badge.innerText = !isBlacklisted ? "Забанен" : "Активен";
+                badge.className = !isBlacklisted ? "blacklist-badge text-danger" : "blacklist-badge text-success";
+            }
+        }
+
+        async function updateVpnExpiry(select) {
+            const uid = select.dataset.uid;
+            const action = select.value;
+            if (!action) return;
+            
+            const expiryTextDiv = document.getElementById(`vpn-expiry-${uid}`);
+            const originalText = expiryTextDiv.innerText;
+            expiryTextDiv.innerText = "Обновление...";
+            
+            try {
+                const res = await fetch("/user/update_vpn_expiry", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ telegram_id: uid, action: action })
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.vpn_expires_at) {
+                        expiryTextDiv.innerText = "До: " + data.vpn_expires_at;
+                    } else {
+                        expiryTextDiv.innerText = "Нет подписки";
+                    }
+                } else {
+                    throw new Error("HTTP error " + res.status);
+                }
+            } catch (err) {
+                console.error("VPN expiry update failed:", err);
+                alert("Не удалось обновить подписку: " + err.message);
+                expiryTextDiv.innerText = originalText;
+            } finally {
+                select.value = "";
+            }
+        }
+        
+        async function ajaxToggleVpn(checkbox) {
+            const uid = checkbox.dataset.uid;
+            const isEnabled = checkbox.checked;
+            const statusBadge = document.getElementById(`vpn-status-badge-${uid}`);
+            
+            statusBadge.innerText = isEnabled ? "Активен" : "Откл.";
+            statusBadge.className = isEnabled ? "badge badge-active" : "badge badge-inactive";
+            
+            try {
+                const res = await fetch("/user/toggle_vpn_ajax", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ telegram_id: uid, vpn_enabled: isEnabled })
+                });
+                if (!res.ok) {
+                    throw new Error("HTTP error " + res.status);
+                }
+            } catch (err) {
+                console.error("VPN status toggle failed:", err);
+                alert("Не удалось изменить статус VPN: " + err.message);
+                checkbox.checked = !isEnabled;
+                statusBadge.innerText = !isEnabled ? "Активен" : "Откл.";
+                statusBadge.className = !isEnabled ? "badge badge-active" : "badge badge-inactive";
+            }
         }
     </script>
     {% endif %}
