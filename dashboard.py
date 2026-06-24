@@ -2,6 +2,7 @@ import os
 import re
 import base64
 import logging
+import asyncio
 from fastapi import FastAPI, Request, Form, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -501,6 +502,21 @@ async def api_clear_context(request: Request):
     await dao.delete(history_key)
     return {"status": "ok"}
 
+@app.get("/api/ai_history")
+async def api_ai_history(uid: int, init_data: str):
+    tg_user = verify_telegram_init_data(init_data)
+    if not tg_user or tg_user["id"] != uid:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+        
+    history_key = f"ai_history:{uid}"
+    history_str = await dao.get(history_key)
+    if history_str:
+        try:
+            return {"history": json.loads(history_str)}
+        except Exception:
+            pass
+    return {"history": []}
+
 @app.post("/api/ai_chat")
 async def api_ai_chat(request: Request):
     body = await request.json()
@@ -568,7 +584,7 @@ async def api_ai_chat(request: Request):
         history.append({"role": "user", "content": prompt})
         history.append({"role": "assistant", "content": response_text})
         history = history[-10:]
-        await dao.setex(history_key, 3600, json.dumps(history, ensure_ascii=False))
+        await dao.setex(history_key, 604800, json.dumps(history, ensure_ascii=False))
         
         return {"status": "ok", "response": response_text, "new_balance": new_balance}
         

@@ -22,9 +22,9 @@
 
     <style>
         :root {
-            --bg-color: #0d0f14;
-            --container-bg: rgba(20, 24, 33, 0.7);
-            --border-color: rgba(255, 255, 255, 0.08);
+            --bg-color: #0b0c10;
+            --container-bg: rgba(18, 22, 32, 0.55);
+            --border-color: rgba(255, 255, 255, 0.07);
             --text-color: #f3f4f6;
             --text-muted: #9ca3af;
             --primary-color: #3b82f6;
@@ -50,15 +50,39 @@
             height: 100vh;
             display: flex;
             flex-direction: column;
+            position: relative;
+        }
+
+        /* Glowing Orbs in Background */
+        .bg-glow {
+            position: fixed;
+            width: 280px;
+            height: 280px;
+            border-radius: 50%;
+            filter: blur(110px);
+            z-index: -1;
+            opacity: 0.16;
+            pointer-events: none;
+        }
+        .bg-glow-1 {
+            top: -50px;
+            left: -50px;
+            background: #3b82f6;
+        }
+        .bg-glow-2 {
+            bottom: 80px;
+            right: -50px;
+            background: #8b5cf6;
         }
 
         /* Glassmorphism utility */
         .glass {
             background: var(--container-bg);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
             border: 1px solid var(--border-color);
-            border-radius: 16px;
+            border-radius: 20px;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
         }
 
         /* Header */
@@ -588,6 +612,10 @@
 </head>
 <body>
 
+    <!-- Glow effects -->
+    <div class="bg-glow bg-glow-1"></div>
+    <div class="bg-glow bg-glow-2"></div>
+
     <!-- Loading screen -->
     <div id="init-screen">
         <div class="spinner"></div>
@@ -858,6 +886,7 @@
                 if (response.ok) {
                     await refreshUserData();
                     await loadGroups();
+                    await loadChatHistory();
                     
                     // Check URL search parameters to switch tab directly (e.g. ?tab=chat)
                     const urlParams = new URLSearchParams(window.location.search);
@@ -1062,18 +1091,21 @@
                         const row = document.createElement("div");
                         row.className = "lesson-row";
                         
-                        const timeStr = `${l.time_start || ''} - ${l.time_end || ''}`;
-                        const typeStr = l.lesson_type ? `[${l.lesson_type}]` : '';
+                        const timeStr = l.time || 'Н/Д';
+                        const typeStr = l.type ? `[${l.type}]` : '';
+                        const name = l.subject || 'Н/Д';
+                        const room = l.room || '—';
+                        const teacher = l.teacher || '—';
                         
                         row.innerHTML = `
                             <div class="lesson-meta">
                                 <span>🕐 ${timeStr}</span>
                                 <span style="color: var(--primary-color);">${typeStr}</span>
                             </div>
-                            <div class="lesson-name">${l.name}</div>
+                            <div class="lesson-name">${name}</div>
                             <div class="lesson-detail">
-                                <span>👤 ${l.teacher || '—'}</span>
-                                <span>🏫 Ауд: ${l.classroom || '—'}</span>
+                                <span>👤 ${teacher}</span>
+                                <span>🏫 Ауд: ${room}</span>
                             </div>
                         `;
                         card.appendChild(row);
@@ -1122,9 +1154,10 @@
         function appendMessage(role, text) {
             const container = document.getElementById("chat-messages");
             const bubble = document.createElement("div");
-            bubble.className = `chat-msg ${role}`;
+            const displayRole = role === 'assistant' ? 'ai' : role;
+            bubble.className = `chat-msg ${displayRole}`;
             
-            if (role === 'ai') {
+            if (displayRole === 'ai') {
                 // Parse markdown & escape HTML inside pre tags
                 bubble.innerHTML = marked.parse(text);
                 
@@ -1139,6 +1172,30 @@
             container.appendChild(bubble);
             container.scrollTop = container.scrollHeight;
             return bubble;
+        }
+
+        // Load Chat History
+        async function loadChatHistory() {
+            try {
+                const res = await fetch(`/api/ai_history?uid=${user.id}&init_data=${encodeURIComponent(initData)}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    const container = document.getElementById("chat-messages");
+                    
+                    if (data.history && data.history.length > 0) {
+                        container.innerHTML = `
+                            <div class="chat-msg ai">
+                                Привет! Я твой ИИ-Ассистент. Задавай мне любые вопросы. Выбрать модель можно сверху.
+                            </div>
+                        `;
+                        data.history.forEach(msg => {
+                            appendMessage(msg.role, msg.content);
+                        });
+                    }
+                }
+            } catch (err) {
+                console.error("Load chat history failed:", err);
+            }
         }
 
         // Send Chat Prompt

@@ -107,6 +107,8 @@ async def get_ai_response(prompt: str, api_key: str, model_name: str, history: l
                 "X-Title": "TU UGMK Bot"
             }
         )
+        if not response or not getattr(response, 'choices', None) or len(response.choices) == 0 or response.choices[0] is None:
+            raise ValueError("Модель ИИ временно перегружена или вернула пустой ответ. Пожалуйста, попробуйте другую модель или сделайте запрос позже.")
         return response.choices[0].message.content
 
     except Exception as e:
