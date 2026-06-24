@@ -1976,7 +1976,7 @@
                     initData = `test_user_id=${user.id}&username=${user.username}`;
                 }
 
-                // Verify user via FastAPI
+                // Verify user via FastAPI (which also pre-fetches status & schedule to avoid sequential requests)
                 const response = await fetch("/api/verify", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -1984,8 +1984,10 @@
                 });
 
                 if (response.ok) {
-                    // Load user data first (blocks UI because we need selectedGroup to render schedule)
-                    await refreshUserData();
+                    const verifyData = await response.json();
+                    
+                    // Populates UI instantly with preloaded status data from verify endpoint
+                    await refreshUserData(verifyData.user_status);
                     
                     // Hide the loading screen immediately so the UI is visible and interactive
                     document.getElementById("init-screen").style.display = "none";
@@ -2004,7 +2006,12 @@
                         const targetBtn = Array.from(document.querySelectorAll('.nav-btn')).find(b => b.getAttribute('onclick').includes(tabParam));
                         if (targetBtn) switchTab(tabParam, targetBtn);
                     } else {
-                        if (currentTargetName) {
+                        // Render initial schedule immediately if preloaded and ready
+                        if (verifyData.initial_schedule && Object.keys(verifyData.initial_schedule).length > 0) {
+                            renderSchedule(verifyData.initial_schedule);
+                            renderActiveTargetHeader();
+                        } else if (currentTargetName) {
+                            // Otherwise fetch in background
                             loadSchedule(0);
                         }
                     }
@@ -2044,12 +2051,17 @@
         }
 
         // Refresh user status and profiles
-        async function refreshUserData() {
+        async function refreshUserData(preloadedStatus) {
             try {
-                const res = await fetch(`/api/user_status?uid=${user.id}&init_data=${encodeURIComponent(initData)}`);
-                if (res.ok) {
-                    const status = await res.json();
-                    
+                let status = preloadedStatus;
+                if (!status) {
+                    const res = await fetch(`/api/user_status?uid=${user.id}&init_data=${encodeURIComponent(initData)}`);
+                    if (res.ok) {
+                        status = await res.json();
+                    }
+                }
+                
+                if (status) {
                     // Update header and profile widgets
                     document.getElementById("ai-balance-val").innerText = status.ai_balance;
                     document.getElementById("profile-ai-balance").innerText = `${status.ai_balance} 💳`;

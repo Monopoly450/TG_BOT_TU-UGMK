@@ -348,7 +348,7 @@ class ScheduleManager:
         except Exception as e: logger.error(f"Redis get error: {e}")
         await dao.lpush('schedule_jobs', json.dumps({"week_offset": wo, "target_type": t_type, "target_value": t_val}))
         
-        for _ in range(600):
+        for _ in range(80):
             await asyncio.sleep(0.1)
             try:
                 if await dao.exists(key): return json.loads(await dao.get(key))
@@ -424,8 +424,82 @@ async def api_verify(request: Request):
     user_row = await get_active_user_row(uid)
     if not user_row:
         await db_manager.register_or_update_user(uid, username)
+        user_row = await get_active_user_row(uid)
         
-    return {"status": "ok", "user": tg_user}
+    # Get user status details
+    model = user_row['ai_model'] or 'gpt-4o-mini'
+    has_key = bool(user_row['custom_ai_key'])
+    
+    # Auto-create key silently if they don't have one
+    if not has_key:
+        try:
+            ai_key = await create_openrouter_key(limit_usd=0.00, expires_days=30)
+            expires_at = datetime.now() + timedelta(days=30)
+            await db_manager.set_user_ai_key(uid, ai_key, expires_at)
+            has_key = True
+            user_row = await get_active_user_row(uid)
+            logger.info(f"Automatically created free-tier key for user {uid} via verify")
+        except Exception as e:
+            logger.error(f"Failed to auto-create key for user {uid} via verify: {e}")
+            
+    # Calculate can_chat for the selected model
+    ai_balance = user_row['ai_balance'] or 0
+    is_free = model in FREE_MODELS
+    is_programmatic = has_key and bool(user_row.get('ai_expires_at'))
+    has_real_key = has_key and not is_programmatic
+    can_chat = has_real_key or (ai_balance > 0) or is_free
+    
+    # Retrieve group
+    group = await dao.hget("user_subs", str(uid)) or user_row['group_name']
+    
+    # Retrieve notification settings
+    morn_time = await dao.hget("user_morning_time", str(uid)) or "08:00"
+    eve_time = await dao.hget("user_evening_time", str(uid)) or "Отключено"
+    bot_name = await get_bot_username()
+    is_starosta = bool(await dao.hget("starosta_group_saved", str(uid)))
+    starosta_name = await dao.hget("starosta_name", str(uid)) or "Староста"
+    
+    # Pre-fetch current week's schedule if cached
+    schedule = {}
+    if group:
+        tz = timezone(timedelta(hours=5))
+        mon = datetime.now(tz).date() - timedelta(days=datetime.now(tz).weekday())
+        sd = mon.strftime("%d.%m.%Y")
+        cache_key = f"data:v39:{sd}:group:{group}"
+        try:
+            if await dao.exists(cache_key):
+                schedule = json.loads(await dao.get(cache_key))
+            else:
+                # Add to queue in background so it starts parsing, but do NOT block!
+                await dao.lpush('schedule_jobs', json.dumps({"week_offset": 0, "target_type": "group", "target_value": group}))
+        except Exception as e:
+            logger.error(f"Failed to check cache in verify: {e}")
+            
+    return {
+        "status": "ok",
+        "user": tg_user,
+        "user_status": {
+            "telegram_id": uid,
+            "ai_model": model,
+            "ai_balance": ai_balance,
+            "vpn_enabled": user_row['vpn_enabled'] or False,
+            "vpn_expires_at": user_row['vpn_expires_at'].strftime("%d.%m.%Y") if user_row['vpn_expires_at'] else None,
+            "ai_expires_at": user_row['ai_expires_at'].strftime("%d.%m.%Y") if user_row['ai_expires_at'] else None,
+            "group_name": group,
+            "has_custom_key": has_key,
+            "is_programmatic_key": is_programmatic,
+            "can_chat": can_chat,
+            "vpn_key": user_row['vpn_key'],
+            "morning_time": morn_time,
+            "evening_time": eve_time,
+            "bot_username": bot_name,
+            "is_starosta": is_starosta,
+            "starosta_name": starosta_name,
+            "starosta_group": await dao.hget("starosta_group_saved", str(uid)),
+            "is_admin": uid in ADMIN_IDS
+        },
+        "initial_schedule": schedule
+    }
 
 @app.get("/api/user_status")
 async def api_user_status(uid: int, init_data: str):
