@@ -268,11 +268,14 @@ import json
 import hmac
 import hashlib
 import urllib.parse
+import collections
+import psutil
 from datetime import datetime, timedelta, timezone
 from ai_manager import get_ai_response, create_openrouter_key
 
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 dao = redis.Redis(host=REDIS_HOST, port=6379, decode_responses=True)
+ADMIN_IDS = [474095004]
 
 GROUPS_DB = {
     "Ит-24107 гр.1": "756cb41d-42af-11ef-b448-00155d7f1420%3A309c2eb3-6dea-11f0-b44a-00155d7f1420",
@@ -483,7 +486,8 @@ async def api_user_status(uid: int, init_data: str):
         "bot_username": bot_name,
         "is_starosta": is_starosta,
         "starosta_name": starosta_name,
-        "starosta_group": await dao.hget("starosta_group_saved", str(uid))
+        "starosta_group": await dao.hget("starosta_group_saved", str(uid)),
+        "is_admin": uid in ADMIN_IDS
     }
 
 @app.get("/api/groups")
@@ -1054,3 +1058,192 @@ async def api_starosta_update_event(request: Request):
             
     await db_manager.update_event(int(event_id), title, description, event_date, link)
     return {"status": "ok", "message": "Мероприятие обновлено"}
+
+# --- ADMIN API ENDPOINTS ---
+@app.post("/api/admin/status")
+async def api_admin_status(request: Request):
+    body = await request.json()
+    uid = body.get("uid")
+    init_data = body.get("init_data")
+    
+    tg_user = verify_telegram_init_data(init_data)
+    if not tg_user or tg_user["id"] != uid or uid not in ADMIN_IDS:
+        raise HTTPException(status_code=403, detail="Forbidden: Not an admin")
+        
+    cpu = psutil.cpu_percent()
+    ram = psutil.virtual_memory().percent
+    try:
+        redis_ping = await dao.ping()
+        redis_status = "✅ Работает" if redis_ping else "❌ Сбой"
+    except Exception:
+        redis_status = "❌ Сбой"
+        
+    workers = await dao.llen('schedule_jobs')
+    
+    return {
+        "status": "ok",
+        "cpu": cpu,
+        "ram": ram,
+        "redis_status": redis_status,
+        "cache_version": 39,
+        "workers": workers
+    }
+
+@app.post("/api/admin/detailed_stats")
+async def api_admin_detailed_stats(request: Request):
+    body = await request.json()
+    uid = body.get("uid")
+    init_data = body.get("init_data")
+    
+    tg_user = verify_telegram_init_data(init_data)
+    if not tg_user or tg_user["id"] != uid or uid not in ADMIN_IDS:
+        raise HTTPException(status_code=403, detail="Forbidden: Not an admin")
+        
+    users = list(await dao.smembers("bot_users"))
+    total_users = len(users)
+    
+    subs = await dao.hgetall("user_subs")
+    subbed_users = len(subs)
+    
+    group_counts = collections.Counter(subs.values())
+    top_groups = [{"name": grp, "count": count} for grp, count in group_counts.most_common(10)]
+        
+    morn_times = await dao.hgetall("user_morning_time")
+    morn_counts = collections.Counter(morn_times.values())
+    top_morning = [{"time": t, "count": count} for t, count in morn_counts.most_common(5)]
+    
+    db_g_size = await dao.hlen("db_groups")
+    db_t_size = await dao.hlen("db_teachers")
+    db_c_size = await dao.hlen("db_classrooms")
+    
+    return {
+        "status": "ok",
+        "total_users": total_users,
+        "subbed_users": subbed_users,
+        "top_groups": top_groups,
+        "top_morning": top_morning,
+        "db_sizes": {
+            "groups": db_g_size,
+            "teachers": db_t_size,
+            "classrooms": db_c_size
+        }
+    }
+
+@app.post("/api/admin/server_time")
+async def api_admin_server_time(request: Request):
+    body = await request.json()
+    uid = body.get("uid")
+    init_data = body.get("init_data")
+    
+    tg_user = verify_telegram_init_data(init_data)
+    if not tg_user or tg_user["id"] != uid or uid not in ADMIN_IDS:
+        raise HTTPException(status_code=403, detail="Forbidden: Not an admin")
+        
+    tz = timezone(timedelta(hours=5))
+    now = datetime.now(tz)
+    return {
+        "status": "ok",
+        "server_time": now.strftime('%Y-%m-%d %H:%M:%S')
+    }
+
+@app.post("/api/admin/broadcast")
+async def api_admin_broadcast(request: Request):
+    body = await request.json()
+    uid = body.get("uid")
+    init_data = body.get("init_data")
+    text = body.get("text")
+    
+    tg_user = verify_telegram_init_data(init_data)
+    if not tg_user or tg_user["id"] != uid or uid not in ADMIN_IDS:
+        raise HTTPException(status_code=403, detail="Forbidden: Not an admin")
+        
+    if not text:
+        raise HTTPException(status_code=400, detail="Missing text")
+        
+    users = list(await dao.smembers("bot_users"))
+    if not users:
+        return {"status": "ok", "total": 0}
+        
+    token = os.getenv("BOT_TOKEN")
+    if not token:
+        raise HTTPException(status_code=500, detail="Bot token not configured")
+        
+    async def run_broadcast_task():
+        success = 0
+        for target_uid in users:
+            ok = await send_telegram_message(token, int(target_uid), text)
+            if ok:
+                success += 1
+            await asyncio.sleep(0.05)
+        logger.info(f"Admin broadcast by {uid} finished. Delivered to {success}/{len(users)}")
+        
+    asyncio.create_task(run_broadcast_task())
+    return {"status": "ok", "total": len(users)}
+
+@app.post("/api/admin/trigger_command")
+async def api_admin_trigger_command(request: Request):
+    body = await request.json()
+    uid = body.get("uid")
+    init_data = body.get("init_data")
+    command = body.get("command")
+    
+    tg_user = verify_telegram_init_data(init_data)
+    if not tg_user or tg_user["id"] != uid or uid not in ADMIN_IDS:
+        raise HTTPException(status_code=403, detail="Forbidden: Not an admin")
+        
+    if command not in ["force_broadcast", "delayed_broadcast", "test_schedule_broadcast", "preload_cache"]:
+        raise HTTPException(status_code=400, detail="Invalid command")
+        
+    # Queue the command in Redis for bot.py to handle
+    payload = {
+        "command": command,
+        "admin_id": uid
+    }
+    await dao.rpush("admin_bot_commands", json.dumps(payload))
+    return {"status": "ok", "message": "Команда успешно отправлена на выполнение боту"}
+
+@app.post("/api/admin/update")
+async def api_admin_update(request: Request):
+    body = await request.json()
+    uid = body.get("uid")
+    init_data = body.get("init_data")
+    
+    tg_user = verify_telegram_init_data(init_data)
+    if not tg_user or tg_user["id"] != uid or uid not in ADMIN_IDS:
+        raise HTTPException(status_code=403, detail="Forbidden: Not an admin")
+        
+    token = os.getenv("BOT_TOKEN")
+    if not token:
+        raise HTTPException(status_code=500, detail="Bot token not configured")
+        
+    async def run_update_sequence():
+        await dao.set("update_in_progress", "1")
+        await dao.set("update_admin_id", str(uid))
+        await dao.delete("update_msgs")
+        
+        maintenance_msg = "⚙️ <b>Внимание!</b>\nСервер обслуживается. Бот будет недоступен несколько минут."
+        users = list(await dao.smembers("bot_users"))
+        
+        success_msgs = {}
+        for target_uid in users:
+            try:
+                url = f"https://api.telegram.org/bot{token}/sendMessage"
+                payload = {"chat_id": int(target_uid), "text": maintenance_msg, "parse_mode": "HTML"}
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(url, json=payload) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            msg_id = data.get("result", {}).get("message_id")
+                            if msg_id:
+                                success_msgs[str(target_uid)] = str(msg_id)
+            except Exception:
+                pass
+            await asyncio.sleep(0.02)
+            
+        if success_msgs:
+            await dao.hset("update_msgs", mapping=success_msgs)
+            
+        await dao.set("bot_update_trigger", "1")
+        
+    asyncio.create_task(run_update_sequence())
+    return {"status": "ok", "message": "Процесс обновления запущен"}

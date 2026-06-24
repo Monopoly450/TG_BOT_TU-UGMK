@@ -1155,6 +1155,29 @@
             color: var(--text-muted);
             text-transform: uppercase;
         }
+
+        /* Admin tab styles */
+        .admin-tab-btn {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            padding: 6px 12px;
+            font-size: 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-family: var(--font-family);
+            font-weight: 500;
+            white-space: nowrap;
+            transition: all 0.2s ease;
+        }
+        .admin-tab-btn:hover {
+            border-color: var(--primary-color);
+        }
+        .admin-tab-btn.active {
+            background: var(--primary-color);
+            border-color: var(--primary-color);
+            color: white;
+        }
     </style>
 </head>
 <body>
@@ -1351,6 +1374,20 @@
                         </div>
                     </div>
                     <button class="btn btn-primary" style="width: auto; padding: 6px 12px; font-size: 12px; border-radius: 8px; font-weight: 500;" onclick="handleStarostaAccess()">Открыть</button>
+                </div>
+            </div>
+
+            <!-- ⚙️ Панель администратора -->
+            <div id="admin-panel-card" class="card glass" style="display: none; flex-direction: column; gap: 8px; border: 1px solid rgba(16, 185, 129, 0.3); background: linear-gradient(135deg, rgba(16, 185, 129, 0.03), rgba(16, 185, 129, 0.05)); margin-top: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 20px;">⚙️</span>
+                        <div>
+                            <h4 style="font-size: 14px; font-weight: 600; margin: 0;">Панель администратора</h4>
+                            <p style="font-size: 11px; color: var(--text-muted); margin: 2px 0 0 0;">Управление сервером и ботом</p>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" style="width: auto; padding: 6px 12px; font-size: 12px; border-radius: 8px; font-weight: 500; background: var(--accent-color); border-color: var(--accent-color);" onclick="openAdminModal()">Открыть</button>
                 </div>
             </div>
 
@@ -1758,6 +1795,63 @@
         </div>
     </div>
 
+    <!-- Admin Dashboard Modal -->
+    <div id="admin-modal" class="modal-overlay">
+        <div class="modal-content glass" style="max-height: 90vh; width: 90%; max-width: 480px; display: flex; flex-direction: column;">
+            <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding: 16px 20px;">
+                <h3 style="margin: 0; display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600;">⚙️ Панель администратора</h3>
+                <button class="modal-close" onclick="closeAdminModal()" style="font-size: 24px; background: none; border: none; color: var(--text-color); cursor: pointer; padding: 0; line-height: 1;">&times;</button>
+            </div>
+            
+            <!-- Tabs Menu -->
+            <div style="display: flex; gap: 8px; padding: 12px 20px; border-bottom: 1px solid var(--border-color); overflow-x: auto; background: rgba(0,0,0,0.02);">
+                <button class="admin-tab-btn active" onclick="switchAdminTab('status')">📊 Статус</button>
+                <button class="admin-tab-btn" onclick="switchAdminTab('stats')">📈 Статистика</button>
+                <button class="admin-tab-btn" onclick="switchAdminTab('broadcast')">📢 Рассылка</button>
+                <button class="admin-tab-btn" onclick="switchAdminTab('actions')">🛠 Действия</button>
+            </div>
+
+            <div class="modal-body" style="flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+                <!-- Tab 1: Status -->
+                <div id="admin-tab-status" class="admin-tab-content">
+                    <div class="spinner" id="admin-status-spinner" style="margin: 20px auto; display: none;"></div>
+                    <div id="admin-status-info" style="display: flex; flex-direction: column; gap: 12px; font-size: 13px;">
+                        <!-- Filled dynamically -->
+                    </div>
+                    <button class="btn btn-primary" style="margin-top: 16px; width: 100%;" onclick="refreshAdminStatus()">🔄 Обновить статус</button>
+                </div>
+
+                <!-- Tab 2: Statistics -->
+                <div id="admin-tab-stats" class="admin-tab-content" style="display: none;">
+                    <div class="spinner" id="admin-stats-spinner" style="margin: 20px auto; display: none;"></div>
+                    <div id="admin-stats-info" style="display: flex; flex-direction: column; gap: 12px; font-size: 13px;">
+                        <!-- Filled dynamically -->
+                    </div>
+                    <button class="btn btn-primary" style="margin-top: 16px; width: 100%;" onclick="refreshAdminStats()">🔄 Обновить статистику</button>
+                </div>
+
+                <!-- Tab 3: Broadcast -->
+                <div id="admin-tab-broadcast" class="admin-tab-content" style="display: none; display: flex; flex-direction: column; gap: 12px;">
+                    <p style="font-size: 12px; color: var(--text-muted); margin: 0;">Отправить массовое текстовое сообщение всем пользователям бота:</p>
+                    <textarea id="admin-broadcast-text" class="chat-input" placeholder="Введите текст рассылки..." style="width: 100%; height: 120px; resize: none; font-size: 13px; font-family: var(--font-family); box-sizing: border-box;"></textarea>
+                    <button class="btn btn-primary" style="background: var(--accent-color); border-color: var(--accent-color); font-weight: 500;" onclick="sendAdminBroadcast()">🚀 Запустить рассылку</button>
+                </div>
+
+                <!-- Tab 4: Actions -->
+                <div id="admin-tab-actions" class="admin-tab-content" style="display: none; display: flex; flex-direction: column; gap: 10px;">
+                    <button class="btn" style="border: 1px solid var(--primary-color); color: var(--primary-color); background: transparent; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 13px; height: 42px; border-radius: 12px;" onclick="triggerAdminCommand('test_schedule_broadcast')">🧪 Тест рассылки расписания</button>
+                    <button class="btn btn-primary" style="display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 13px; height: 42px;" onclick="triggerAdminCommand('force_broadcast')">🚀 Запустить рассылку (ВСЕМ)</button>
+                    <button class="btn" style="border: 1px solid var(--accent-color); color: var(--accent-color); background: transparent; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 13px; height: 42px; border-radius: 12px;" onclick="triggerAdminCommand('delayed_broadcast')">⏳ Отложенная рассылка (1 мин)</button>
+                    <button class="btn btn-primary" style="background: #fbb601; border-color: #fbb601; color: #1f2937; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 13px; height: 42px; font-weight: 600;" onclick="triggerAdminCommand('preload_cache')">⚡ Предзагрузить кэш расписаний</button>
+                    
+                    <div style="border-top: 1px solid var(--border-color); margin-top: 12px; padding-top: 12px;">
+                        <button class="btn btn-primary" style="background: var(--danger-color); border-color: var(--danger-color); display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 13px; height: 42px;" onclick="triggerAdminUpdate()">🔄 Сбросить кэш и обновить (git pull)</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         // Global State variables
         let tg = window.Telegram.WebApp;
@@ -1772,6 +1866,7 @@
         let isUserStarosta = false;
         let starostaGroup = "";
         let starostaName = "";
+        let isUserAdmin = false;
         
         let currentTargetType = "group";
         let currentTargetName = "";
@@ -1993,6 +2088,13 @@
                     
                     document.getElementById("starosta-group-badge").innerText = starostaGroup || "-";
                     document.querySelectorAll(".st-group-name").forEach(el => el.innerText = starostaGroup || "-");
+
+                    // Update admin info
+                    isUserAdmin = status.is_admin || false;
+                    const adminCard = document.getElementById("admin-panel-card");
+                    if (adminCard) {
+                        adminCard.style.display = isUserAdmin ? "flex" : "none";
+                    }
                     
                     // VPN values
                     const vpnValEl = document.getElementById("vpn-status-val");
@@ -3238,6 +3340,310 @@
             } catch (err) {
                 console.error("Delete event failed:", err);
                 showMessage("Ошибка", "Сбой сети: " + err.message);
+            }
+        }
+
+        // --- Admin Dashboard Functions ---
+        let currentAdminTab = "status";
+
+        function openAdminModal() {
+            document.getElementById("admin-modal").classList.add("active");
+            switchAdminTab("status");
+        }
+
+        function closeAdminModal() {
+            document.getElementById("admin-modal").classList.remove("active");
+        }
+
+        function switchAdminTab(tabName) {
+            currentAdminTab = tabName;
+            document.querySelectorAll(".admin-tab-btn").forEach(btn => btn.classList.remove("active"));
+            document.querySelectorAll(".admin-tab-content").forEach(content => content.style.display = "none");
+            
+            // Find button and content
+            const btn = document.querySelector(`.admin-tab-btn[onclick*="${tabName}"]`);
+            if (btn) btn.classList.add("active");
+            
+            const content = document.getElementById(`admin-tab-${tabName}`);
+            if (content) {
+                if (tabName === "broadcast") {
+                    content.style.display = "flex";
+                } else if (tabName === "actions") {
+                    content.style.display = "flex";
+                } else {
+                    content.style.display = "block";
+                }
+            }
+            
+            if (tabName === "status") {
+                refreshAdminStatus();
+            } else if (tabName === "stats") {
+                refreshAdminStats();
+            }
+        }
+
+        async function refreshAdminStatus() {
+            const infoDiv = document.getElementById("admin-status-info");
+            const spinner = document.getElementById("admin-status-spinner");
+            
+            infoDiv.style.display = "none";
+            spinner.style.display = "block";
+            
+            try {
+                const res = await fetch("/api/admin/status", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ uid: user.id, init_data: initData })
+                });
+                
+                if (res.ok) {
+                    const data = await res.json();
+                    infoDiv.innerHTML = `
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--border-color); padding-bottom:6px;">
+                            <span style="color:var(--text-muted);">Нагрузка CPU:</span>
+                            <span style="font-weight:600;">${data.cpu}%</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--border-color); padding-bottom:6px;">
+                            <span style="color:var(--text-muted);">Использование ОЗУ (RAM):</span>
+                            <span style="font-weight:600;">${data.ram}%</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--border-color); padding-bottom:6px;">
+                            <span style="color:var(--text-muted);">База Redis:</span>
+                            <span style="font-weight:600; color:${data.redis_status.includes('✅') ? 'var(--accent-color)' : 'var(--danger-color)'}">${data.redis_status}</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--border-color); padding-bottom:6px;">
+                            <span style="color:var(--text-muted);">Версия кэша:</span>
+                            <span style="font-weight:600;">v${data.cache_version}</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between;">
+                            <span style="color:var(--text-muted);">Воркер очередь:</span>
+                            <span style="font-weight:600;">${data.workers} задач</span>
+                        </div>
+                    `;
+                } else {
+                    infoDiv.innerHTML = `<p style="color:var(--danger-color); text-align:center;">Не удалось загрузить статус.</p>`;
+                }
+            } catch (err) {
+                console.error("Status load error:", err);
+                infoDiv.innerHTML = `<p style="color:var(--danger-color); text-align:center;">Ошибка: ${err.message}</p>`;
+            } finally {
+                spinner.style.display = "none";
+                infoDiv.style.display = "flex";
+            }
+        }
+
+        async function refreshAdminStats() {
+            const infoDiv = document.getElementById("admin-stats-info");
+            const spinner = document.getElementById("admin-stats-spinner");
+            
+            infoDiv.style.display = "none";
+            spinner.style.display = "block";
+            
+            try {
+                const res = await fetch("/api/admin/detailed_stats", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ uid: user.id, init_data: initData })
+                });
+                
+                if (res.ok) {
+                    const data = await res.json();
+                    
+                    let groupsHTML = data.top_groups.map(g => `
+                        <div style="display:flex; justify-content:space-between; font-size:12px; margin-left:10px;">
+                            <span style="color:var(--text-muted);">• ${g.name}:</span>
+                            <span style="font-weight:500;">${g.count} чел.</span>
+                        </div>
+                    `).join("");
+                    if (!groupsHTML) groupsHTML = "<p style='margin-left:10px; color:var(--text-muted);'>Нет активных подписок.</p>";
+                    
+                    let timesHTML = data.top_morning.map(t => `
+                        <div style="display:flex; justify-content:space-between; font-size:12px; margin-left:10px;">
+                            <span style="color:var(--text-muted);">• ${t.time}:</span>
+                            <span style="font-weight:500;">${t.count} чел.</span>
+                        </div>
+                    `).join("");
+                    if (!timesHTML) timesHTML = "<p style='margin-left:10px; color:var(--text-muted);'>Нет утренних рассылок.</p>";
+
+                    infoDiv.innerHTML = `
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--border-color); padding-bottom:6px;">
+                            <span style="color:var(--text-muted);">Всего пользователей:</span>
+                            <span style="font-weight:600;">${data.total_users}</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--border-color); padding-bottom:6px;">
+                            <span style="color:var(--text-muted);">С подпиской:</span>
+                            <span style="font-weight:600;">${data.subbed_users}</span>
+                        </div>
+                        
+                        <div style="border-bottom:1px solid var(--border-color); padding-bottom:6px;">
+                            <span style="color:var(--text-muted); font-weight:600;">🎓 Популярные группы:</span>
+                            <div style="margin-top:6px; display:flex; flex-direction:column; gap:4px;">
+                                ${groupsHTML}
+                            </div>
+                        </div>
+
+                        <div style="border-bottom:1px solid var(--border-color); padding-bottom:6px;">
+                            <span style="color:var(--text-muted); font-weight:600;">🌅 Утренние рассылки:</span>
+                            <div style="margin-top:6px; display:flex; flex-direction:column; gap:4px;">
+                                ${timesHTML}
+                            </div>
+                        </div>
+
+                        <div>
+                            <span style="color:var(--text-muted); font-weight:600;">📂 Базы данных (размер):</span>
+                            <div style="margin-top:6px; display:flex; flex-direction:column; gap:4px; font-size:12px; margin-left:10px;">
+                                <div style="display:flex; justify-content:space-between;">
+                                    <span style="color:var(--text-muted);">• Группы:</span>
+                                    <span>${data.db_sizes.groups}</span>
+                                </div>
+                                <div style="display:flex; justify-content:space-between;">
+                                    <span style="color:var(--text-muted);">• Преподаватели:</span>
+                                    <span>${data.db_sizes.teachers}</span>
+                                </div>
+                                <div style="display:flex; justify-content:space-between;">
+                                    <span style="color:var(--text-muted);">• Аудитории:</span>
+                                    <span>${data.db_sizes.classrooms}</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    infoDiv.innerHTML = `<p style="color:var(--danger-color); text-align:center;">Не удалось загрузить статистику.</p>`;
+                }
+            } catch (err) {
+                console.error("Stats load error:", err);
+                infoDiv.innerHTML = `<p style="color:var(--danger-color); text-align:center;">Ошибка: ${err.message}</p>`;
+            } finally {
+                spinner.style.display = "none";
+                infoDiv.style.display = "flex";
+            }
+        }
+
+        async function sendAdminBroadcast() {
+            const text = document.getElementById("admin-broadcast-text").value.trim();
+            if (!text) {
+                showMessage("Внимание", "Заполните текст сообщения для рассылки");
+                return;
+            }
+
+            const confirmBroadcast = async () => {
+                try {
+                    const res = await fetch("/api/admin/broadcast", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ uid: user.id, init_data: initData, text: text })
+                    });
+                    
+                    if (res.ok) {
+                        const data = await res.json();
+                        showMessage("Успех", `Рассылка запущена! Сообщение доставляется в фоне всем (${data.total}) пользователям.`);
+                        document.getElementById("admin-broadcast-text").value = "";
+                        closeAdminModal();
+                    } else {
+                        const errData = await res.json();
+                        showMessage("Ошибка", errData.detail || "Не удалось запустить рассылку");
+                    }
+                } catch (err) {
+                    console.error("Broadcast error:", err);
+                    showMessage("Ошибка", "Сбой сети: " + err.message);
+                }
+            };
+
+            if (tg.showPopup) {
+                tg.showPopup({
+                    title: "Массовая рассылка",
+                    message: `Отправить сообщение всем пользователям бота?`,
+                    buttons: [
+                        { id: "send", type: "default", text: "Отправить" },
+                        { type: "cancel", text: "Отмена" }
+                    ]
+                }, (btnId) => {
+                    if (btnId === "send") confirmBroadcast();
+                });
+            } else {
+                if (confirm("Отправить сообщение всем пользователям бота?")) {
+                    confirmBroadcast();
+                }
+            }
+        }
+
+        async function triggerAdminCommand(cmd) {
+            const executeCommand = async () => {
+                try {
+                    const res = await fetch("/api/admin/trigger_command", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ uid: user.id, init_data: initData, command: cmd })
+                    });
+                    
+                    if (res.ok) {
+                        const data = await res.json();
+                        showMessage("Выполнено", data.message || "Команда отправлена");
+                    } else {
+                        const errData = await res.json();
+                        showMessage("Ошибка", errData.detail || "Не удалось отправить команду");
+                    }
+                } catch (err) {
+                    console.error("Trigger command error:", err);
+                    showMessage("Ошибка", "Сбой сети: " + err.message);
+                }
+            };
+
+            if (tg.showPopup) {
+                tg.showPopup({
+                    title: "Запуск команды",
+                    message: "Запустить выполнение этой операции на сервере?",
+                    buttons: [
+                        { id: "execute", type: "default", text: "Выполнить" },
+                        { type: "cancel", text: "Отмена" }
+                    ]
+                }, (btnId) => {
+                    if (btnId === "execute") executeCommand();
+                });
+            } else {
+                if (confirm("Запустить выполнение этой операции на сервере?")) {
+                    executeCommand();
+                }
+            }
+        }
+
+        async function triggerAdminUpdate() {
+            const executeUpdate = async () => {
+                try {
+                    const res = await fetch("/api/admin/update", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ uid: user.id, init_data: initData })
+                    });
+                    
+                    if (res.ok) {
+                        showMessage("Обновление", "Сервер уходит на обновление. Бот и Mini App будут перезапущены!");
+                        closeAdminModal();
+                    } else {
+                        const errData = await res.json();
+                        showMessage("Ошибка", errData.detail || "Не удалось обновить сервер");
+                    }
+                } catch (err) {
+                    console.error("Update command error:", err);
+                    showMessage("Ошибка", "Сбой сети: " + err.message);
+                }
+            };
+
+            if (tg.showPopup) {
+                tg.showPopup({
+                    title: "Внимание!",
+                    message: "Вы действительно хотите принудительно обновить код с GitHub и перезапустить сервер? Бот будет недоступен 1-2 минуты.",
+                    buttons: [
+                        { id: "update", type: "destructive", text: "Обновить" },
+                        { type: "cancel", text: "Отмена" }
+                    ]
+                }, (btnId) => {
+                    if (btnId === "update") executeUpdate();
+                });
+            } else {
+                if (confirm("Вы действительно хотите принудительно обновить код с GitHub и перезапустить сервер? Бот будет недоступен 1-2 минуты.")) {
+                    executeUpdate();
+                }
             }
         }
     </script>

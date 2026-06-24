@@ -1437,12 +1437,109 @@ async def notify_on_shutdown():
     except Exception as e:
         logger.error(f"Notify on shutdown failed: {e}")
 
+async def admin_command_listener():
+    logger.info("🤖 Admin command listener started.")
+    while True:
+        try:
+            cmd_data = await dao.blpop("admin_bot_commands", timeout=5)
+            if cmd_data:
+                payload = json.loads(cmd_data[1])
+                command = payload.get("command")
+                admin_id = payload.get("admin_id")
+                
+                logger.info(f"Admin command received: {command} from {admin_id}")
+                
+                if command == "force_broadcast":
+                    try:
+                        await bot.send_message(admin_id, "🚀 <b>Запуск массовой рассылки...</b>", parse_mode="HTML")
+                        count = await run_morning_broadcast()
+                        await bot.send_message(admin_id, f"✅ <b>Рассылка завершена!</b>\nОтправлено сообщений: <b>{count}</b>", parse_mode="HTML")
+                    except Exception as e:
+                        logger.error(f"Force broadcast failed: {e}")
+                        try: await bot.send_message(admin_id, f"❌ Ошибка рассылки: {e}")
+                        except: pass
+                        
+                elif command == "delayed_broadcast":
+                    try:
+                        await bot.send_message(admin_id, "⏳ <b>Запуск отложенной рассылки (через 60 секунд)...</b>", parse_mode="HTML")
+                        await asyncio.sleep(60)
+                        count = await run_morning_broadcast()
+                        await bot.send_message(admin_id, f"✅ <b>Отложенная рассылка завершена!</b>\nОтправлено сообщений: <b>{count}</b>", parse_mode="HTML")
+                    except Exception as e:
+                        logger.error(f"Delayed broadcast failed: {e}")
+                        try: await bot.send_message(admin_id, f"❌ Ошибка рассылки: {e}")
+                        except: pass
+                        
+                elif command == "test_schedule_broadcast":
+                    try:
+                        await bot.send_message(admin_id, "⏳ <b>Формирую тестовую рассылку для вас...</b>", parse_mode="HTML")
+                        tz = timezone(timedelta(hours=5))
+                        subs = await dao.hgetall("user_subs")
+                        admin_gid = subs.get(str(admin_id))
+                        if not admin_gid:
+                            await bot.send_message(admin_id, "❌ Вы не подписаны на утреннюю рассылку. Перейдите в меню 'Моя подписка' в боте и подпишитесь.")
+                        else:
+                            today = datetime.now(tz).date()
+                            week_s = await sm.fetch_schedule(0, "group", admin_gid)
+                            day_name = DAYS_OF_WEEK[today.weekday()]
+                            day_lessons = week_s.get(day_name, [])
+                            is_error = not week_s or "_error" in week_s
+                            if is_error:
+                                error_msg = week_s.get('_error', 'Ошибка') if week_s else 'Ошибка'
+                                await bot.send_message(admin_id, f"❌ Ошибка получения расписания: {error_msg}")
+                            else:
+                                text = f"🧪 <b>ТЕСТ УТРЕННЕЙ РАССЫЛКИ</b>\n\n{get_greeting()} <b>Расписание на сегодня:</b>\n\n"
+                                text += await fmt_day(today, day_lessons, "group", admin_gid)
+                                await bot.send_message(admin_id, text, parse_mode="HTML")
+                    except Exception as e:
+                        logger.error(f"Test schedule broadcast failed: {e}")
+                        try: await bot.send_message(admin_id, f"❌ Ошибка теста: {e}")
+                        except: pass
+                        
+                elif command == "preload_cache":
+                    try:
+                        await bot.send_message(admin_id, "⏳ <b>Добавляю все расписания в очередь парсеров...</b>", parse_mode="HTML")
+                        count = 0
+                        data_dbs = [("group", await get_groups_db()), ("teacher", await get_teachers_db()), ("classroom", await get_classrooms_db())]
+                        for t_type, db in data_dbs:
+                            for name, tid in db.items():
+                                for wo in [0, 1]:
+                                    job = {
+                                        "week_offset": wo,
+                                        "target_type": t_type,
+                                        "target_value": name
+                                    }
+                                    await dao.rpush("schedule_jobs", json.dumps(job))
+                                    count += 1
+                        await bot.send_message(admin_id, f"✅ <b>Отправлено в очередь: {count}</b>\nВоркеры в фоновом режиме загрузят расписания в кэш! (Около 2 минут)", parse_mode="HTML")
+                        
+                        async def notify_preload_done(target_admin_id: int):
+                            await asyncio.sleep(3)
+                            while True:
+                                left = await dao.llen("schedule_jobs")
+                                if left == 0: break
+                                await asyncio.sleep(2)
+                            try:
+                                await bot.send_message(target_admin_id, "✅ <b>Фуух, готово!</b>\nАбсолютно все расписания кэшированы и готовы к молниеносной выдаче. ⚡", parse_mode="HTML")
+                            except:
+                                pass
+                        
+                        asyncio.create_task(notify_preload_done(admin_id))
+                    except Exception as e:
+                        logger.error(f"Preload cache command failed: {e}")
+                        try: await bot.send_message(admin_id, f"❌ Ошибка прогрева кэша: {e}")
+                        except: pass
+        except Exception as e:
+            logger.error(f"Error in admin_command_listener: {e}")
+            await asyncio.sleep(2)
+
 async def main():
     await db_manager.init_db()
     if PROXY_URL: logger.info(f"🌐 Используется прокси: {PROXY_URL}")
     dp.startup.register(notify_on_startup)
     dp.shutdown.register(notify_on_shutdown)
     asyncio.create_task(main_scheduler())
+    asyncio.create_task(admin_command_listener())
     await bot.delete_webhook(drop_pending_updates=True), await dp.start_polling(bot)
 
 @dp.message(Command("starost_admin"))
