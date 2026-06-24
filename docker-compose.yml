@@ -89,10 +89,12 @@ services:
       - DB_USER=postgres
       - DB_PASSWORD=ugmk_postgres_pass
       - DB_NAME=tu_bot
+      - REDIS_HOST=redis
     ports:
       - "8080:8080"
     depends_on:
       - db
+      - redis
     command: uvicorn dashboard:app --host 0.0.0.0 --port 8080
 
 volumes:
