@@ -3,6 +3,7 @@ import re
 import base64
 import logging
 import asyncio
+import aiohttp
 from fastapi import FastAPI, Request, Form, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -12,6 +13,27 @@ import vpn_manager
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("dashboard")
+
+_bot_username = None
+
+async def get_bot_username() -> str:
+    global _bot_username
+    if _bot_username:
+        return _bot_username
+    token = os.getenv("BOT_TOKEN")
+    if not token:
+        return "TU_UGMK_bot"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"https://api.telegram.org/bot{token}/getMe") as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if data.get("ok"):
+                        _bot_username = data["result"]["username"]
+                        return _bot_username
+    except Exception:
+        pass
+    return "TU_UGMK_bot"
 
 app = FastAPI(title="TU UGMK Bot Admin Dashboard")
 templates = Jinja2Templates(directory="templates")
@@ -280,6 +302,23 @@ GROUPS_DB = {
     "Гэм-22106": "03092314-09a5-11ed-b935-005056953b1b%3Aa1b619de-0c15-11ed-b935-005056953b1b",
 }
 
+TEACHERS_DB = {
+    "Сакулин Валерий Александрович": "000000376",
+    "Мазитов Виктор Расульевич": "000000421",
+    "Котельников Сергей Андреевич": "000000383",
+    "Голубина Валентина Васильевна": "000000467",
+    "Кабанов Александр Михайлович": "000000409",
+    "Игумнова Юлия Олеговна": "000002912",
+    "Тюжина Ирина Викторовна": "000002915",
+    "Ивлев Андрей Дмитриевич": "000002261",
+    "Гавриленко Никита Сергеевич": "000001833",
+}
+
+CLASSROOMS_DB = {
+    "Ауд. 300": "2355c22e-2bcd-11e7-b191-005056953b1b",
+    "Ауд. 203": "67941c0b-ca51-11ee-b440-00155d7f0e19",
+}
+
 FREE_MODELS = [
     "nemotron-3-ultra-free",
     "laguna-xs-2-free",
@@ -420,6 +459,11 @@ async def api_user_status(uid: int, init_data: str):
     # Retrieve group
     group = await dao.hget("user_subs", str(uid)) or user_row['group_name']
     
+    # Retrieve notification settings
+    morn_time = await dao.hget("user_morning_time", str(uid)) or "08:00"
+    eve_time = await dao.hget("user_evening_time", str(uid)) or "Отключено"
+    bot_name = await get_bot_username()
+    
     return {
         "telegram_id": uid,
         "ai_model": model,
@@ -431,7 +475,10 @@ async def api_user_status(uid: int, init_data: str):
         "has_custom_key": has_key,
         "is_programmatic_key": is_programmatic,
         "can_chat": can_chat,
-        "vpn_key": user_row['vpn_key']
+        "vpn_key": user_row['vpn_key'],
+        "morning_time": morn_time,
+        "evening_time": eve_time,
+        "bot_username": bot_name
     }
 
 @app.get("/api/groups")
@@ -457,16 +504,19 @@ async def api_set_group(request: Request):
     return {"status": "ok", "group_name": group_name}
 
 @app.get("/api/schedule")
-async def api_schedule(group_name: str, week_offset: int, uid: int, init_data: str):
+async def api_schedule(week_offset: int, uid: int, init_data: str, group_name: str = None, target_type: str = "group", target_name: str = None):
     tg_user = verify_telegram_init_data(init_data)
     if not tg_user or tg_user["id"] != uid:
         raise HTTPException(status_code=401, detail="Unauthorized")
         
-    if group_name not in GROUPS_DB:
-        raise HTTPException(status_code=400, detail="Invalid group name")
+    t_type = target_type
+    t_name = target_name if target_name else group_name
+    
+    if not t_name:
+        raise HTTPException(status_code=400, detail="Target name is required")
         
     # Call ScheduleManager to fetch the schedule (uses Redis queue and cache)
-    schedule = await sm.fetch_schedule(week_offset, "group", group_name)
+    schedule = await sm.fetch_schedule(week_offset, t_type, t_name)
     return {"schedule": schedule}
 
 @app.post("/api/set_model")
@@ -706,3 +756,85 @@ async def api_vpn_toggle(request: Request):
     except Exception as e:
         logger.error(f"Error toggling VPN status in webapp: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/search")
+async def api_search(q: str, type: str):
+    q_lower = q.strip().lower()
+    
+    if type == "teacher":
+        db = dict(TEACHERS_DB)
+        try:
+            redis_db = await dao.hgetall("db_teachers")
+            if redis_db: db.update(redis_db)
+        except Exception as e: logger.error(f"Error fetching teachers from Redis: {e}")
+        matches = [name for name in db.keys() if q_lower in name.lower()]
+        return {"results": matches[:20]}
+        
+    elif type == "classroom":
+        db = dict(CLASSROOMS_DB)
+        try:
+            redis_db = await dao.hgetall("db_classrooms")
+            if redis_db: db.update(redis_db)
+        except Exception as e: logger.error(f"Error fetching classrooms from Redis: {e}")
+        matches = [name for name in db.keys() if q_lower in name.lower()]
+        return {"results": matches[:20]}
+        
+    elif type == "group":
+        db = dict(GROUPS_DB)
+        try:
+            redis_db = await dao.hgetall("db_groups")
+            if redis_db: db.update(redis_db)
+        except Exception as e: logger.error(f"Error fetching groups from Redis: {e}")
+        matches = [name for name in db.keys() if q_lower in name.lower()]
+        return {"results": matches[:20]}
+        
+    return {"results": []}
+
+@app.post("/api/set_notifications")
+async def api_set_notifications(request: Request):
+    body = await request.json()
+    uid = body.get("uid")
+    morning_time = body.get("morning_time")
+    evening_time = body.get("evening_time")
+    init_data = body.get("init_data")
+    
+    tg_user = verify_telegram_init_data(init_data)
+    if not tg_user or tg_user["id"] != uid:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+        
+    if morning_time:
+        await dao.hset("user_morning_time", str(uid), morning_time)
+    if evening_time:
+        await dao.hset("user_evening_time", str(uid), evening_time)
+        
+    return {"status": "ok"}
+
+@app.get("/api/ecosystem")
+async def api_ecosystem(uid: int, init_data: str):
+    tg_user = verify_telegram_init_data(init_data)
+    if not tg_user or tg_user["id"] != uid:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+        
+    events = await db_manager.get_events()
+    channels = await db_manager.get_channels()
+    
+    serialized_events = []
+    for ev in events:
+        serialized_events.append({
+            "id": ev["id"],
+            "title": ev["title"],
+            "description": ev["description"],
+            "event_date": ev["event_date"].isoformat() if ev["event_date"] else None,
+            "link": ev["link"]
+        })
+        
+    serialized_channels = []
+    for ch in channels:
+        serialized_channels.append({
+            "id": ch["id"],
+            "name": ch["name"],
+            "category": ch["category"] if "category" in dict(ch) else "",
+            "link": ch["link"]
+        })
+        
+    return {"events": serialized_events, "channels": serialized_channels}

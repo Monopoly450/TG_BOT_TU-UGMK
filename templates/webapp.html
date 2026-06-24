@@ -722,6 +722,271 @@
             margin-top: 6px;
             font-size: 12px;
         }
+
+        /* Search controls & tab segment controller */
+        .search-type-selector {
+            display: flex;
+            background: #f3f4f6;
+            border-radius: 12px;
+            padding: 4px;
+            margin-bottom: 12px;
+            border: 1px solid var(--border-color);
+        }
+        .search-type-btn {
+            flex: 1;
+            text-align: center;
+            padding: 8px 4px;
+            font-size: 13px;
+            font-weight: 600;
+            border-radius: 8px;
+            border: none;
+            background: transparent;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .search-type-btn.active {
+            background: var(--primary-gradient);
+            color: #ffffff;
+            box-shadow: 0 2px 6px rgba(150, 16, 23, 0.15);
+        }
+        .search-results-list {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            background: #ffffff;
+            margin-bottom: 12px;
+            display: none;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            position: absolute;
+            width: 100%;
+            left: 0;
+            z-index: 1000;
+        }
+        .search-result-item {
+            padding: 10px 14px;
+            font-size: 14px;
+            border-bottom: 1px solid var(--border-color);
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: var(--text-color);
+        }
+        .search-result-item:last-child {
+            border-bottom: none;
+        }
+        .search-result-item:active {
+            background: #f1f3f5;
+        }
+        
+        /* Favorites styling */
+        .favorites-container {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            padding: 4px 0 10px 0;
+            margin-bottom: 12px;
+            scrollbar-width: none;
+        }
+        .favorites-container::-webkit-scrollbar {
+            display: none;
+        }
+        .favorite-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            background: #ffffff;
+            border: 1px solid var(--border-color);
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-color);
+            white-space: nowrap;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+        }
+        .favorite-chip.active {
+            border-color: var(--brand-gold);
+            background: rgba(251, 182, 1, 0.08);
+            color: #961017;
+        }
+        .active-target-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 14px;
+            border-radius: 12px;
+            background: rgba(150, 16, 23, 0.04);
+            border: 1px solid rgba(150, 16, 23, 0.1);
+            margin-bottom: 16px;
+        }
+        .active-target-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--primary-color);
+        }
+        .favorite-toggle-btn {
+            background: none;
+            border: none;
+            font-size: 22px;
+            cursor: pointer;
+            color: var(--text-muted);
+            transition: transform 0.2s ease, color 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 4px;
+        }
+        .favorite-toggle-btn.active {
+            color: var(--brand-gold);
+            transform: scale(1.15);
+        }
+
+        /* Ecosystem layouts */
+        .event-card {
+            background: #ffffff;
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 14px;
+            margin-bottom: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+        }
+        .event-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--primary-color);
+            margin-bottom: 6px;
+        }
+        .event-date-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 6px;
+            background: rgba(150, 16, 23, 0.06);
+            color: var(--primary-color);
+            font-size: 11px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        .event-description {
+            font-size: 13px;
+            color: var(--text-muted);
+            line-height: 1.5;
+            margin-bottom: 12px;
+        }
+        .catalog-section {
+            margin-bottom: 16px;
+        }
+        .catalog-category-title {
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            letter-spacing: 0.5px;
+        }
+        .catalog-channel-card {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 14px;
+            background: #ffffff;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            margin-bottom: 8px;
+        }
+        .catalog-channel-name {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-color);
+        }
+        .talk-rooms-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .talk-room-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 12px;
+            background: #ffffff;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            text-align: center;
+            text-decoration: none;
+            color: var(--text-color);
+            font-weight: 600;
+            font-size: 13px;
+            gap: 6px;
+            transition: all 0.2s ease;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+        }
+        .talk-room-btn:active {
+            border-color: var(--primary-color);
+            background: rgba(150, 16, 23, 0.04);
+            transform: scale(0.98);
+        }
+        .talk-room-btn svg {
+            width: 20px;
+            height: 20px;
+            stroke: var(--primary-color);
+        }
+
+        /* Purchase packages styling */
+        .package-card {
+            background: #ffffff;
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 14px;
+            margin-bottom: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+        }
+        .package-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 8px;
+        }
+        .package-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text-color);
+        }
+        .package-price {
+            font-size: 12px;
+            font-weight: 700;
+            color: #b45309;
+            background: rgba(251, 182, 1, 0.18);
+            padding: 3px 6px;
+            border-radius: 6px;
+            white-space: nowrap;
+        }
+        .package-desc {
+            font-size: 12px;
+            color: var(--text-muted);
+            line-height: 1.4;
+        }
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+        .form-label {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
     </style>
 </head>
 <body>
@@ -758,17 +1023,34 @@
         
         <!-- 📅 Schedule Tab -->
         <div id="tab-schedule" class="tab-content active">
-            <div class="card glass">
-                <div class="card-title">
-                    <svg style="width: 20px; height: 20px; fill: none; stroke: var(--primary-color); stroke-width: 2;" viewBox="0 0 24 24">
-                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
-                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
-                    </svg>
-                    <span>Выбор учебной группы</span>
+            <div class="card glass" style="padding: 12px; margin-bottom: 12px; position: relative;">
+                <div class="search-type-selector">
+                    <button class="search-type-btn active" id="btn-type-group" onclick="setSearchType('group')">👥 Группы</button>
+                    <button class="search-type-btn" id="btn-type-teacher" onclick="setSearchType('teacher')">👤 Преподы</button>
+                    <button class="search-type-btn" id="btn-type-classroom" onclick="setSearchType('classroom')">🏫 Аудитории</button>
                 </div>
-                <select id="group-select" class="select-input" onchange="changeGroup(this.value)">
-                    <option value="">Загрузка групп...</option>
-                </select>
+                
+                <div style="position: relative; display: flex; align-items: center; gap: 8px;">
+                    <div style="position: relative; flex: 1;">
+                        <input type="text" id="schedule-search-input" class="chat-input" placeholder="🔍 Начните вводить название группы..." style="width: 100%; border-radius: 12px; padding: 10px 32px 10px 12px; margin-bottom: 0;" oninput="onSearchInput(this.value)">
+                        <span id="search-clear-btn" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 18px; color: var(--text-muted); cursor: pointer; display: none;" onclick="clearSearchInput()">&times;</span>
+                    </div>
+                </div>
+                
+                <div id="search-results-list" class="search-results-list"></div>
+                
+                <div id="legacy-group-select-container" style="display: none;">
+                    <select id="group-select" class="select-input" style="margin-bottom: 0;" onchange="changeGroup(this.value)">
+                        <option value="">Загрузка групп...</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div style="margin-bottom: 12px; padding: 0 4px;">
+                <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase;">
+                    <span style="color: var(--brand-gold);">★</span> Избранное
+                </div>
+                <div id="favorites-chips-container" class="favorites-container"></div>
             </div>
 
             <div class="week-selector">
@@ -877,9 +1159,10 @@
 
         <!-- 👤 Profile Tab -->
         <div id="tab-profile" class="tab-content">
+            <!-- User Info Card -->
             <div class="card glass" style="display: flex; flex-direction: column; gap: 12px;">
                 <div style="display: flex; align-items: center; gap: 16px;">
-                    <div style="background: var(--primary-gradient); width: 50px; height: 50px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 700;">
+                    <div style="background: var(--primary-gradient); width: 50px; height: 50px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 700; color: white;">
                         <span id="profile-avatar">U</span>
                     </div>
                     <div>
@@ -889,14 +1172,14 @@
                 </div>
             </div>
 
+            <!-- Моя подписка (Subscription Details) Card -->
             <div class="card glass" style="display: flex; flex-direction: column; gap: 14px;">
                 <div class="card-title">
                     <svg style="width: 20px; height: 20px; fill: none; stroke: var(--primary-color); stroke-width: 2;" viewBox="0 0 24 24">
-                        <circle cx="12" cy="12" r="10"/>
-                        <line x1="12" y1="16" x2="12" y2="12"/>
-                        <line x1="12" y1="8" x2="12.01" y2="8"/>
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
                     </svg>
-                    <span>Информация о подписках</span>
+                    <span>Моя подписка</span>
                 </div>
                 <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
                     <span style="color: var(--text-muted); font-size: 14px;">Группа обучения:</span>
@@ -904,7 +1187,7 @@
                 </div>
                 <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
                     <span style="color: var(--text-muted); font-size: 14px;">Баланс ИИ:</span>
-                    <span id="profile-ai-balance" style="font-weight: 600; font-size: 14px; color: #60a5fa;">0 💳</span>
+                    <span id="profile-ai-balance" style="font-weight: 600; font-size: 14px; color: var(--primary-color);">0 💳</span>
                 </div>
                 <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
                     <span style="color: var(--text-muted); font-size: 14px;">Истекает ИИ-лимит:</span>
@@ -913,6 +1196,185 @@
                 <div style="display: flex; justify-content: space-between; padding-bottom: 4px;">
                     <span style="color: var(--text-muted); font-size: 14px;">VPN Подписка:</span>
                     <span id="profile-vpn-expiry" style="font-weight: 600; font-size: 14px;">—</span>
+                </div>
+            </div>
+
+            <!-- Настройка уведомлений Card -->
+            <div class="card glass" style="display: flex; flex-direction: column; gap: 14px;">
+                <div class="card-title">
+                    <svg style="width: 20px; height: 20px; fill: none; stroke: var(--primary-color); stroke-width: 2;" viewBox="0 0 24 24">
+                        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/>
+                    </svg>
+                    <span>Уведомления о расписании</span>
+                </div>
+                <p style="font-size: 12px; color: var(--text-muted);">Каждый день бот будет присылать вам расписание на сегодня и завтра в выбранное время.</p>
+                
+                <div class="form-group">
+                    <label class="form-label">Утреннее уведомление (на сегодня):</label>
+                    <select id="morning-time-select" class="select-input" style="margin-bottom: 0;">
+                        <option value="07:00">07:00</option>
+                        <option value="07:30">07:30</option>
+                        <option value="08:00">08:00</option>
+                        <option value="08:30">08:30</option>
+                        <option value="09:00">09:00</option>
+                        <option value="09:30">09:30</option>
+                        <option value="10:00">10:00</option>
+                        <option value="Отключено">Отключено</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Вечернее уведомление (на завтра):</label>
+                    <select id="evening-time-select" class="select-input" style="margin-bottom: 0;">
+                        <option value="17:00">17:00</option>
+                        <option value="18:00">18:00</option>
+                        <option value="19:00">19:00</option>
+                        <option value="20:00">20:00</option>
+                        <option value="21:00">21:00</option>
+                        <option value="22:00">22:00</option>
+                        <option value="Отключено">Отключено</option>
+                    </select>
+                </div>
+                
+                <button class="btn btn-primary" onclick="saveNotificationSettings()">Сохранить настройки</button>
+            </div>
+
+            <!-- Купить подписку Card -->
+            <div class="card glass" style="display: flex; flex-direction: column; gap: 14px;">
+                <div class="card-title">
+                    <svg style="width: 20px; height: 20px; fill: none; stroke: var(--primary-color); stroke-width: 2;" viewBox="0 0 24 24">
+                        <rect x="1" y="4" width="22" height="16" rx="2" ry="2"/>
+                        <line x1="1" y1="10" x2="23" y2="10"/>
+                    </svg>
+                    <span>Купить подписку</span>
+                </div>
+                <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">Выберите тарифный план для покупки через Telegram Stars:</p>
+                
+                <!-- Package 1: VPN Only -->
+                <div class="package-card">
+                    <div class="package-header">
+                        <span class="package-title">🔌 WireGuard VPN (30 дней)</span>
+                        <span class="package-price">100 ⭐</span>
+                    </div>
+                    <p class="package-desc">Доступ к безопасному высокоскоростному VPN без ограничений по трафику.</p>
+                    <button class="btn btn-primary" style="padding: 8px 16px; font-size: 13px;" onclick="buyPackage('vpn_only')">Купить за 100 ⭐</button>
+                </div>
+
+                <!-- Package 2: AI Standard -->
+                <div class="package-card">
+                    <div class="package-header">
+                        <span class="package-title">🤖 150 стандартных запросов ИИ</span>
+                        <span class="package-price">400 ⭐</span>
+                    </div>
+                    <p class="package-desc">Пополнение баланса ИИ-запросов (подходит для моделей стандартного уровня).</p>
+                    <button class="btn btn-primary" style="padding: 8px 16px; font-size: 13px;" onclick="buyPackage('ai_standard')">Купить за 400 ⭐</button>
+                </div>
+
+                <!-- Package 3: AI Premium -->
+                <div class="package-card">
+                    <div class="package-header">
+                        <span class="package-title">🔥 30 премиум запросов ИИ</span>
+                        <span class="package-price">500 ⭐</span>
+                    </div>
+                    <p class="package-desc">Доступ к топовым моделям (Claude 3.5 Sonnet, GPT-4o) для решения сложных задач.</p>
+                    <button class="btn btn-primary" style="padding: 8px 16px; font-size: 13px;" onclick="buyPackage('ai_premium')">Купить за 500 ⭐</button>
+                </div>
+
+                <!-- Package 4: Bundle Standard -->
+                <div class="package-card">
+                    <div class="package-header">
+                        <span class="package-title">📦 Пакет Стандарт (VPN + 150 ИИ)</span>
+                        <span class="package-price">500 ⭐</span>
+                    </div>
+                    <p class="package-desc">Комплексное предложение: VPN на 30 дней + 150 стандартных запросов к ИИ-Ассистенту.</p>
+                    <button class="btn btn-primary" style="padding: 8px 16px; font-size: 13px;" onclick="buyPackage('pkg_standard')">Купить за 500 ⭐</button>
+                </div>
+
+                <!-- Package 5: Bundle Premium -->
+                <div class="package-card">
+                    <div class="package-header">
+                        <span class="package-title">👑 Пакет Премиум (VPN + 30 Премиум ИИ)</span>
+                        <span class="package-price">600 ⭐</span>
+                    </div>
+                    <p class="package-desc">Максимальный пакет: VPN на 30 дней + 30 премиум запросов к продвинутым ИИ-моделям.</p>
+                    <button class="btn btn-primary" style="padding: 8px 16px; font-size: 13px;" onclick="buyPackage('pkg_premium')">Купить за 600 ⭐</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 🌐 Ecosystem Tab -->
+        <div id="tab-ecosystem" class="tab-content">
+            <!-- Kontur Talk Rooms -->
+            <div class="card glass">
+                <div class="card-title">
+                    <svg style="width: 20px; height: 20px; fill: none; stroke: var(--primary-color); stroke-width: 2;" viewBox="0 0 24 24">
+                        <path d="M23 7l-7 5 7 5V7z"/>
+                        <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+                    </svg>
+                    <span>Онлайн-комнаты Контур.Толк</span>
+                </div>
+                <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">Выберите виртуальную аудиторию для подключения к онлайн-занятиям или консультациям:</p>
+                <div class="talk-rooms-grid">
+                    <a href="https://tu-ugmk.ktalk.ru/jiydkhlxmj94" target="_blank" class="talk-room-btn" onclick="openTalkLink(event, 'https://tu-ugmk.ktalk.ru/jiydkhlxmj94')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+                        </svg>
+                        Толк 1
+                    </a>
+                    <a href="https://tu-ugmk.ktalk.ru/uiwmi2bn1khb" target="_blank" class="talk-room-btn" onclick="openTalkLink(event, 'https://tu-ugmk.ktalk.ru/uiwmi2bn1khb')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+                        </svg>
+                        Толк 2
+                    </a>
+                    <a href="https://tu-ugmk.ktalk.ru/gwj9tt76y0ow" target="_blank" class="talk-room-btn" onclick="openTalkLink(event, 'https://tu-ugmk.ktalk.ru/gwj9tt76y0ow')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+                        </svg>
+                        Толк 3
+                    </a>
+                    <a href="https://tu-ugmk.ktalk.ru/djkdcyfdh198" target="_blank" class="talk-room-btn" onclick="openTalkLink(event, 'https://tu-ugmk.ktalk.ru/djkdcyfdh198')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+                        </svg>
+                        Толк 4
+                    </a>
+                    <a href="https://tu-ugmk.ktalk.ru/n3us6a2ekxli" target="_blank" class="talk-room-btn" onclick="openTalkLink(event, 'https://tu-ugmk.ktalk.ru/n3us6a2ekxli')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+                        </svg>
+                        Толк 5
+                    </a>
+                </div>
+            </div>
+
+            <!-- Афиша мероприятий -->
+            <div class="card glass" style="padding-bottom: 8px;">
+                <div class="card-title">
+                    <svg style="width: 20px; height: 20px; fill: none; stroke: var(--primary-color); stroke-width: 2;" viewBox="0 0 24 24">
+                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                        <line x1="16" y1="2" x2="16" y2="6"/>
+                        <line x1="8" y1="2" x2="8" y2="6"/>
+                        <line x1="3" y1="10" x2="21" y2="10"/>
+                    </svg>
+                    <span>Афиша мероприятий</span>
+                </div>
+                <div id="ecosystem-events-list">
+                    <div class="spinner" style="margin: 20px auto;"></div>
+                </div>
+            </div>
+
+            <!-- Catalog Section -->
+            <div class="card glass">
+                <div class="card-title">
+                    <svg style="width: 20px; height: 20px; fill: none; stroke: var(--primary-color); stroke-width: 2;" viewBox="0 0 24 24">
+                        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                        <polyline points="22 6 12 13 2 6"/>
+                    </svg>
+                    <span>Каталог сообществ и каналов</span>
+                </div>
+                <div id="ecosystem-channels-list">
+                    <div class="spinner" style="margin: 20px auto;"></div>
                 </div>
             </div>
         </div>
@@ -945,11 +1407,18 @@
             </svg>
             VPN
         </button>
+        <button class="nav-btn" onclick="switchTab('ecosystem', this)">
+            <svg viewBox="0 0 24 24" style="stroke-width: 2.2;">
+                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+            </svg>
+            Экосистема
+        </button>
         <button class="nav-btn" onclick="switchTab('profile', this)">
             <svg viewBox="0 0 24 24">
                 <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
                 <circle cx="12" cy="7" r="4"/>
             </svg>
+            Профиль
         </button>
     </nav>
 
@@ -980,6 +1449,12 @@
         let selectedGroup = "";
         let currentWeekOffset = 0;
         let vpnConfigText = "";
+        
+        let currentTargetType = "group";
+        let currentTargetName = "";
+        let activeSearchType = "group";
+        let searchTimeout = null;
+        let botUsername = "TU_UGMK_bot";
 
         // Apply Theme Parameters from Telegram
         if (tg.themeParams && tg.themeParams.bg_color) {
@@ -1018,12 +1493,23 @@
                     await loadGroups();
                     await loadChatHistory();
                     
+                    if (selectedGroup) {
+                        currentTargetType = "group";
+                        currentTargetName = selectedGroup;
+                    }
+                    
+                    renderFavoritesChips();
+                    
                     // Check URL search parameters to switch tab directly (e.g. ?tab=chat)
                     const urlParams = new URLSearchParams(window.location.search);
                     const tabParam = urlParams.get('tab');
                     if (tabParam) {
                         const targetBtn = Array.from(document.querySelectorAll('.nav-btn')).find(b => b.getAttribute('onclick').includes(tabParam));
                         if (targetBtn) switchTab(tabParam, targetBtn);
+                    } else {
+                        if (currentTargetName) {
+                            loadSchedule(0);
+                        }
                     }
                     
                     // Hide init screen
@@ -1052,8 +1538,10 @@
             btn.classList.add('active');
             activeTab = tabId;
             
-            if (tabId === 'schedule' && selectedGroup) {
+            if (tabId === 'schedule' && currentTargetName) {
                 loadSchedule(currentWeekOffset);
+            } else if (tabId === 'ecosystem') {
+                loadEcosystemData();
             }
         }
 
@@ -1073,12 +1561,26 @@
                     // Selected group
                     if (status.group_name) {
                         selectedGroup = status.group_name;
-                        document.getElementById("group-select").value = status.group_name;
+                        const select = document.getElementById("group-select");
+                        if (select) select.value = status.group_name;
                     }
                     
                     // Selected model
                     if (status.ai_model) {
                         document.getElementById("model-select").value = status.ai_model;
+                    }
+                    
+                    // Notifications
+                    if (status.morning_time) {
+                        const mSelect = document.getElementById("morning-time-select");
+                        if (mSelect) mSelect.value = status.morning_time;
+                    }
+                    if (status.evening_time) {
+                        const eSelect = document.getElementById("evening-time-select");
+                        if (eSelect) eSelect.value = status.evening_time;
+                    }
+                    if (status.bot_username) {
+                        botUsername = status.bot_username;
                     }
                     
                     // VPN values
@@ -1122,16 +1624,18 @@
                     groups = data.groups;
                     
                     const select = document.getElementById("group-select");
-                    select.innerHTML = '<option value="">-- Выберите группу --</option>';
-                    groups.forEach(g => {
-                        const opt = document.createElement("option");
-                        opt.value = g;
-                        opt.innerText = g;
-                        select.appendChild(opt);
-                    });
-                    
-                    if (selectedGroup) {
-                        select.value = selectedGroup;
+                    if (select) {
+                        select.innerHTML = '<option value="">-- Выберите группу --</option>';
+                        groups.forEach(g => {
+                            const opt = document.createElement("option");
+                            opt.value = g;
+                            opt.innerText = g;
+                            select.appendChild(opt);
+                        });
+                        
+                        if (selectedGroup) {
+                            select.value = selectedGroup;
+                        }
                     }
                 }
             } catch (err) {
@@ -1143,6 +1647,8 @@
         async function changeGroup(groupName) {
             if (!groupName) return;
             selectedGroup = groupName;
+            currentTargetType = "group";
+            currentTargetName = groupName;
             try {
                 const res = await fetch("/api/set_group", {
                     method: "POST",
@@ -1152,6 +1658,7 @@
                 if (res.ok) {
                     await refreshUserData();
                     loadSchedule(0);
+                    renderFavoritesChips();
                 }
             } catch (err) {
                 console.error("Set group failed:", err);
@@ -1160,7 +1667,14 @@
 
         // Load Schedule
         async function loadSchedule(offset, btn) {
-            if (!selectedGroup) return;
+            if (!currentTargetName) {
+                if (selectedGroup) {
+                    currentTargetType = "group";
+                    currentTargetName = selectedGroup;
+                } else {
+                    return;
+                }
+            }
             
             if (btn) {
                 document.querySelectorAll('.week-btn').forEach(b => b.classList.remove('active'));
@@ -1172,10 +1686,11 @@
             container.innerHTML = '<div style="display:flex; justify-content:center; padding: 20px;"><div class="spinner"></div></div>';
             
             try {
-                const res = await fetch(`/api/schedule?group_name=${encodeURIComponent(selectedGroup)}&week_offset=${offset}&uid=${user.id}&init_data=${encodeURIComponent(initData)}`);
+                const res = await fetch(`/api/schedule?target_type=${currentTargetType}&target_name=${encodeURIComponent(currentTargetName)}&week_offset=${offset}&uid=${user.id}&init_data=${encodeURIComponent(initData)}`);
                 if (res.ok) {
                     const data = await res.json();
                     renderSchedule(data.schedule);
+                    renderActiveTargetHeader();
                 } else {
                     container.innerHTML = '<p style="color:var(--danger-color); text-align:center;">Ошибка загрузки расписания.</p>';
                 }
@@ -1496,6 +2011,347 @@
             }, function (error, canvas) {
                 if (error) console.error(error);
                 qrEl.appendChild(canvas);
+            });
+        }
+
+        // Render Active Target Header with Favorites Star
+        function renderActiveTargetHeader() {
+            let activeHeader = document.getElementById("active-target-header");
+            if (!activeHeader) {
+                activeHeader = document.createElement("div");
+                activeHeader.id = "active-target-header";
+                activeHeader.className = "active-target-header";
+                const scheduleContainer = document.getElementById("schedule-container");
+                scheduleContainer.parentNode.insertBefore(activeHeader, scheduleContainer);
+            }
+            
+            const isFav = isFavorited(currentTargetType, currentTargetName);
+            const typeLabel = currentTargetType === 'group' ? 'Группа' : (currentTargetType === 'teacher' ? 'Преподаватель' : 'Аудитория');
+            
+            activeHeader.innerHTML = `
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                    <span style="font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">${typeLabel}</span>
+                    <span class="active-target-title">${escapeHTML(currentTargetName)}</span>
+                </div>
+                <button class="favorite-toggle-btn ${isFav ? 'active' : ''}" onclick="toggleFavorite('${currentTargetType}', '${currentTargetName}')">
+                    ${isFav ? '★' : '☆'}
+                </button>
+            `;
+        }
+
+        // Favorites Helpers using localStorage
+        function getFavorites() {
+            try {
+                return JSON.parse(localStorage.getItem("tu_favorites")) || [];
+            } catch (e) {
+                return [];
+            }
+        }
+        
+        function saveFavorites(favs) {
+            localStorage.setItem("tu_favorites", JSON.stringify(favs));
+        }
+        
+        function isFavorited(type, name) {
+            const favs = getFavorites();
+            return favs.some(f => f.type === type && f.name === name);
+        }
+        
+        function toggleFavorite(type, name) {
+            let favs = getFavorites();
+            const index = favs.findIndex(f => f.type === type && f.name === name);
+            if (index > -1) {
+                favs.splice(index, 1);
+            } else {
+                favs.push({ type, name });
+            }
+            saveFavorites(favs);
+            renderActiveTargetHeader();
+            renderFavoritesChips();
+        }
+        
+        function renderFavoritesChips() {
+            const favs = getFavorites();
+            const container = document.getElementById("favorites-chips-container");
+            if (!container) return;
+            
+            if (favs.length === 0) {
+                container.innerHTML = '<span style="font-size: 11px; color: var(--text-muted); font-style: italic;">Избранное пока пусто. Ищите группы, преподов и аудитории и нажимайте ☆!</span>';
+                return;
+            }
+            
+            container.innerHTML = "";
+            favs.forEach(f => {
+                const chip = document.createElement("div");
+                const isActive = currentTargetType === f.type && currentTargetName === f.name;
+                chip.className = `favorite-chip ${isActive ? 'active' : ''}`;
+                
+                const typeIcon = f.type === 'group' ? '👥' : (f.type === 'teacher' ? '👤' : '🏫');
+                chip.innerHTML = `<span>${typeIcon} ${escapeHTML(f.name)}</span>`;
+                chip.onclick = () => {
+                    currentTargetType = f.type;
+                    currentTargetName = f.name;
+                    if (f.type === 'group') {
+                        const select = document.getElementById("group-select");
+                        if (select) select.value = f.name;
+                    }
+                    loadSchedule(0);
+                    renderFavoritesChips();
+                };
+                container.appendChild(chip);
+            });
+        }
+
+        // Search Handlers
+        function setSearchType(type) {
+            activeSearchType = type;
+            document.querySelectorAll('.search-type-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(`btn-type-${type}`).classList.add('active');
+            
+            const input = document.getElementById("schedule-search-input");
+            if (type === 'group') {
+                input.placeholder = "🔍 Начните вводить название группы...";
+            } else if (type === 'teacher') {
+                input.placeholder = "🔍 ФИО преподавателя...";
+            } else {
+                input.placeholder = "🔍 Номер или название аудитории...";
+            }
+            
+            onSearchInput(input.value);
+        }
+
+        function onSearchInput(val) {
+            const clearBtn = document.getElementById("search-clear-btn");
+            const resultsList = document.getElementById("search-results-list");
+            
+            if (!val.trim()) {
+                clearBtn.style.display = "none";
+                resultsList.style.display = "none";
+                return;
+            }
+            
+            clearBtn.style.display = "block";
+            
+            if (searchTimeout) clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(async () => {
+                try {
+                    const res = await fetch(`/api/search?type=${activeSearchType}&q=${encodeURIComponent(val)}`);
+                    if (res.ok) {
+                        const data = await res.json();
+                        renderSearchResults(data.results);
+                    }
+                } catch (err) {
+                    console.error("Search failed:", err);
+                }
+            }, 250);
+        }
+        
+        function clearSearchInput() {
+            const input = document.getElementById("schedule-search-input");
+            input.value = "";
+            document.getElementById("search-clear-btn").style.display = "none";
+            document.getElementById("search-results-list").style.display = "none";
+        }
+        
+        function renderSearchResults(results) {
+            const container = document.getElementById("search-results-list");
+            container.innerHTML = "";
+            
+            if (!results || results.length === 0) {
+                container.innerHTML = '<div style="padding: 10px 14px; font-size: 13px; color: var(--text-muted); font-style: italic;">Ничего не найдено</div>';
+                container.style.display = "block";
+                return;
+            }
+            
+            results.forEach(r => {
+                const item = document.createElement("div");
+                item.className = "search-result-item";
+                
+                const typeIcon = activeSearchType === 'group' ? '👥' : (activeSearchType === 'teacher' ? '👤' : '🏫');
+                item.innerHTML = `
+                    <span>${typeIcon} ${escapeHTML(r)}</span>
+                    <span style="font-size: 11px; color: var(--primary-color); font-weight: 600;">выбрать</span>
+                `;
+                
+                item.onclick = async () => {
+                    currentTargetType = activeSearchType;
+                    currentTargetName = r;
+                    
+                    if (activeSearchType === 'group') {
+                        selectedGroup = r;
+                        const select = document.getElementById("group-select");
+                        if (select) select.value = r;
+                        
+                        try {
+                            await fetch("/api/set_group", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ uid: user.id, group_name: r, init_data: initData })
+                            });
+                        } catch(e){}
+                    }
+                    
+                    container.style.display = "none";
+                    document.getElementById("schedule-search-input").value = "";
+                    document.getElementById("search-clear-btn").style.display = "none";
+                    
+                    loadSchedule(0);
+                    renderFavoritesChips();
+                };
+                
+                container.appendChild(item);
+            });
+            
+            container.style.display = "block";
+        }
+
+        // Ecosystem Data Loading & Rendering
+        async function loadEcosystemData() {
+            const eventsList = document.getElementById("ecosystem-events-list");
+            const channelsList = document.getElementById("ecosystem-channels-list");
+            
+            try {
+                const res = await fetch(`/api/ecosystem?uid=${user.id}&init_data=${encodeURIComponent(initData)}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    
+                    // Render Events
+                    eventsList.innerHTML = "";
+                    if (!data.events || data.events.length === 0) {
+                        eventsList.innerHTML = '<p style="text-align:center; color:var(--text-muted); font-size:13px; padding: 12px 0;">Афиша мероприятий пуста.</p>';
+                    } else {
+                        data.events.forEach(ev => {
+                            const dateStr = ev.event_date ? new Date(ev.event_date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+                            const card = document.createElement("div");
+                            card.className = "event-card";
+                            card.innerHTML = `
+                                <div class="event-title">${escapeHTML(ev.title)}</div>
+                                ${dateStr ? `<div class="event-date-badge">📅 ${dateStr}</div>` : ''}
+                                <div class="event-description">${escapeHTML(ev.description || '')}</div>
+                                ${ev.link ? `<button class="btn btn-secondary" onclick="openEcosystemLink(event, '${ev.link}')">Подробнее</button>` : ''}
+                            `;
+                            eventsList.appendChild(card);
+                        });
+                    }
+                    
+                    // Render Channels grouped by category
+                    channelsList.innerHTML = "";
+                    if (!data.channels || data.channels.length === 0) {
+                        channelsList.innerHTML = '<p style="text-align:center; color:var(--text-muted); font-size:13px; padding: 12px 0;">Каталог каналов пуст.</p>';
+                    } else {
+                        const categories = {};
+                        data.channels.forEach(ch => {
+                            const cat = ch.category || "Общие";
+                            if (!categories[cat]) categories[cat] = [];
+                            categories[cat].push(ch);
+                        });
+                        
+                        Object.keys(categories).forEach(cat => {
+                            const section = document.createElement("div");
+                            section.className = "catalog-section";
+                            section.innerHTML = `<div class="catalog-category-title">${escapeHTML(cat)}</div>`;
+                            
+                            categories[cat].forEach(ch => {
+                                const card = document.createElement("div");
+                                card.className = "catalog-channel-card";
+                                card.innerHTML = `
+                                    <span class="catalog-channel-name">📢 ${escapeHTML(ch.name)}</span>
+                                    <button class="btn btn-secondary" style="width: auto; padding: 6px 12px; font-size: 12px; border-radius: 8px;" onclick="openEcosystemLink(event, '${ch.link}')">Войти</button>
+                                `;
+                                section.appendChild(card);
+                            });
+                            
+                            channelsList.appendChild(section);
+                        });
+                    }
+                } else {
+                    eventsList.innerHTML = '<p style="color:var(--danger-color); text-align:center; font-size:13px;">Не удалось загрузить данные.</p>';
+                    channelsList.innerHTML = '<p style="color:var(--danger-color); text-align:center; font-size:13px;">Не удалось загрузить данные.</p>';
+                }
+            } catch (err) {
+                console.error("Load ecosystem failed:", err);
+                eventsList.innerHTML = `<p style="color:var(--danger-color); text-align:center; font-size:13px;">Ошибка: ${err.message}</p>`;
+                channelsList.innerHTML = `<p style="color:var(--danger-color); text-align:center; font-size:13px;">Ошибка: ${err.message}</p>`;
+            }
+        }
+        
+        function openEcosystemLink(e, link) {
+            e.preventDefault();
+            if (tg.openTelegramLink && (link.includes("t.me/") || link.includes("tg://"))) {
+                tg.openTelegramLink(link);
+            } else if (tg.openLink) {
+                tg.openLink(link);
+            } else {
+                window.open(link, "_blank");
+            }
+        }
+        
+        function openTalkLink(e, link) {
+            e.preventDefault();
+            if (tg.openLink) {
+                tg.openLink(link);
+            } else {
+                window.open(link, "_blank");
+            }
+        }
+
+        // Notification Settings saving
+        async function saveNotificationSettings() {
+            const morningTime = document.getElementById("morning-time-select").value;
+            const eveningTime = document.getElementById("evening-time-select").value;
+            
+            try {
+                const res = await fetch("/api/set_notifications", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        uid: user.id,
+                        morning_time: morningTime,
+                        evening_time: eveningTime,
+                        init_data: initData
+                    })
+                });
+                
+                if (res.ok) {
+                    tg.showPopup({
+                        title: "Настройки уведомлений",
+                        message: `Уведомления успешно сохранены!\n\nУтро: ${morningTime}\nВечер: ${eveningTime}`,
+                        buttons: [{ type: "ok" }]
+                    });
+                    await refreshUserData();
+                } else {
+                    tg.showPopup({
+                        title: "Ошибка",
+                        message: "Не удалось сохранить настройки уведомлений.",
+                        buttons: [{ type: "close" }]
+                    });
+                }
+            } catch (err) {
+                console.error("Save notifications failed:", err);
+                alert(`Ошибка: ${err.message}`);
+            }
+        }
+
+        // Buy Package redirection
+        function buyPackage(pkg) {
+            const startParam = `buy_${pkg}`;
+            const botLink = `https://t.me/${botUsername}?start=${startParam}`;
+            
+            tg.showPopup({
+                title: "Покупка подписки",
+                message: "Для завершения оплаты с помощью Telegram Stars вас перенаправит в диалог с ботом, который автоматически пришлет счет-инвойс на оплату.",
+                buttons: [
+                    { id: "buy", type: "default", text: "Оплатить" },
+                    { type: "cancel", text: "Отменить" }
+                ]
+            }, (btnId) => {
+                if (btnId === "buy") {
+                    if (tg.openTelegramLink) {
+                        tg.openTelegramLink(botLink);
+                    } else {
+                        window.open(botLink, "_blank");
+                    }
+                }
             });
         }
 

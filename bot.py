@@ -22,7 +22,7 @@ from aiogram.types import ( # type: ignore
     LabeledPrice, PreCheckoutQuery, SuccessfulPayment, BufferedInputFile,
     WebAppInfo
 )
-from aiogram.filters import CommandStart, Command # type: ignore
+from aiogram.filters import CommandStart, Command, CommandObject # type: ignore
 from aiogram.fsm.storage.memory import MemoryStorage # type: ignore
 from aiogram.fsm.state import State, StatesGroup # type: ignore
 from aiogram.fsm.context import FSMContext # type: ignore
@@ -828,7 +828,7 @@ async def cmd_bot_logs(m: Message):
     await m.answer(f"<pre>{text}</pre>", parse_mode="HTML")
 
 @dp.message(CommandStart())
-async def start(m: Message, state: FSMContext):      
+async def start(m: Message, state: FSMContext, command: CommandObject = None):      
     await register_user(m.from_user.id)
     if m.from_user:
         profile_data = {
@@ -848,6 +848,65 @@ async def start(m: Message, state: FSMContext):
         )
         
     await state.clear()
+    
+    if command and command.args:
+        args = command.args
+        if args.startswith("buy_"):
+            pkg = args[4:]
+            try:
+                if pkg == "vpn_only":
+                    await m.answer_invoice(
+                        title="WireGuard VPN на 30 дней",
+                        description="Подписка на высокоскоростной WireGuard VPN сроком на 30 дней.",
+                        payload="vpn_only_30_days",
+                        provider_token="",
+                        currency="XTR",
+                        prices=[LabeledPrice(label="WireGuard VPN на 30 дней", amount=100)]
+                    )
+                    return
+                elif pkg == "ai_standard":
+                    await m.answer_invoice(
+                        title="150 стандартных запросов к ИИ",
+                        description="Пополнение баланса ИИ-Ассистента на 150 стандартных (или 37 премиум) запросов.",
+                        payload="ai_150_requests",
+                        provider_token="",
+                        currency="XTR",
+                        prices=[LabeledPrice(label="150 Стандарт ИИ-запросов", amount=400)]
+                    )
+                    return
+                elif pkg == "ai_premium":
+                    await m.answer_invoice(
+                        title="30 премиум запросов к ИИ",
+                        description="Пополнение баланса ИИ-Ассистента на 30 премиум (или 120 стандартных) запросов.",
+                        payload="ai_30_premium",
+                        provider_token="",
+                        currency="XTR",
+                        prices=[LabeledPrice(label="30 Премиум ИИ-запросов", amount=500)]
+                    )
+                    return
+                elif pkg == "pkg_standard":
+                    await m.answer_invoice(
+                        title="VPN + 150 Стандарт ИИ",
+                        description="Подписка WireGuard VPN на 30 дней и промокод на 150 стандартных запросов к ИИ.",
+                        payload="vpn_sub_standard",
+                        provider_token="",
+                        currency="XTR",
+                        prices=[LabeledPrice(label="VPN + 150 Стандарт ИИ", amount=500)]
+                    )
+                    return
+                elif pkg == "pkg_premium":
+                    await m.answer_invoice(
+                        title="VPN + 30 Премиум ИИ",
+                        description="Подписка WireGuard VPN на 30 дней и промокод на 30 премиум запросов к ИИ (Claude, GPT, Kimi, Qwen).",
+                        payload="vpn_sub_premium",
+                        provider_token="",
+                        currency="XTR",
+                        prices=[LabeledPrice(label="VPN + 30 Премиум ИИ", amount=600)]
+                    )
+                    return
+            except Exception as e:
+                logger.error(f"Failed to send deep linked invoice: {e}")
+                
     await m.answer("👋 <b>Бот расписания готов к работе!</b>", reply_markup=get_main_menu(), parse_mode="HTML")
     await show_subscription_time_menu(m)
 
