@@ -1,6 +1,7 @@
 import os
 import logging
 import aiohttp
+import base64
 from datetime import datetime, timedelta, timezone
 from openai import AsyncOpenAI
 
@@ -33,7 +34,7 @@ MODEL_MAP = {
     "llama-3.3-free": "meta-llama/llama-3.3-70b-instruct:free"
 }
 
-async def get_ai_response(prompt: str, api_key: str, model_name: str, history: list) -> str:
+async def get_ai_response(prompt: str, api_key: str, model_name: str, history: list, image_data_b64: str = None) -> str:
     """
     Sends a message to OpenRouter with conversation history.
     history parameter is a list of dicts: [{"role": "user"|"assistant", "content": "..."}]
@@ -74,7 +75,22 @@ async def get_ai_response(prompt: str, api_key: str, model_name: str, history: l
         messages = []
         for h in history:
             messages.append({"role": h["role"], "content": h["content"]})
-        messages.append({"role": "user", "content": prompt})
+            
+        if image_data_b64:
+            messages.append({
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt if prompt else "Что на изображении?"},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{image_data_b64}"
+                        }
+                    }
+                ]
+            })
+        else:
+            messages.append({"role": "user", "content": prompt})
         
         response = await client.chat.completions.create(
             model=router_model,
@@ -89,6 +105,54 @@ async def get_ai_response(prompt: str, api_key: str, model_name: str, history: l
     except Exception as e:
         logger.error(f"OpenRouter API error (model {router_model}): {e}")
         raise e
+
+
+async def transcribe_audio(audio_data: bytes, format: str, api_key: str) -> str:
+    """
+    Sends audio bytes to OpenRouter audio/transcriptions API and returns the text.
+    """
+    key = api_key
+    key_source = "user_custom_key"
+    if not key:
+        key_source = "db_global_key"
+        try:
+            key = await db_manager.get_setting("openrouter_api_key")
+        except Exception:
+            key = None
+        if not key:
+            key_source = "env_global_key"
+            key = OPENROUTER_API_KEY
+            
+    if not key:
+        raise ValueError("Ключ API OpenRouter не настроен. Укажите его в панели управления или .env файле.")
+
+    masked_key = f"{key[:10]}...{key[-4:]}" if len(key) > 15 else "too_short"
+    logger.info(f"Using API key for transcription from {key_source}: {masked_key}")
+
+    url = "https://openrouter.ai/api/v1/audio/transcriptions"
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json"
+    }
+    
+    b64_data = base64.b64encode(audio_data).decode("utf-8")
+    payload = {
+        "model": "openai/whisper-large-v3",
+        "input_audio": {
+            "data": b64_data,
+            "format": format
+        }
+    }
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, headers=headers, json=payload) as resp:
+            if resp.status not in (200, 201):
+                text = await resp.text()
+                logger.error(f"OpenRouter transcription API error: status {resp.status}, response: {text}")
+                raise ValueError(f"Ошибка OpenRouter: {text}")
+            
+            data = await resp.json()
+            return data.get("text", "")
 
 
 async def create_openrouter_key(limit_usd: float, expires_days: int = 30) -> str:

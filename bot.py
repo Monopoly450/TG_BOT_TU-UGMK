@@ -30,7 +30,7 @@ from aiogram.dispatcher.middlewares.base import BaseMiddleware # type: ignore
 import redis.asyncio as redis # type: ignore
 from secure_store import SecureStore
 from db_manager import db_manager
-from ai_manager import get_ai_response, create_openrouter_key
+from ai_manager import get_ai_response, create_openrouter_key, transcribe_audio
 import vpn_manager
 import io
 import qrcode
@@ -1959,6 +1959,46 @@ async def ai_chat_message(m: Message, state: FSMContext):
     is_free = model_name in FREE_MODELS
     is_premium = model_name in PREMIUM_MODELS
     
+    prompt = ""
+    image_data_b64 = None
+    transcription_msg = None
+    
+    if m.text:
+        prompt = m.text
+    elif m.voice:
+        transcription_msg = await m.answer("🗣 <b>Распознаю вашу речь...</b>", parse_mode="HTML")
+        try:
+            voice_file = await bot.get_file(m.voice.file_id)
+            file_bytes = io.BytesIO()
+            await bot.download(voice_file, destination=file_bytes)
+            audio_data = file_bytes.getvalue()
+            
+            prompt = await transcribe_audio(audio_data, "ogg", api_key)
+            if not prompt or not prompt.strip():
+                await transcription_msg.edit_text("❌ <b>Не удалось распознать речь.</b> Попробуйте говорить чётче или отправьте текстовое сообщение.", parse_mode="HTML")
+                return
+                
+            await transcription_msg.edit_text(f"🗣 <b>Распознанный текст:</b>\n«<i>{prompt}</i>»\n\n⏳ <i>Запрос отправлен ИИ...</i>", parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Voice transcription failed: {e}")
+            await transcription_msg.edit_text(f"❌ <b>Ошибка распознавания речи:</b>\n<code>{str(e)}</code>", parse_mode="HTML")
+            return
+    elif m.photo:
+        prompt = m.caption or ""
+        try:
+            import base64
+            photo_file = await bot.get_file(m.photo[-1].file_id)
+            file_bytes = io.BytesIO()
+            await bot.download(photo_file, destination=file_bytes)
+            image_data_b64 = base64.b64encode(file_bytes.getvalue()).decode("utf-8")
+        except Exception as e:
+            logger.error(f"Downloading photo failed: {e}")
+            await m.answer(f"❌ <b>Ошибка загрузки фотографии:</b>\n<code>{str(e)}</code>", parse_mode="HTML")
+            return
+    else:
+        await m.answer("⚠️ <b>Бот принимает только текстовые сообщения, голосовые сообщения или фотографии.</b>", parse_mode="HTML")
+        return
+
     if not has_custom_key and not is_free:
         balance = await db_manager.check_user_ai_balance(uid)
         required_balance = 4 if is_premium else 1
@@ -1971,6 +2011,9 @@ async def ai_chat_message(m: Message, state: FSMContext):
                 reply_markup=get_main_menu(),
                 parse_mode="HTML"
             )
+            if transcription_msg:
+                try: await transcription_msg.delete()
+                except Exception: pass
             return
             
     history_key = f"ai_history:{uid}"
@@ -1985,15 +2028,16 @@ async def ai_chat_message(m: Message, state: FSMContext):
     async with loading_animation(m.chat.id):
         try:
             response_text = await get_ai_response(
-                prompt=m.text,
+                prompt=prompt,
                 api_key=api_key,
                 model_name=model_name,
-                history=history
+                history=history,
+                image_data_b64=image_data_b64
             )
             
             await db_manager.log_ai_request(
                 telegram_id=uid,
-                prompt=m.text,
+                prompt=prompt if not image_data_b64 else f"[Изображение] {prompt}",
                 response=response_text,
                 model_used=model_name
             )
@@ -2010,12 +2054,17 @@ async def ai_chat_message(m: Message, state: FSMContext):
                 else:
                     response_text += f"\n\n<i>(🆓 Бесплатный запрос)</i>"
             
-            history.append({"role": "user", "content": m.text})
+            history_prompt = prompt if not image_data_b64 else f"[Изображение] {prompt}"
+            history.append({"role": "user", "content": history_prompt})
             history.append({"role": "assistant", "content": clean_response})
             history = history[-10:]
             
             await dao.setex(history_key, 3600, json.dumps(history, ensure_ascii=False))
             
+            if transcription_msg:
+                try: await transcription_msg.delete()
+                except Exception: pass
+                
             if len(response_text) > 4096:
                 for chunk in [response_text[i:i+4000] for i in range(0, len(response_text), 4000)]:
                     await m.answer(chunk)
@@ -2023,14 +2072,25 @@ async def ai_chat_message(m: Message, state: FSMContext):
                 await m.answer(response_text, parse_mode="HTML")
                 
         except Exception as e:
+            if transcription_msg:
+                try: await transcription_msg.delete()
+                except Exception: pass
+                
             logger.error(f"AI response failed: {e}")
             err_msg = str(e).lower()
             is_rate_limit = "rate" in err_msg or "429" in err_msg or type(e).__name__ == "RateLimitError"
+            is_vision_unsupported = any(x in err_msg for x in ["vision", "multimodal", "image input", "format"]) or ("400" in err_msg and image_data_b64 is not None)
             
             if is_rate_limit:
                 await m.answer(
                     "⏳ <b>Превышен лимит запросов (Rate Limit) от провайдера OpenRouter.</b>\n\n"
                     "Пожалуйста, подождите несколько минут или смените модель ИИ в настройках.",
+                    parse_mode="HTML"
+                )
+            elif is_vision_unsupported:
+                await m.answer(
+                    "❌ <b>Выбранная модель ИИ не поддерживает анализ изображений (Vision).</b>\n\n"
+                    "Пожалуйста, выберите мультимодальную модель (например, <b>GPT-4o-mini</b>) в меню настроек ИИ.",
                     parse_mode="HTML"
                 )
             elif has_custom_key and any(x in err_msg for x in ["budget", "limit", "payment", "expired", "402", "403", "401", "unauthorized", "invalid key", "credential", "user not found"]):
