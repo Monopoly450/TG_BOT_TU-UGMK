@@ -53,6 +53,23 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+class InMemoryLogHandler(logging.Handler):
+    def __init__(self, limit=100):
+        super().__init__()
+        self.limit = limit
+        self.logs = collections.deque(maxlen=limit)
+
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            self.logs.append(msg)
+        except Exception:
+            self.handleError(record)
+
+in_memory_logs = InMemoryLogHandler()
+in_memory_logs.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+logging.getLogger().addHandler(in_memory_logs)
+
 STORAGE_PASSWORD = os.getenv("STORAGE_PASSWORD", "default_unsafe_password")
 secure_store = SecureStore(os.path.join(DATA_DIR, "secure_users.enc"), STORAGE_PASSWORD)
 
@@ -795,6 +812,17 @@ async def cmd_debug_ai(m: Message, state: FSMContext):
         f"🧠 <b>ai_key (FSM state):</b> <code>{mask_key(state_key)}</code>"
     )
     await m.answer(text, parse_mode="HTML")
+
+@dp.message(Command("bot_logs"), F.from_user.id.in_(ADMIN_IDS))
+async def cmd_bot_logs(m: Message):
+    logs_list = list(in_memory_logs.logs)
+    if not logs_list:
+        await m.answer("Logs list is empty.")
+        return
+    text = "\n".join(logs_list[-35:])  # last 35 log lines
+    if len(text) > 4000:
+        text = text[-4000:]
+    await m.answer(f"<pre>{text}</pre>", parse_mode="HTML")
 
 @dp.message(CommandStart())
 async def start(m: Message, state: FSMContext):      
