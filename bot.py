@@ -1970,6 +1970,8 @@ async def ai_chat_message(m: Message, state: FSMContext):
                 model_used=model_name
             )
             
+            clean_response = response_text
+            
             if not has_custom_key or is_programmatic_key:
                 if not is_free:
                     deduct_amount = 4 if is_premium else 1
@@ -1981,7 +1983,7 @@ async def ai_chat_message(m: Message, state: FSMContext):
                     response_text += f"\n\n<i>(🆓 Бесплатный запрос)</i>"
             
             history.append({"role": "user", "content": m.text})
-            history.append({"role": "assistant", "content": response_text})
+            history.append({"role": "assistant", "content": clean_response})
             history = history[-10:]
             
             await dao.setex(history_key, 3600, json.dumps(history, ensure_ascii=False))
@@ -2076,7 +2078,12 @@ async def cb_ai_select_model(c: CallbackQuery):
 async def cb_ai_set_model_save(c: CallbackQuery):
     model = c.data.split(":")[1]
     await db_manager.set_user_ai_model(c.from_user.id, model)
-    await c.answer(f"Модель изменена на {model}")
+    
+    # Clear context history upon model change
+    history_key = f"ai_history:{c.from_user.id}"
+    await dao.delete(history_key)
+    
+    await c.answer(f"Модель изменена на {model}. Контекст очищен.")
     await show_ai_menu_directly(c, user_id=c.from_user.id)
 
 @dp.callback_query(F.data == "ai:clear_context")
