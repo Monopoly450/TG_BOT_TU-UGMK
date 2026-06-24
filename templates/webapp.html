@@ -1551,10 +1551,55 @@
                     <button class="btn btn-primary" style="margin-top: 6px;" onclick="sendStarostaBroadcast()">Запустить рассылку</button>
                 </div>
 
+                <!-- Change Password Section -->
+                <div style="border-bottom: 1px dashed var(--border-color); padding-bottom: 20px; display: flex; flex-direction: column; gap: 10px;">
+                    <h4 style="font-size: 14px; font-weight: 600; color: var(--primary-color); margin: 0 0 4px 0;">🔑 Сменить пароль доступа</h4>
+                    
+                    <div class="form-group" style="margin-bottom: 0; display: flex; gap: 8px;">
+                        <input type="password" id="starosta-new-pwd" class="chat-input" placeholder="Новый пароль" style="box-sizing: border-box; flex: 1;">
+                        <button class="btn btn-primary" style="width: auto; padding: 0 16px; font-size: 13px; border-radius: 12px; font-weight: 500;" onclick="changeStarostaPassword()">Сохранить</button>
+                    </div>
+                </div>
+
                 <!-- Log out section -->
                 <div style="display: flex; justify-content: center; padding-top: 8px;">
                     <button class="btn" style="width: auto; padding: 8px 16px; font-size: 13px; border-radius: 10px; border: 1px solid var(--danger-color); color: var(--danger-color); background: transparent;" onclick="logoutStarosta()">Выйти из режима старосты</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Event Modal -->
+    <div id="edit-event-modal" class="modal-overlay">
+        <div class="modal-content glass" style="max-height: 90vh; overflow-y: auto;">
+            <div class="modal-header">
+                <h3>✏️ Редактирование мероприятия</h3>
+                <button class="modal-close" onclick="closeEditEventModal()">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px; padding: 16px;">
+                <input type="hidden" id="edit-event-id">
+                
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label" style="font-size: 12px; margin-bottom: 4px;">Название:</label>
+                    <input type="text" id="edit-event-title" class="chat-input" placeholder="Название мероприятия" style="width: 100%; box-sizing: border-box;">
+                </div>
+                
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label" style="font-size: 12px; margin-bottom: 4px;">Описание:</label>
+                    <textarea id="edit-event-description" class="chat-input" placeholder="Описание..." style="width: 100%; height: 100px; resize: none; box-sizing: border-box;"></textarea>
+                </div>
+                
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label" style="font-size: 12px; margin-bottom: 4px; color: var(--text-muted);">Дата/Время мероприятия:</label>
+                    <input type="datetime-local" id="edit-event-date" class="chat-input" style="width: 100%; box-sizing: border-box; height: 42px; padding: 8px 12px;">
+                </div>
+                
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label" style="font-size: 12px; margin-bottom: 4px;">Ссылка на подробности:</label>
+                    <input type="text" id="edit-event-link" class="chat-input" placeholder="Ссылка (необязательно)" style="width: 100%; box-sizing: border-box;">
+                </div>
+                
+                <button class="btn btn-primary" style="margin-top: 10px;" onclick="submitEditEvent()">Сохранить изменения</button>
             </div>
         </div>
     </div>
@@ -2444,18 +2489,31 @@
                     
                     // Render Events
                     eventsList.innerHTML = "";
-                    if (!data.events || data.events.length === 0) {
+                    currentEvents = data.events || [];
+                    if (currentEvents.length === 0) {
                         eventsList.innerHTML = '<p style="text-align:center; color:var(--text-muted); font-size:13px; padding: 12px 0;">Афиша мероприятий пуста.</p>';
                     } else {
-                        data.events.forEach(ev => {
-                            const dateStr = ev.event_date ? new Date(ev.event_date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+                        currentEvents.forEach(ev => {
+                            let dateStr = '';
+                            if (ev.event_date) {
+                                try {
+                                    const d = new Date(ev.event_date);
+                                    dateStr = d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                                } catch(e) {}
+                            }
                             const card = document.createElement("div");
                             card.className = "event-card";
                             card.innerHTML = `
-                                <div class="event-title">${escapeHTML(ev.title)}</div>
-                                ${dateStr ? `<div class="event-date-badge">📅 ${dateStr}</div>` : ''}
-                                <div class="event-description">${escapeHTML(ev.description || '')}</div>
-                                ${ev.link ? `<button class="btn btn-secondary" onclick="openEcosystemLink(event, '${ev.link}')">Подробнее</button>` : ''}
+                                <div class="event-title" style="font-weight: 700; margin-bottom: 4px;">${escapeHTML(ev.title)}</div>
+                                ${dateStr ? `<div class="event-date-badge" style="margin-bottom: 6px; font-size: 11px; color: var(--primary-color);">📅 ${dateStr}</div>` : ''}
+                                <div class="event-description" style="white-space: pre-wrap; font-size: 13px; line-height: 1.4; color: var(--text-color);">${escapeHTML(ev.description || '')}</div>
+                                ${ev.link ? `<div style="margin-top: 8px; font-size: 12px;"><a href="#" onclick="openEcosystemLink(event, '${ev.link}')" style="color: var(--primary-color); text-decoration: underline; word-break: break-all;">🔗 ${escapeHTML(ev.link)}</a></div>` : ''}
+                                ${isUserStarosta ? `
+                                <div style="display: flex; gap: 8px; margin-top: 10px; border-top: 1px dashed var(--border-color); padding-top: 8px;">
+                                    <button class="btn" style="width: auto; padding: 4px 10px; font-size: 11px; border-radius: 6px; background: var(--container-bg); border: 1px solid var(--border-color); color: var(--text-color);" onclick="openEditEventModal(${ev.id})">✏️ Изменить</button>
+                                    <button class="btn" style="width: auto; padding: 4px 10px; font-size: 11px; border-radius: 6px; background: transparent; border: 1px solid var(--danger-color); color: var(--danger-color);" onclick="confirmDeleteEvent(${ev.id})">🗑️ Удалить</button>
+                                </div>
+                                ` : ''}
                             `;
                             eventsList.appendChild(card);
                         });
@@ -2794,11 +2852,170 @@
                     document.querySelectorAll(".st-group-name").forEach(el => el.innerText = "-");
                     
                     closeStarostaModal();
+                    // Reload ecosystem tab to update event controls (hide edit/delete buttons)
+                    loadEcosystemData();
                 } else {
                     showMessage("Ошибка", "Не удалось выйти из режима старосты");
                 }
             } catch (err) {
                 console.error("Logout failed:", err);
+            }
+        }
+
+        // --- Change Starosta Password ---
+        async function changeStarostaPassword() {
+            const newPassword = document.getElementById("starosta-new-pwd").value.trim();
+            if (!newPassword || newPassword.length < 3) {
+                showMessage("Внимание", "Пароль должен состоять минимум из 3 символов");
+                return;
+            }
+            
+            try {
+                const res = await fetch("/api/starosta/change_password", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        uid: user.id,
+                        init_data: initData,
+                        new_password: newPassword
+                    })
+                });
+                
+                if (res.ok) {
+                    showMessage("Успешно", "Пароль успешно изменен!");
+                    document.getElementById("starosta-new-pwd").value = "";
+                } else {
+                    const data = await res.json();
+                    showMessage("Ошибка", data.detail || "Не удалось изменить пароль");
+                }
+            } catch (err) {
+                console.error("Change password failed:", err);
+                showMessage("Ошибка", "Сбой сети: " + err.message);
+            }
+        }
+
+        // --- Starosta Event Edit / Delete Helpers ---
+        let currentEvents = [];
+
+        function openEditEventModal(eventId) {
+            const ev = currentEvents.find(e => e.id === eventId);
+            if (!ev) return;
+            
+            document.getElementById("edit-event-id").value = ev.id;
+            document.getElementById("edit-event-title").value = ev.title || "";
+            document.getElementById("edit-event-description").value = ev.description || "";
+            
+            // Format date for datetime-local (YYYY-MM-DDTHH:MM)
+            if (ev.event_date) {
+                try {
+                    const date = new Date(ev.event_date);
+                    const pad = (num) => String(num).padStart(2, '0');
+                    const formatted = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+                    document.getElementById("edit-event-date").value = formatted;
+                } catch (e) {
+                    console.error("Format date failed:", e);
+                    document.getElementById("edit-event-date").value = "";
+                }
+            } else {
+                document.getElementById("edit-event-date").value = "";
+            }
+            
+            document.getElementById("edit-event-link").value = ev.link || "";
+            document.getElementById("edit-event-modal").classList.add("active");
+        }
+
+        function closeEditEventModal() {
+            document.getElementById("edit-event-modal").classList.remove("active");
+        }
+
+        async function submitEditEvent() {
+            const eventId = document.getElementById("edit-event-id").value;
+            const title = document.getElementById("edit-event-title").value.trim();
+            const description = document.getElementById("edit-event-description").value.trim();
+            const eventDate = document.getElementById("edit-event-date").value;
+            const link = document.getElementById("edit-event-link").value.trim();
+
+            if (!title) {
+                showMessage("Внимание", "Укажите название мероприятия");
+                return;
+            }
+            if (!description) {
+                showMessage("Внимание", "Заполните описание мероприятия");
+                return;
+            }
+
+            try {
+                const res = await fetch("/api/starosta/update_event", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        uid: user.id,
+                        init_data: initData,
+                        event_id: eventId,
+                        title: title,
+                        description: description,
+                        event_date: eventDate || null,
+                        link: link || null
+                    })
+                });
+
+                if (res.ok) {
+                    showMessage("Успех", "Мероприятие успешно изменено!");
+                    closeEditEventModal();
+                    loadEcosystemData();
+                } else {
+                    const data = await res.json();
+                    showMessage("Ошибка", data.detail || "Не удалось сохранить изменения");
+                }
+            } catch (err) {
+                console.error("Update event failed:", err);
+                showMessage("Ошибка", "Сбой сети: " + err.message);
+            }
+        }
+
+        function confirmDeleteEvent(eventId) {
+            if (tg.showPopup) {
+                tg.showPopup({
+                    title: "Удаление мероприятия",
+                    message: "Вы уверены, что хотите удалить это мероприятие?",
+                    buttons: [
+                        { id: "delete", type: "destructive", text: "Удалить" },
+                        { type: "cancel", text: "Отмена" }
+                    ]
+                }, async (btnId) => {
+                    if (btnId === "delete") {
+                        await deleteEvent(eventId);
+                    }
+                });
+            } else {
+                if (confirm("Вы уверены, что хотите удалить это мероприятие?")) {
+                    deleteEvent(eventId);
+                }
+            }
+        }
+
+        async function deleteEvent(eventId) {
+            try {
+                const res = await fetch("/api/starosta/delete_event", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        uid: user.id,
+                        init_data: initData,
+                        event_id: eventId
+                    })
+                });
+                
+                if (res.ok) {
+                    showMessage("Успех", "Мероприятие успешно удалено!");
+                    loadEcosystemData();
+                } else {
+                    const data = await res.json();
+                    showMessage("Ошибка", data.detail || "Не удалось удалить мероприятие");
+                }
+            } catch (err) {
+                console.error("Delete event failed:", err);
+                showMessage("Ошибка", "Сбой сети: " + err.message);
             }
         }
     </script>

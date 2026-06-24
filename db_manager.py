@@ -193,6 +193,14 @@ class DBManager:
         async with self.pool.acquire() as conn:
             await conn.execute("DELETE FROM events WHERE id = $1", event_id)
 
+    async def update_event(self, event_id: int, title: str, description: str, event_date, link: str):
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                UPDATE events 
+                SET title = $1, description = $2, event_date = $3, link = $4
+                WHERE id = $5
+            """, title, description, event_date, link, event_id)
+
     # Channel operations (Каталог)
     async def get_channels(self):
         async with self.pool.acquire() as conn:

@@ -980,3 +980,77 @@ async def api_starosta_logout(request: Request):
     await dao.hdel("starosta_name", uid_str)
     
     return {"status": "ok", "message": "Вы вышли из режима старосты"}
+
+@app.post("/api/starosta/change_password")
+async def api_starosta_change_password(request: Request):
+    body = await request.json()
+    uid = body.get("uid")
+    init_data = body.get("init_data")
+    new_password = body.get("new_password")
+    
+    tg_user = verify_telegram_init_data(init_data)
+    if not tg_user or tg_user["id"] != uid:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+        
+    is_starosta = bool(await dao.hget("starosta_group_saved", str(uid)))
+    if not is_starosta:
+        raise HTTPException(status_code=403, detail="Forbidden: Not a starosta")
+        
+    if not new_password or len(new_password.strip()) < 3:
+        raise HTTPException(status_code=400, detail="Пароль должен состоять минимум из 3 символов")
+        
+    await dao.hset("starosta_pass", str(uid), new_password.strip())
+    return {"status": "ok", "message": "Пароль старосты успешно изменен"}
+
+@app.post("/api/starosta/delete_event")
+async def api_starosta_delete_event(request: Request):
+    body = await request.json()
+    uid = body.get("uid")
+    init_data = body.get("init_data")
+    event_id = body.get("event_id")
+    
+    tg_user = verify_telegram_init_data(init_data)
+    if not tg_user or tg_user["id"] != uid:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+        
+    is_starosta = bool(await dao.hget("starosta_group_saved", str(uid)))
+    if not is_starosta:
+        raise HTTPException(status_code=403, detail="Forbidden: Not a starosta")
+        
+    if not event_id:
+        raise HTTPException(status_code=400, detail="Missing event_id")
+        
+    await db_manager.delete_event(int(event_id))
+    return {"status": "ok", "message": "Мероприятие удалено"}
+
+@app.post("/api/starosta/update_event")
+async def api_starosta_update_event(request: Request):
+    body = await request.json()
+    uid = body.get("uid")
+    init_data = body.get("init_data")
+    event_id = body.get("event_id")
+    title = body.get("title")
+    description = body.get("description")
+    event_date_str = body.get("event_date")
+    link = body.get("link")
+    
+    tg_user = verify_telegram_init_data(init_data)
+    if not tg_user or tg_user["id"] != uid:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+        
+    is_starosta = bool(await dao.hget("starosta_group_saved", str(uid)))
+    if not is_starosta:
+        raise HTTPException(status_code=403, detail="Forbidden: Not a starosta")
+        
+    if not event_id:
+        raise HTTPException(status_code=400, detail="Missing event_id")
+        
+    event_date = None
+    if event_date_str:
+        try:
+            event_date = datetime.fromisoformat(event_date_str.replace("Z", "+00:00"))
+        except ValueError:
+            pass
+            
+    await db_manager.update_event(int(event_id), title, description, event_date, link)
+    return {"status": "ok", "message": "Мероприятие обновлено"}
