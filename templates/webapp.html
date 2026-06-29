@@ -3039,22 +3039,14 @@
             const startParam = `buy_${pkg}`;
             const botLink = `https://t.me/${botUsername}?start=${startParam}`;
             
-            tg.showPopup({
-                title: "Покупка подписки",
-                message: "Для завершения оплаты с помощью Telegram Stars вас перенаправит в диалог с ботом, который автоматически пришлет счет-инвойс на оплату.",
-                buttons: [
-                    { id: "buy", type: "default", text: "Оплатить" },
-                    { type: "cancel", text: "Отменить" }
-                ]
-            }, (btnId) => {
-                if (btnId === "buy") {
-                    if (tg.openTelegramLink) {
-                        tg.openTelegramLink(botLink);
-                    } else {
-                        window.open(botLink, "_blank");
-                    }
-                }
-            });
+            if (tg.openTelegramLink) {
+                tg.openTelegramLink(botLink);
+            } else {
+                window.open(botLink, "_blank");
+            }
+            if (tg.close) {
+                tg.close();
+            }
         }
 
         // Download VPN Configuration file
