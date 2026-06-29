@@ -1066,6 +1066,85 @@ async def api_vpn_toggle(request: Request):
         logger.error(f"Error toggling VPN status in webapp: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/send_invoice")
+async def api_send_invoice(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+        
+    uid = body.get("uid")
+    init_data = body.get("init_data")
+    pkg = body.get("pkg")
+    
+    if uid is None or init_data is None or pkg is None:
+        raise HTTPException(status_code=400, detail="Missing uid, init_data, or pkg")
+        
+    tg_user = verify_telegram_init_data(init_data)
+    if not tg_user or tg_user["id"] != uid:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+        
+    token = os.getenv("BOT_TOKEN")
+    if not token:
+        raise HTTPException(status_code=500, detail="Bot token not configured")
+        
+    # Determine package details
+    if pkg == "vpn_only":
+        title = "WireGuard VPN на 30 дней"
+        desc = "Подписка на высокоскоростной WireGuard VPN сроком на 30 дней."
+        payload = "vpn_only_30_days"
+        amount = 100
+    elif pkg == "ai_standard":
+        title = "150 стандартных запросов к ИИ"
+        desc = "Пополнение баланса ИИ-Ассистента на 150 стандартных (или 37 премиум) запросов."
+        payload = "ai_150_requests"
+        amount = 400
+    elif pkg == "ai_premium":
+        title = "30 премиум запросов к ИИ"
+        desc = "Пополнение баланса ИИ-Ассистента на 30 премиум (или 120 стандартных) запросов."
+        payload = "ai_30_premium"
+        amount = 500
+    elif pkg == "pkg_standard":
+        title = "VPN + 150 Стандарт ИИ"
+        desc = "Подписка WireGuard VPN на 30 дней и промокод на 150 стандартных запросов к ИИ."
+        payload = "vpn_sub_standard"
+        amount = 500
+    elif pkg == "pkg_premium":
+        title = "VPN + 30 Премиум ИИ"
+        desc = "Подписка WireGuard VPN на 30 дней и промокод на 30 премиум запросов к ИИ (Claude, GPT, Kimi, Qwen)."
+        payload = "vpn_sub_premium"
+        amount = 600
+    else:
+        raise HTTPException(status_code=400, detail="Unknown package")
+        
+    url = f"https://api.telegram.org/bot{token}/sendInvoice"
+    prices = [{"label": title, "amount": amount}]
+    
+    post_data = {
+        "chat_id": uid,
+        "title": title,
+        "description": desc,
+        "payload": payload,
+        "provider_token": "",
+        "currency": "XTR",
+        "prices": json.dumps(prices)
+    }
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=post_data) as response:
+                resp_json = await response.json()
+                if not resp_json.get("ok"):
+                    logger.error(f"Failed to send invoice via Telegram API: {resp_json}")
+                    raise HTTPException(status_code=500, detail=resp_json.get("description", "Failed to send invoice"))
+    except Exception as e:
+        logger.error(f"Error calling sendInvoice: {e}")
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=str(e))
+        
+    return {"status": "ok"}
+
 @app.get("/api/search")
 async def api_search(q: str, type: str):
     q_lower = q.strip().lower()

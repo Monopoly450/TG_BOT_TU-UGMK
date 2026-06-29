@@ -3035,17 +3035,24 @@
         }
 
         // Buy Package redirection
-        function buyPackage(pkg) {
-            const startParam = `buy_${pkg}`;
-            const botLink = `https://t.me/${botUsername}?start=${startParam}`;
-            
-            if (tg.openTelegramLink) {
-                tg.openTelegramLink(botLink);
-            } else {
-                window.open(botLink, "_blank");
-            }
-            if (tg.close) {
-                tg.close();
+        async function buyPackage(pkg) {
+            try {
+                const res = await fetch("/api/send_invoice", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ uid: user.id, init_data: initData, pkg: pkg })
+                });
+                if (!res.ok) {
+                    const errData = await res.json().catch(() => ({}));
+                    alert("Ошибка выставления счета: " + (errData.detail || "Неизвестная ошибка"));
+                    return;
+                }
+                if (tg.close) {
+                    tg.close();
+                }
+            } catch (err) {
+                console.error("Failed to buy package:", err);
+                alert("Ошибка сети: " + err.message);
             }
         }
 

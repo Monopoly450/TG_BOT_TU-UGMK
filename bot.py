@@ -931,6 +931,8 @@ async def start(m: Message, state: FSMContext, command: CommandObject = None):
                     return
             except Exception as e:
                 logger.error(f"Failed to send deep linked invoice: {e}")
+                await m.answer(f"⚠️ <b>Ошибка при создании счета:</b>\n<code>{str(e)}</code>\n\nУбедитесь, что в @BotFather для вашего бота подключен прием платежей Telegram Stars (XTR).", parse_mode="HTML")
+                return
                 
     await m.answer("👋 <b>Бот расписания готов к работе!</b>", reply_markup=get_main_menu(), parse_mode="HTML")
     await show_subscription_time_menu(m)
@@ -2871,7 +2873,7 @@ async def cb_vpn_buy_standard(c: CallbackQuery):
         await c.answer("Счет выставлен!")
     except Exception as e:
         logger.error(f"Failed to send invoice for VPN standard: {e}")
-        await c.answer("⚠️ Не удалось выставить счет. Обратитесь к администратору.", show_alert=True)
+        await c.answer(f"⚠️ Ошибка: {str(e)}\n\n(Убедитесь, что Stars подключены в @BotFather)", show_alert=True)
 
 @dp.callback_query(F.data == "vpn:buy_premium")
 async def cb_vpn_buy_premium(c: CallbackQuery):
@@ -2889,7 +2891,7 @@ async def cb_vpn_buy_premium(c: CallbackQuery):
         await c.answer("Счет выставлен!")
     except Exception as e:
         logger.error(f"Failed to send invoice for VPN premium: {e}")
-        await c.answer("⚠️ Не удалось выставить счет. Обратитесь к администратору.", show_alert=True)
+        await c.answer(f"⚠️ Ошибка: {str(e)}\n\n(Убедитесь, что Stars подключены в @BotFather)", show_alert=True)
 
 @dp.callback_query(F.data == "vpn:buy_only")
 async def cb_vpn_buy_only(c: CallbackQuery):
@@ -2907,7 +2909,7 @@ async def cb_vpn_buy_only(c: CallbackQuery):
         await c.answer("Счет выставлен!")
     except Exception as e:
         logger.error(f"Failed to send invoice for VPN only: {e}")
-        await c.answer("⚠️ Не удалось выставить счет. Обратитесь к администратору.", show_alert=True)
+        await c.answer(f"⚠️ Ошибка: {str(e)}\n\n(Убедитесь, что Stars подключены в @BotFather)", show_alert=True)
 
 @dp.callback_query(F.data == "ai:buy_requests")
 async def cb_ai_buy_requests(c: CallbackQuery):
@@ -2925,7 +2927,7 @@ async def cb_ai_buy_requests(c: CallbackQuery):
         await c.answer("Счет выставлен!")
     except Exception as e:
         logger.error(f"Failed to send invoice for AI: {e}")
-        await c.answer("⚠️ Не удалось выставить счет. Обратитесь к администратору.", show_alert=True)
+        await c.answer(f"⚠️ Ошибка: {str(e)}\n\n(Убедитесь, что Stars подключены в @BotFather)", show_alert=True)
 
 @dp.callback_query(F.data == "ai:buy_premium")
 async def cb_ai_buy_premium(c: CallbackQuery):
@@ -2943,7 +2945,7 @@ async def cb_ai_buy_premium(c: CallbackQuery):
         await c.answer("Счет выставлен!")
     except Exception as e:
         logger.error(f"Failed to send invoice for AI premium: {e}")
-        await c.answer("⚠️ Не удалось выставить счет. Обратитесь к администратору.", show_alert=True)
+        await c.answer(f"⚠️ Ошибка: {str(e)}\n\n(Убедитесь, что Stars подключены в @BotFather)", show_alert=True)
 
 @dp.pre_checkout_query()
 async def process_pre_checkout_query(pre_checkout_query: PreCheckoutQuery):
