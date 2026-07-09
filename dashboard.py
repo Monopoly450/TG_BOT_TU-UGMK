@@ -926,7 +926,7 @@ async def api_ai_chat(request: Request):
     try:
         response_text = await get_ai_response(
             prompt=prompt,
-            api_key=api_key,
+            api_key=api_key if (has_custom_key and not is_programmatic_key) else None,
             model_name=model_name,
             history=history
         )

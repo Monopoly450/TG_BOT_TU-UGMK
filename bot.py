@@ -2226,7 +2226,7 @@ async def ai_chat_message(m: Message, state: FSMContext):
             await bot.download(voice_file, destination=file_bytes)
             audio_data = file_bytes.getvalue()
             
-            prompt = await transcribe_audio(audio_data, "ogg", api_key)
+            prompt = await transcribe_audio(audio_data, "ogg", api_key if (has_custom_key and not is_programmatic_key) else None)
             if not prompt or not prompt.strip():
                 await transcription_msg.edit_text("❌ <b>Не удалось распознать речь.</b> Попробуйте говорить чётче или отправьте текстовое сообщение.", parse_mode="HTML")
                 return
@@ -2282,7 +2282,7 @@ async def ai_chat_message(m: Message, state: FSMContext):
         try:
             response_text = await get_ai_response(
                 prompt=prompt,
-                api_key=api_key,
+                api_key=api_key if (has_custom_key and not is_programmatic_key) else None,
                 model_name=model_name,
                 history=history,
                 image_data_b64=image_data_b64
