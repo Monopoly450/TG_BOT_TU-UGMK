@@ -2091,17 +2091,7 @@ async def ai_menu(m: Message, state: FSMContext):
     model = user_row['ai_model'] if user_row else 'gpt-4o-mini'
     has_key = bool(user_row['custom_ai_key']) if user_row else False
     
-    if not has_key:
-        try:
-            ai_key = await create_openrouter_key(limit_usd=0.00, expires_days=30)
-            expires_at = datetime.now() + timedelta(days=30)
-            await db_manager.set_user_ai_key(uid, ai_key, expires_at)
-            has_key = True
-            user_row = await get_active_user_row(uid)
-            logger.info(f"Automatically created free-tier key for user {uid} on menu open")
-        except Exception as e:
-            logger.error(f"Failed to auto-create free-tier key for user {uid}: {e}")
-            
+
     ai_balance = user_row['ai_balance'] if user_row else 0
     key_status = "✅ Установлен" if has_key else "❌ Не установлен"
     
@@ -2134,17 +2124,7 @@ async def cb_ai_chat(c: CallbackQuery, state: FSMContext):
     
     is_free = model in FREE_MODELS
     
-    if not has_key:
-        try:
-            ai_key = await create_openrouter_key(limit_usd=0.00, expires_days=30)
-            expires_at = datetime.now() + timedelta(days=30)
-            await db_manager.set_user_ai_key(uid, ai_key, expires_at)
-            has_key = True
-            user_row = await get_active_user_row(uid)
-            logger.info(f"Automatically created free-tier key for user {uid} on chat start")
-        except Exception as e:
-            logger.error(f"Failed to auto-create free-tier key for user {uid}: {e}")
-            
+
     is_programmatic = has_key and bool(user_row.get('ai_expires_at')) if user_row else False
     has_real_key = has_key and not is_programmatic
     
@@ -2448,15 +2428,7 @@ async def cb_ai_set_model_save(c: CallbackQuery):
     uid = c.from_user.id
     user_row = await get_active_user_row(uid)
     has_key = bool(user_row['custom_ai_key']) if user_row else False
-    if not has_key:
-        try:
-            ai_key = await create_openrouter_key(limit_usd=0.00, expires_days=30)
-            expires_at = datetime.now() + timedelta(days=30)
-            await db_manager.set_user_ai_key(uid, ai_key, expires_at)
-            logger.info(f"Automatically created free-tier key for user {uid} on model selection")
-        except Exception as e:
-            logger.error(f"Failed to auto-create free-tier key for user {uid}: {e}")
-            
+
     await c.answer(f"Модель изменена на {model}. Контекст очищен.")
     await show_ai_menu_directly(c, user_id=c.from_user.id)
 
@@ -2485,17 +2457,7 @@ async def show_ai_menu_directly(message: Message | CallbackQuery, user_id: int =
     model = user_row['ai_model'] if user_row else 'gpt-4o-mini'
     has_key = bool(user_row['custom_ai_key']) if user_row else False
     
-    if not has_key:
-        try:
-            ai_key = await create_openrouter_key(limit_usd=0.00, expires_days=30)
-            expires_at = datetime.now() + timedelta(days=30)
-            await db_manager.set_user_ai_key(int(uid), ai_key, expires_at)
-            has_key = True
-            user_row = await get_active_user_row(int(uid))
-            logger.info(f"Automatically created free-tier key for user {uid} on menu display")
-        except Exception as e:
-            logger.error(f"Failed to auto-create free-tier key for user {uid}: {e}")
-            
+
     ai_balance = user_row['ai_balance'] if user_row else 0
     
     text = (

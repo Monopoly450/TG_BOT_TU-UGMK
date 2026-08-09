@@ -2653,7 +2653,7 @@
                     document.getElementById("ai-balance-val").innerText = data.new_balance;
                     document.getElementById("profile-ai-balance").innerText = `${data.new_balance} 💳`;
                 } else {
-                    const errData = await res.json();
+                    const errData = await res.json().catch(() => ({ detail: res.statusText || 'Не удалось получить ответ ИИ' }));
                     appendMessage("ai", `❌ **Ошибка:** ${errData.detail || 'Не удалось получить ответ ИИ'}`);
                 }
             } catch (err) {

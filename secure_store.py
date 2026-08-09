@@ -45,8 +45,9 @@ class SecureStore:
             json_data = json.dumps(data, ensure_ascii=False).encode('utf-8')
             encrypted_data = self.fernet.encrypt(json_data)
             
-            # Ensure directory exists
-            os.makedirs(os.path.dirname(self.filename), exist_ok=True)
+            dirname = os.path.dirname(self.filename)
+            if dirname:
+                os.makedirs(dirname, exist_ok=True)
             
             with open(self.filename, 'wb') as f:
                 f.write(encrypted_data)
