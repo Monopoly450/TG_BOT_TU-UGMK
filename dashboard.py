@@ -716,19 +716,7 @@ async def api_verify(request: Request):
         await db_manager.register_or_update_user(uid, username)
         user_row = await get_active_user_row(uid)
         
-    # Auto-create key silently if they don't have one
-    has_key = bool(user_row['custom_ai_key'])
-    if not has_key:
-        async def create_key_task(telegram_id: int):
-            try:
-                ai_key = await create_openrouter_key(limit_usd=0.00, expires_days=30)
-                expires_at = datetime.now() + timedelta(days=30)
-                await db_manager.set_user_ai_key(telegram_id, ai_key, expires_at)
-                logger.info(f"Automatically created free-tier key for user {telegram_id} in background via verify")
-            except Exception as e:
-                logger.error(f"Failed to auto-create key for user {telegram_id} in background via verify: {e}")
-        asyncio.create_task(create_key_task(uid))
-            
+
     # Retrieve user status
     user_status = await _build_user_status_dict(uid, user_row)
     
@@ -766,18 +754,7 @@ async def api_user_status(uid: int, init_data: str):
     if not user_row:
         raise HTTPException(status_code=404, detail="User not found")
         
-    has_key = bool(user_row['custom_ai_key'])
-    if not has_key:
-        async def create_key_task(telegram_id: int):
-            try:
-                ai_key = await create_openrouter_key(limit_usd=0.00, expires_days=30)
-                expires_at = datetime.now() + timedelta(days=30)
-                await db_manager.set_user_ai_key(telegram_id, ai_key, expires_at)
-                logger.info(f"Automatically created free-tier key for user {telegram_id} in background via API status")
-            except Exception as e:
-                logger.error(f"Failed to auto-create key for user {telegram_id} in background via API status: {e}")
-        asyncio.create_task(create_key_task(uid))
-        
+
     return await _build_user_status_dict(uid, user_row)
 
 
