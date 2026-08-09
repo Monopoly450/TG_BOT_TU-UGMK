@@ -268,7 +268,7 @@ class ScheduleParser:
                         "subject": subject,
                         "type": l_type,
                         "room": cells[2].get_text(strip=True) if len(cells) > 2 else "",
-                        "group": cells[3].get_text(strip=True) if len(cells) > 4 else "", 
+                        "group": cells[3].get_text(strip=True) if len(cells) > 3 else "", 
                         "teacher": cells[-1].get_text(strip=True) if len(cells) > 3 else "",
                         "link": link_url,
                     })
@@ -310,7 +310,7 @@ class ScheduleParser:
                     "time": cells[0].get_text(strip=True), 
                     "subject": disc_text,
                     "room": cells[2].get_text(strip=True) if len(cells) > 2 else "",
-                    "group": cells[3].get_text(strip=True) if len(cells) > 4 else "", 
+                    "group": cells[3].get_text(strip=True) if len(cells) > 3 else "", 
                     "teacher": cells[-1].get_text(strip=True) if len(cells) > 3 else "",
                     "link": link_url,
                 })

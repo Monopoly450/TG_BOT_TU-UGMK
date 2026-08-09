@@ -1249,7 +1249,12 @@ async def cb_sel(c: CallbackQuery, state: FSMContext):
     _, t_type, idx = c.data.split(":")
     db_funcs = {"group": get_groups_db, "teacher": get_teachers_db, "classroom": get_classrooms_db}
     db = await db_funcs[t_type]()
-    t_val = list(db.keys())[int(idx)]
+    db_keys = list(db.keys())
+    idx_val = int(idx)
+    if idx_val >= len(db_keys):
+        await c.answer("⚠️ Элемент больше не доступен.", show_alert=True)
+        return
+    t_val = db_keys[idx_val]
     
     if t_type == "group":
         await dao.hset("user_subs", str(c.from_user.id), t_val)
@@ -3386,7 +3391,7 @@ async def cb_eco_del_event(c: CallbackQuery):
 
 @dp.callback_query(F.data.startswith("eco_adm:del_ev_id:"), F.from_user.id.in_(ADMIN_IDS))
 async def cb_eco_del_event_confirm(c: CallbackQuery):
-    ev_id = int(c.data.split(":")[3])
+    ev_id = int(c.data.split(":")[-1])
     await db_manager.delete_event(ev_id)
     await c.answer("Событие удалено")
     await cb_eco_del_event(c)
@@ -3447,7 +3452,7 @@ async def cb_eco_del_chan(c: CallbackQuery):
 
 @dp.callback_query(F.data.startswith("eco_adm:del_ch_id:"), F.from_user.id.in_(ADMIN_IDS))
 async def cb_eco_del_chan_confirm(c: CallbackQuery):
-    ch_id = int(c.data.split(":")[3])
+    ch_id = int(c.data.split(":")[-1])
     await db_manager.delete_channel(ch_id)
     await c.answer("Ссылка удалена")
     await cb_eco_del_chan(c)
