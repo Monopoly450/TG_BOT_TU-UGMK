@@ -614,9 +614,12 @@ async def api_set_notifications(request: Request):
     if not tg_user or tg_user["id"] != uid:
         raise HTTPException(status_code=401, detail="Unauthorized")
         
-    if morning_time:
+    for value in [morning_time, evening_time]:
+        if value is not None and (not isinstance(value, str) or (value != 'Отключено' and not re.fullmatch(r'(?:[01]\d|2[0-3]):[0-5]\d', value))):
+            raise HTTPException(status_code=400, detail='Укажите время в формате ЧЧ:ММ или «Отключено».')
+    if morning_time is not None:
         await dao.hset("user_morning_time", str(uid), morning_time)
-    if evening_time:
+    if evening_time is not None:
         await dao.hset("user_evening_time", str(uid), evening_time)
         
     return {"status": "ok"}
@@ -1049,28 +1052,6 @@ async def api_admin_update(request: Request):
         await dao.set("update_admin_id", str(uid))
         await dao.delete("update_msgs")
         
-        maintenance_msg = "⚙️ <b>Внимание!</b>\nСервер обслуживается. Бот будет недоступен несколько минут."
-        users = list(await dao.smembers("bot_users"))
-        
-        success_msgs = {}
-        for target_uid in users:
-            try:
-                url = f"https://api.telegram.org/bot{token}/sendMessage"
-                payload = {"chat_id": int(target_uid), "text": maintenance_msg, "parse_mode": "HTML"}
-                async with aiohttp.ClientSession(connector=telegram_connector()) as session:
-                    async with session.post(url, json=payload) as resp:
-                        if resp.status == 200:
-                            data = await resp.json()
-                            msg_id = data.get("result", {}).get("message_id")
-                            if msg_id:
-                                success_msgs[str(target_uid)] = str(msg_id)
-            except Exception:
-                pass
-            await asyncio.sleep(0.02)
-            
-        if success_msgs:
-            await dao.hset("update_msgs", mapping=success_msgs)
-            
         await dao.set("bot_update_trigger", "1")
         
     asyncio.create_task(run_update_sequence())

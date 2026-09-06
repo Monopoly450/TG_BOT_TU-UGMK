@@ -44,6 +44,21 @@ class GroupCatalogTests(unittest.TestCase):
 
 
 class GroupApiTests(unittest.IsolatedAsyncioTestCase):
+    async def test_notification_preferences_accept_custom_time_and_off(self):
+        request = SimpleNamespace(json=AsyncMock(return_value={'uid': 1, 'init_data': 'signed', 'morning_time': '08:17', 'evening_time': 'Отключено'}))
+        with patch.object(api, 'verify_telegram_init_data', return_value={'id': 1}), patch.object(api.dao, 'hset', AsyncMock()) as save:
+            await api.api_set_notifications(request)
+            save.assert_any_await('user_morning_time', '1', '08:17')
+            save.assert_any_await('user_evening_time', '1', 'Отключено')
+
+    async def test_invalid_notification_time_does_not_partially_save(self):
+        request = SimpleNamespace(json=AsyncMock(return_value={'uid': 1, 'init_data': 'signed', 'morning_time': '08:00', 'evening_time': '25:99'}))
+        with patch.object(api, 'verify_telegram_init_data', return_value={'id': 1}), patch.object(api.dao, 'hset', AsyncMock()) as save:
+            with self.assertRaises(api.HTTPException) as error:
+                await api.api_set_notifications(request)
+            self.assertEqual(error.exception.status_code, 400)
+            save.assert_not_awaited()
+
     async def test_api_returns_requested_group_and_rejects_retired(self):
         with patch.object(api, 'verify_telegram_init_data', return_value={'id': 1}), patch.object(api.sm, 'fetch_schedule', AsyncMock(return_value={'_group':'Ит-24107'})) as fetch:
             result = await api.api_schedule(1,1,'signed',target_name='ИТ-24107 гр. 2')
@@ -81,6 +96,23 @@ class LauncherTests(unittest.IsolatedAsyncioTestCase):
         with patch.dict(os.environ, {'BOT_TOKEN':'12345:offline-test-token','PROXY_URL':''}), patch('secure_store.SecureStore'):
             import bot
         self.module = bot
+
+    async def test_restart_never_sends_service_messages(self):
+        b = self.module
+        for updating in ['1', None]:
+            redis = SimpleNamespace(hgetall=AsyncMock(return_value={}), get=AsyncMock(return_value=updating), delete=AsyncMock())
+            with patch.object(b, 'dao', redis), patch.object(b, 'broadcast', AsyncMock()) as broadcast, patch.object(b.bot, 'send_message', AsyncMock()) as send:
+                await b.initialize_on_startup()
+                broadcast.assert_not_awaited()
+                send.assert_not_awaited()
+
+    async def test_schedule_text_escapes_portal_and_homework_markup(self):
+        b = self.module
+        with patch.object(b.dao, 'hget', AsyncMock(return_value='x < y & z')):
+            text = await b.format_lesson({'subject': 'C++ <основы>', 'teacher': 'А & Б', 'time': '08:30'}, 'Понедельник', 'Ит-24107')
+        self.assertIn('C++ &lt;основы&gt;', text)
+        self.assertIn('А &amp; Б', text)
+        self.assertIn('x &lt; y &amp; z', text)
 
     async def test_old_group_buttons_use_visible_name_instead_of_shifted_index(self):
         b=self.module

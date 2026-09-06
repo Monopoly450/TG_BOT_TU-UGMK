@@ -6,6 +6,7 @@ import logging
 import asyncio
 import urllib.parse
 import collections
+from html import escape
 from contextlib import asynccontextmanager
 from datetime import datetime, date, timedelta, timezone
 from typing import Dict, Any, AsyncGenerator
@@ -34,6 +35,7 @@ from secure_store import SecureStore
 from db_manager import db_manager
 from ai_manager import get_ai_response, get_chat_models, normalize_model_id, filter_chat_models, normalize_chat_image
 from ai_load import AIBusyError
+from schedule_notifications import ScheduleNotifications
 import io
 
 # ═══════════════════ НАСТРОЙКИ ═══════════════════
@@ -361,7 +363,7 @@ def get_day_pagination_kb(target_date: date):
     ])       
 
 async def format_lesson(l: dict, day_name: str, group_name: str) -> str:
-    subj, l_type, time, room, teach = (l.get(k, 'Н/Д') for k in ['subject', 'type', 'time', 'room', 'teacher'])
+    subj, l_type, time, room, teach = (escape(str(l.get(k) or 'Н/Д')) for k in ['subject', 'type', 'time', 'room', 'teacher'])
     link = l.get('link')
 
     text = f"📖 <b>{subj}</b>\n"
@@ -369,13 +371,13 @@ async def format_lesson(l: dict, day_name: str, group_name: str) -> str:
         text += f"   📝 <i>{l_type}</i>\n"
     text += f"   └ <code>{time}</code> | 🚪 <code>{room}</code>\n"
     
-    if link:
-        text += f"   └ 💻 <a href='{link}'>Подключиться онлайн</a>\n"
+    if link and str(link).startswith(('https://', 'http://')):
+        text += f"   └ 💻 <a href='{escape(str(link), quote=True)}'>Подключиться онлайн</a>\n"
 
     text += f"   └ 👤 {teach}"
     try:
-        hw = await dao.hget(f"homework:{group_name}", f"{day_name}:{time}")
-        if hw: text += f"\n   ✍️ <b>Д/З:</b> <i>{hw}</i>"
+        hw = await dao.hget(f"homework:{group_name}", f"{day_name}:{l.get('time', 'Н/Д')}")
+        if hw: text += f"\n   ✍️ <b>Д/З:</b> <i>{escape(hw)}</i>"
     except Exception as e: logger.error(f"Homework read error: {e}")
 
     return text
@@ -477,13 +479,12 @@ async def admin_actions(c: CallbackQuery, state: FSMContext):
                 
         await c.message.edit_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
     elif action == "update":
-        await c.message.edit_text("🔄 Начинаю оповещение пользователей и подготовку к обновлению...", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
+        await c.message.edit_text("🔄 Подготавливаю обновление...", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
         
         async def run_update_sequence():
             await dao.set("update_in_progress", "1")
             await dao.set("update_admin_id", str(c.from_user.id))
             await dao.delete("update_msgs")
-            await broadcast("⚙️ <b>Внимание!</b>\nСервер обслуживается. Бот будет недоступен несколько минут.", save_key="update_msgs")
             await dao.set("bot_update_trigger", "1")
             
         asyncio.create_task(run_update_sequence())
@@ -656,25 +657,6 @@ async def cb_set_evening_time_save(c: CallbackQuery, state: FSMContext):
     await c.message.delete()
     await show_subscription_time_menu(c.message, user_id=str(c.from_user.id))
 
-async def run_evening_broadcast(target_time: str):
-    users = await dao.hgetall("user_subs")
-    user_times = await dao.hgetall("user_evening_time")
-    tomorrow = datetime.now(YEKATERINBURG_TZ).date() + timedelta(days=1)
-    count = 0
-    for user_id, group_name in users.items():
-        if user_times.get(user_id) != target_time:
-            continue
-        try:
-            week_s = await sm.fetch_schedule(0, "group", group_name)
-            day_lessons = week_s.get(DAYS_OF_WEEK[tomorrow.weekday()], [])
-            if day_lessons:
-                text = f"{get_greeting()} <b>Расписание на завтра, {tomorrow.strftime('%d.%m')}:</b>\n\n" + await fmt_day(tomorrow, day_lessons, group_name)
-                await bot.send_message(int(user_id), text, parse_mode="HTML")
-                count += 1
-            await asyncio.sleep(0.05)
-        except: pass
-    return count
-
 async def check_schedule_changes():
     try:
         subs = await dao.hgetall("user_subs")
@@ -716,18 +698,19 @@ async def check_schedule_changes():
         logger.error(f"Error checking schedule changes: {e}")
 
 async def main_scheduler():
+    notifications = ScheduleNotifications(dao, sm, bot, fmt_day)
+    last_change_check = None
     while True:
-        now_dt = datetime.now(YEKATERINBURG_TZ)
-        now = now_dt.strftime("%H:%M")
-        await asyncio.gather(
-            run_morning_broadcast(now),
-            run_evening_broadcast(now)
-        )
-        # Check changes at 09:00, 12:00, 15:00, 18:00, 21:00
-        if now_dt.minute == 0 and now_dt.hour in [9, 12, 15, 18, 21]:
-            asyncio.create_task(check_schedule_changes())
-        # Sleep for exactly 60 seconds to avoid multiple triggers within the same minute
-        await asyncio.sleep(60)
+        try:
+            now_dt = datetime.now(YEKATERINBURG_TZ)
+            check_slot = now_dt.strftime('%Y-%m-%d:%H')
+            if now_dt.minute < 5 and now_dt.hour in [9, 12, 15, 18, 21] and check_slot != last_change_check:
+                last_change_check = check_slot
+                asyncio.create_task(check_schedule_changes())
+            await notifications.run(now_dt)
+        except Exception:
+            logger.exception('Schedule scheduler failed; retrying in 15 seconds')
+        await asyncio.sleep(15)
 
 async def copy_message_broadcast(from_chat_id: int, message_id: int):
     users = await dao.smembers("bot_users")
@@ -1122,7 +1105,7 @@ async def run_morning_broadcast(target_time: str = None):
         return 0
 
 
-async def notify_on_startup():
+async def initialize_on_startup():
     try:
         # --- MIGRATION: Convert ID strings in user_subs to group names ---
         subs = await dao.hgetall("user_subs")
@@ -1135,11 +1118,7 @@ async def notify_on_startup():
         
         if await dao.get("update_in_progress") == "1":
             await dao.delete("update_in_progress")
-            admin_id = await dao.get("update_admin_id")
-            if admin_id:
-                try: await bot.send_message(int(admin_id), "🛠 <b>ОТЧЕТ:</b> Сервер успешно обновлен и запущен!", parse_mode="HTML")
-                except: pass
-                await dao.delete("update_admin_id")
+            await dao.delete("update_admin_id")
             
             msgs = await dao.hgetall("update_msgs")
             for uid, mid in msgs.items():
@@ -1149,17 +1128,8 @@ async def notify_on_startup():
                 except: pass
             await dao.delete("update_msgs")
             
-            await broadcast("✅ <b>Сервер обновлен и снова работает!</b>\nВсе системы в норме.")
-        else:
-            await broadcast("🚀 <b>Бот запущен и снова в строю!</b>\nВсе системы работают в штатном режиме.")
     except Exception as e:
-        logger.error(f"Notify on startup failed: {e}")
-
-async def notify_on_shutdown():
-    try:
-        await broadcast("📴 <b>Бот временно отключается...</b>\nВ данный момент происходит перезагрузка сервера или технические работы. Пожалуйста, подождите!")
-    except Exception as e:
-        logger.error(f"Notify on shutdown failed: {e}")
+        logger.error(f"Startup initialization failed: {e}")
 
 
 async def configure_mini_app_menu_button(chat_id: int | None = None):
@@ -1286,8 +1256,7 @@ async def main():
     await migrate_group_preferences(dao, db_manager)
     await configure_mini_app_menu_button()
     if PROXY_URL: logger.info("🌐 Для Telegram включён прокси")
-    dp.startup.register(notify_on_startup)
-    dp.shutdown.register(notify_on_shutdown)
+    dp.startup.register(initialize_on_startup)
     asyncio.create_task(main_scheduler())
     asyncio.create_task(admin_command_listener())
     await bot.delete_webhook(drop_pending_updates=True), await dp.start_polling(bot)
