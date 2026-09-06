@@ -44,7 +44,7 @@ async def main():
         if route.request.url.startswith("https://telegram.org/"):
             await route.fulfill(content_type="text/javascript", body="window.Telegram={WebApp:{initData:'fixture',initDataUnsafe:{user:{id:1,first_name:'Владислав'}},expand(){},setHeaderColor(){},setBackgroundColor(){}}};")
             return
-        if not route.request.url.startswith("http://miniapp.test"):
+        if not route.request.url.startswith("https://miniapp.test"):
             await route.abort()
             return
         payload = {}
@@ -82,13 +82,13 @@ async def main():
         await route.fulfill(json=payload)
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(args=["--no-sandbox"])
+        browser = await p.chromium.launch(args=["--no-sandbox", "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"])
         page = await browser.new_page(viewport={"width": 390, "height": 844}, device_scale_factor=1, reduced_motion="reduce")
         errors = []
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.on('dialog', lambda dialog: dialog.accept())
         await page.route("**/*", route_handler)
-        await page.goto("http://miniapp.test/webapp")
+        await page.goto("https://miniapp.test/webapp")
         await page.wait_for_selector("#init-screen", state="hidden")
         await page.wait_for_function("allChatModels.length === 3 && !historyLoading")
         assert await page.locator('#morning-time-select').input_value() == '08:17'
@@ -113,12 +113,23 @@ async def main():
         await page.locator('#attach-button').click()
         await page.wait_for_selector('#photo-dialog[open]')
         await page.screenshot(path=str(output / 'photo-source-mobile.png'))
-        async with page.expect_file_chooser() as camera_event:
-            await page.get_by_role('button', name='Сфотографировать', exact=True).click()
-        camera = await camera_event.value
-        assert await camera.element.get_attribute('capture') == 'environment'
-        await camera.set_files({'name': 'camera.png', 'mimeType': 'image/png', 'buffer': image.getvalue()})
+        camera_choosers = []
+        page.on('filechooser', lambda chooser: camera_choosers.append(chooser))
+        await page.get_by_role('button', name='Сфотографировать', exact=True).click()
+        await page.wait_for_function("(cameraStream && !document.getElementById('camera-shutter').disabled) || !document.getElementById('camera-retry').hidden")
+        assert await page.locator('#camera-retry').is_hidden(), await page.locator('#camera-status').inner_text()
+        await page.wait_for_function("cameraStream && !document.getElementById('camera-shutter').disabled")
+        await page.evaluate('window.firstCameraTrack = cameraStream.getVideoTracks()[0]')
+        assert await page.evaluate('cameraStream.getAudioTracks().length') == 0
+        await page.locator('#camera-flip').click()
+        await page.wait_for_function("cameraStream && !document.getElementById('camera-shutter').disabled")
+        assert await page.evaluate("firstCameraTrack.readyState === 'ended'")
+        await page.evaluate('window.capturedTrack = cameraStream.getVideoTracks()[0]')
+        await page.screenshot(path=str(output / 'camera-live-mobile.png'))
+        await page.locator('#camera-shutter').click()
+        assert not camera_choosers, 'Camera action must never invoke the gallery picker'
         await page.wait_for_selector("#model-dialog[open]")
+        assert await page.evaluate("capturedTrack.readyState === 'ended' && cameraStream === null")
         assert await page.locator(".model-option").count() == 2
         await page.get_by_role("button", name="Free", exact=True).click()
         assert await page.locator(".model-option").count() == 3
@@ -126,6 +137,28 @@ async def main():
         await page.locator(".model-option").last.click()
         await page.wait_for_function("!modelBusy")
         assert (await page.locator('#attachment-thumbnail').get_attribute('src')).startswith('data:image/jpeg')
+        # Denied permission stays in the camera screen and can be retried.
+        await page.evaluate("() => { window.realGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices); navigator.mediaDevices.getUserMedia = async () => { throw new DOMException('Denied', 'NotAllowedError'); }; }")
+        await page.locator('#attach-button').click()
+        await page.get_by_role('button', name='Сфотографировать', exact=True).click()
+        await page.wait_for_selector('#camera-retry:visible')
+        assert 'Доступ к камере запрещён' in await page.locator('#camera-status').inner_text()
+        assert await page.locator('#camera-shutter').is_disabled()
+        assert not camera_choosers
+        await page.evaluate('() => { navigator.mediaDevices.getUserMedia = window.realGetUserMedia; }')
+        await page.locator('#camera-retry').click()
+        await page.wait_for_function("cameraStream && !document.getElementById('camera-shutter').disabled")
+        await page.evaluate('window.closedTrack = cameraStream.getVideoTracks()[0]')
+        await page.get_by_role('button', name='Закрыть камеру', exact=True).click()
+        assert await page.evaluate("closedTrack.readyState === 'ended' && cameraStream === null")
+        # A late permission result after closing must also stop its stream.
+        await page.evaluate("() => { navigator.mediaDevices.getUserMedia = () => new Promise(resolve => { window.resolveCamera = resolve; }); }")
+        await page.locator('#attach-button').click()
+        await page.get_by_role('button', name='Сфотографировать', exact=True).click()
+        await page.get_by_role('button', name='Закрыть камеру', exact=True).click()
+        await page.evaluate("async () => { window.lateStream = await realGetUserMedia({video: true}); resolveCamera(lateStream); }")
+        await page.wait_for_function("lateStream.getTracks().every(track => track.readyState === 'ended')")
+        await page.evaluate('() => { navigator.mediaDevices.getUserMedia = window.realGetUserMedia; }')
         await page.locator('#attach-button').click()
         async with page.expect_file_chooser() as gallery_event:
             await page.get_by_role('button', name='Выбрать из галереи', exact=True).click()

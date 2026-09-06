@@ -1316,6 +1316,11 @@
         .compact-dialog { margin: auto; width: min(480px, calc(100% - 24px)); max-height: calc(var(--app-height, 100dvh) - 32px); padding: 24px; border-radius: 22px; border: 1px solid var(--border-color); color: var(--text-color); background: var(--container-bg); }
         .compact-dialog::backdrop { background: #08110db3; backdrop-filter: blur(6px); }
         .compact-dialog h2 { font-size: 21px; }
+        #camera-dialog { padding: 18px; }
+        #camera-preview { display: block; width: 100%; height: min(48dvh, 420px); object-fit: contain; background: #101612; border-radius: 14px; }
+        #camera-status { margin: 12px 0; font-size: 12px; line-height: 1.5; color: var(--text-muted); }
+        .camera-actions { display: flex; gap: 8px; margin-bottom: 10px; }
+        .camera-actions .btn { flex: 1; min-width: 0; }
         #broadcast-preview-text { white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; font-size: 14px; line-height: 1.6; padding: 16px; background: var(--surface-raised); border-radius: 14px; margin: 16px 0; max-height: 42dvh; overflow: auto; }
         .dialog-actions { display: flex; gap: 8px; margin-top: 18px; }
         .dialog-actions .btn { flex: 1; }
@@ -1411,7 +1416,6 @@
                     <div id="attachment-preview" hidden><img id="attachment-thumbnail" alt="Прикреплённое фото"><span style="flex:1">Фото готово к отправке</span><button class="icon-btn" onclick="removeAttachment()" aria-label="Убрать фото">×</button></div>
                     <div class="chat-input-bar">
                         <input type="file" id="chat-photo" accept="image/jpeg,image/png,image/webp" hidden onchange="attachPhoto(this.files[0])">
-                        <input type="file" id="chat-camera" accept="image/*" capture="environment" hidden onchange="attachPhoto(this.files[0], true)">
                         <button class="icon-btn" id="attach-button" onclick="openPhotoPicker()" title="Прикрепить фото" aria-label="Прикрепить фото" aria-haspopup="dialog"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 5-5 4 4 4-6 5 7"/></svg></button>
                         <textarea class="chat-input" id="chat-input-field" rows="1" maxlength="20000" aria-label="Сообщение" placeholder="Сообщение…" oninput="resizeChatInput()" onkeydown="handleChatKeyPress(event)"></textarea>
                         <button class="chat-send-btn" id="chat-send-button" onclick="sendChatMessage()" aria-label="Отправить сообщение"><svg viewBox="0 0 24 24"><path d="M12 20V4m-7 7 7-7 7 7" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
@@ -1425,6 +1429,18 @@
             <div class="dialog-title"><h2 id="photo-dialog-title">Добавить фото</h2><button class="icon-btn" onclick="document.getElementById('photo-dialog').close()" aria-label="Закрыть выбор фото">×</button></div>
             <button class="btn btn-primary" onclick="choosePhoto('camera')">Сфотографировать</button>
             <button class="btn btn-secondary" style="margin-top:10px" onclick="choosePhoto('gallery')">Выбрать из галереи</button>
+        </dialog>
+
+        <dialog id="camera-dialog" class="compact-dialog" aria-labelledby="camera-dialog-title" oncancel="closeCamera()" onclose="if (!this.open) stopCamera()">
+            <div class="dialog-title"><h2 id="camera-dialog-title">Камера</h2><button class="icon-btn" onclick="closeCamera()" aria-label="Закрыть камеру">×</button></div>
+            <video id="camera-preview" autoplay muted playsinline aria-label="Предпросмотр камеры"></video>
+            <p id="camera-status" role="status" aria-live="polite">Разреши доступ к камере…</p>
+            <div class="camera-actions">
+                <button id="camera-shutter" class="btn btn-primary" onclick="takeCameraPhoto()" disabled>Сделать снимок</button>
+                <button id="camera-flip" class="btn btn-secondary" onclick="openCamera(cameraFacing === 'environment' ? 'user' : 'environment')" disabled>Повернуть камеру</button>
+            </div>
+            <button id="camera-retry" class="btn btn-primary" style="margin-bottom:10px" onclick="openCamera(cameraFacing)" hidden>Попробовать снова</button>
+            <button class="btn btn-secondary" onclick="choosePhoto('gallery')">Выбрать из галереи</button>
         </dialog>
 
         <dialog id="model-dialog" aria-labelledby="model-dialog-title">
@@ -2147,6 +2163,7 @@
 
         // Tab switching logic
         function switchTab(tabId, btn) {
+            if (tabId !== 'chat') closeCamera();
             if (tabId !== 'chat') document.getElementById('chat-input-field').blur();
             document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
             document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
@@ -2775,18 +2792,124 @@
 
         function choosePhoto(source) {
             document.getElementById('photo-dialog').close();
-            const input = document.getElementById(source === 'camera' ? 'chat-camera' : 'chat-photo');
+            if (source === 'camera') {
+                openCamera();
+                return;
+            }
+            closeCamera();
+            const input = document.getElementById('chat-photo');
             input.value = '';
             input.click();
         }
 
-        async function attachPhoto(file, fromCamera = false) {
+        let cameraStream = null;
+        let cameraFacing = 'environment';
+        let cameraGeneration = 0;
+
+        function stopCamera() {
+            cameraGeneration++;
+            cameraStream?.getTracks().forEach(track => track.stop());
+            cameraStream = null;
+            const video = document.getElementById('camera-preview');
+            video.srcObject = null;
+            document.getElementById('camera-shutter').disabled = true;
+            document.getElementById('camera-flip').disabled = true;
+        }
+
+        function closeCamera() {
+            stopCamera();
+            const dialog = document.getElementById('camera-dialog');
+            if (dialog.open) dialog.close();
+        }
+
+        async function openCamera(facing = 'environment') {
+            if (chatBusy || modelBusy) return;
+            stopCamera();
+            cameraFacing = facing;
+            const generation = cameraGeneration;
+            const dialog = document.getElementById('camera-dialog');
+            const video = document.getElementById('camera-preview');
+            const status = document.getElementById('camera-status');
+            document.getElementById('camera-retry').hidden = true;
+            status.textContent = 'Разреши доступ к камере…';
+            if (!dialog.open) dialog.showModal();
+            try {
+                if (!navigator.mediaDevices?.getUserMedia) {
+                    throw new Error('Этот Telegram не предоставляет доступ к камере. Обнови приложение или прикрепи готовое фото из галереи.');
+                }
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: false,
+                    video: { facingMode: { ideal: facing }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+                });
+                // A permission dialog can finish after the user closes this screen.
+                if (generation !== cameraGeneration || !dialog.open) {
+                    stream.getTracks().forEach(track => track.stop());
+                    return;
+                }
+                cameraStream = stream;
+                video.srcObject = stream;
+                await video.play();
+                if (generation !== cameraGeneration || !dialog.open) return;
+                status.textContent = 'Наведи камеру на задание и сделай снимок.';
+                document.getElementById('camera-shutter').disabled = false;
+                document.getElementById('camera-flip').disabled = false;
+                stream.getVideoTracks().forEach(track => track.addEventListener('ended', () => {
+                    if (generation !== cameraGeneration) return;
+                    stopCamera();
+                    status.textContent = 'Камера отключилась. Нажми «Попробовать снова».';
+                    document.getElementById('camera-retry').hidden = false;
+                }));
+            } catch (err) {
+                if (generation !== cameraGeneration || !dialog.open) return;
+                stopCamera();
+                const messages = {
+                    NotAllowedError: 'Доступ к камере запрещён. Разреши его для Telegram в настройках телефона и при запросе мини-приложения.',
+                    NotFoundError: 'Камера не найдена. Можно выбрать готовое фото из галереи.',
+                    NotReadableError: 'Камера занята или недоступна. Закрой другие приложения, использующие камеру, и попробуй снова.'
+                };
+                status.textContent = messages[err.name] || err.message || 'Не удалось открыть камеру. Попробуй снова.';
+                document.getElementById('camera-retry').hidden = false;
+            }
+        }
+
+        async function takeCameraPhoto() {
+            const video = document.getElementById('camera-preview');
+            const shutter = document.getElementById('camera-shutter');
+            if (!cameraStream || shutter.disabled || video.readyState < 2 || !video.videoWidth) return;
+            const generation = cameraGeneration;
+            shutter.disabled = true;
+            document.getElementById('camera-flip').disabled = true;
+            try {
+                const scale = Math.min(1, 2048 / Math.max(video.videoWidth, video.videoHeight));
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.round(video.videoWidth * scale);
+                canvas.height = Math.round(video.videoHeight * scale);
+                canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+                const photo = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', .85));
+                if (generation !== cameraGeneration) return;
+                if (!photo) throw new Error('Не удалось сохранить снимок. Попробуй ещё раз.');
+                closeCamera();
+                await attachPhoto(photo);
+            } catch (err) {
+                if (generation !== cameraGeneration) return;
+                document.getElementById('camera-status').textContent = err.message;
+                shutter.disabled = false;
+                document.getElementById('camera-flip').disabled = false;
+            }
+        }
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) closeCamera();
+        });
+        window.addEventListener('pagehide', closeCamera);
+
+        async function attachPhoto(file) {
             if (!file || chatBusy || modelBusy) return;
             hideChatError();
             try {
                 if (!file.type.startsWith('image/')) throw new Error('Выбери фотографию.');
                 if (file.size > 25 * 1024 * 1024) throw new Error('Выбери фото до 25 МБ.');
-                if (fromCamera || file.size > 5 * 1024 * 1024 || !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+                if (file.size > 5 * 1024 * 1024 || !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
                     const url = URL.createObjectURL(file);
                     try {
                         const img = new Image();
@@ -2822,7 +2945,6 @@
                 }
             } catch (err) { showChatError(err.message); }
             document.getElementById('chat-photo').value = '';
-            document.getElementById('chat-camera').value = '';
         }
 
         function removeAttachment() {
