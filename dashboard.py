@@ -1,15 +1,16 @@
 import os
 import re
 import base64
+import html
 import logging
 import asyncio
 import aiohttp
+from network_config import telegram_connector
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi import FastAPI, Request, Form, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from db_manager import db_manager
-import vpn_manager
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -30,7 +31,7 @@ async def get_bot_username() -> str:
     async def fetch_username():
         global _bot_username, _bot_username_fetched
         try:
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(connector=telegram_connector()) as session:
                 async with session.get(f"https://api.telegram.org/bot{token}/getMe", timeout=2.0) as response:
                     if response.status == 200:
                         data = await response.json()
@@ -54,6 +55,7 @@ ADMIN_DASHBOARD_PASS = os.getenv("ADMIN_DASHBOARD_PASS", "admin_ugmk_pass")
 async def startup():
     await db_manager.connect()
     await db_manager.init_db()
+    await migrate_group_preferences(dao, db_manager)
     logger.info("Admin dashboard database connection established.")
 
 def is_authenticated(request: Request) -> bool:
@@ -76,17 +78,7 @@ async def index(request: Request, notification: str = None):
         
     try:
         users = await db_manager.get_all_users()
-        active_vpn_count = sum(1 for u in users if u['vpn_enabled'])
-        
-        async with db_manager.pool.acquire() as conn:
-            ai_keys = await conn.fetch(
-                "SELECT k.*, u.username FROM ai_keys k LEFT JOIN users u ON u.telegram_id = k.used_by ORDER BY k.id DESC"
-            )
-            
-        unused_keys_count = sum(1 for k in ai_keys if k['used_by'] is None)
-        
         openrouter_key = await db_manager.get_setting("openrouter_api_key") or ""
-        openrouter_management_key = await db_manager.get_setting("openrouter_management_key") or ""
         
         return templates.TemplateResponse(
             request=request,
@@ -94,12 +86,8 @@ async def index(request: Request, notification: str = None):
             context={
                 "authenticated": True,
                 "users": users,
-                "ai_keys": ai_keys,
-                "active_vpn_count": active_vpn_count,
-                "unused_keys_count": unused_keys_count,
                 "notification": notification,
                 "openrouter_key": openrouter_key,
-                "openrouter_management_key": openrouter_management_key
             }
         )
     except Exception as e:
@@ -128,113 +116,6 @@ async def logout():
     response.delete_cookie(key="admin_session")
     return response
 
-@app.post("/user/toggle_vpn")
-async def toggle_vpn(
-    request: Request,
-    telegram_id: int = Form(...),
-    vpn_enabled: str = Form(None)
-):
-    if not is_authenticated(request):
-        return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
-        
-    enabled = (vpn_enabled is not None)
-    try:
-        user_row = await db_manager.get_user(telegram_id)
-        if user_row:
-            if enabled:
-                # Enable VPN
-                if not user_row['vpn_key']:
-                    # Generate a new config
-                    config_text = await vpn_manager.generate_user_vpn_config(user_row['id'])
-                    await db_manager.set_user_vpn(telegram_id, enabled=True, key=config_text)
-                else:
-                    # Reregister peer on server using existing configuration public key and IP
-                    try:
-                        ip_match = re.search(r'Address\s*=\s*([0-9.]+)', user_row['vpn_key'])
-                        priv_key_match = re.search(r'PrivateKey\s*=\s*([a-zA-Z0-9+/=]+)', user_row['vpn_key'])
-                        if ip_match and priv_key_match:
-                            client_ip = ip_match.group(1)
-                            priv_key_b64 = priv_key_match.group(1)
-                            
-                            from cryptography.hazmat.primitives.asymmetric import x25519
-                            from cryptography.hazmat.primitives import serialization
-                            
-                            priv_bytes = base64.b64decode(priv_key_b64)
-                            private_key = x25519.X25519PrivateKey.from_private_bytes(priv_bytes)
-                            public_key = private_key.public_key()
-                            pub_bytes = public_key.public_bytes(
-                                encoding=serialization.Encoding.Raw,
-                                format=serialization.PublicFormat.Raw
-                            )
-                            pub_key_b64 = base64.b64encode(pub_bytes).decode('utf-8')
-                            
-                            await vpn_manager.register_peer_on_server(pub_key_b64, client_ip)
-                    except Exception as pe:
-                        logger.error(f"Failed to register peer on VPN server: {pe}")
-                    await db_manager.set_user_vpn(telegram_id, enabled=True)
-                msg = f"VPN успешно включен для пользователя {telegram_id}"
-            else:
-                # Disable VPN
-                await db_manager.set_user_vpn(telegram_id, enabled=False)
-                if user_row['vpn_key'] and vpn_manager.VPN_SSH_HOST:
-                    try:
-                        priv_key_match = re.search(r'PrivateKey\s*=\s*([a-zA-Z0-9+/=]+)', user_row['vpn_key'])
-                        if priv_key_match:
-                            priv_key_b64 = priv_key_match.group(1)
-                            
-                            from cryptography.hazmat.primitives.asymmetric import x25519
-                            from cryptography.hazmat.primitives import serialization
-                            
-                            priv_bytes = base64.b64decode(priv_key_b64)
-                            private_key = x25519.X25519PrivateKey.from_private_bytes(priv_bytes)
-                            public_key = private_key.public_key()
-                            pub_bytes = public_key.public_bytes(
-                                encoding=serialization.Encoding.Raw,
-                                format=serialization.PublicFormat.Raw
-                            )
-                            pub_key_b64 = base64.b64encode(pub_bytes).decode('utf-8')
-                            
-                            import asyncssh
-                            async with asyncssh.connect(
-                                vpn_manager.VPN_SSH_HOST,
-                                username=vpn_manager.VPN_SSH_USER,
-                                password=vpn_manager.VPN_SSH_PASSWORD,
-                                known_hosts=None
-                            ) as conn:
-                                await conn.run(f"sudo wg set wg0 peer {pub_key_b64} remove")
-                                await conn.run(f"sudo sed -i '/{pub_key_b64}/,+2d' /etc/wireguard/wg0.conf")
-                    except Exception as pe:
-                        logger.error(f"Failed to remove peer from VPN server: {pe}")
-                msg = f"VPN успешно отключен для пользователя {telegram_id}"
-                
-            return RedirectResponse(url=f"/?notification={msg}", status_code=status.HTTP_303_SEE_OTHER)
-        else:
-            raise HTTPException(status_code=404, detail="User not found")
-    except Exception as e:
-        logger.error(f"Error toggling VPN status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/user/update_balance")
-async def update_balance(
-    request: Request,
-    telegram_id: int = Form(...),
-    ai_balance: int = Form(...)
-):
-    if not is_authenticated(request):
-        return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
-        
-    try:
-        user_row = await db_manager.get_user(telegram_id)
-        if user_row:
-            await db_manager.update_user_subscription(telegram_id, user_row['vpn_enabled'], ai_balance)
-            msg = f"Баланс ИИ обновлен для пользователя {telegram_id}"
-            return RedirectResponse(url=f"/?notification={msg}", status_code=status.HTTP_303_SEE_OTHER)
-        else:
-            raise HTTPException(status_code=404, detail="User not found")
-    except Exception as e:
-        logger.error(f"Error updating AI balance: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.post("/user/toggle_blacklist")
 async def toggle_blacklist(request: Request):
@@ -262,236 +143,16 @@ async def toggle_blacklist(request: Request):
         cache_key = f"user_blacklisted:{telegram_id}"
         await dao.setex(cache_key, 300, "1" if is_blacklisted else "0")
         
-        # If blacklisted, disable VPN config just in case
-        if is_blacklisted:
-            await db_manager.set_user_vpn(telegram_id, enabled=False)
-            user_row = await db_manager.get_user(telegram_id)
-            if user_row and user_row['vpn_key'] and vpn_manager.VPN_SSH_HOST:
-                try:
-                    priv_key_match = re.search(r'PrivateKey\s*=\s*([a-zA-Z0-9+/=]+)', user_row['vpn_key'])
-                    if priv_key_match:
-                        priv_key_b64 = priv_key_match.group(1)
-                        priv_bytes = base64.b64decode(priv_key_b64)
-                        from cryptography.hazmat.primitives.asymmetric import x25519
-                        from cryptography.hazmat.primitives import serialization
-                        private_key = x25519.X25519PrivateKey.from_private_bytes(priv_bytes)
-                        public_key = private_key.public_key()
-                        pub_bytes = public_key.public_bytes(
-                            encoding=serialization.Encoding.Raw,
-                            format=serialization.PublicFormat.Raw
-                        )
-                        pub_key_b64 = base64.b64encode(pub_bytes).decode('utf-8')
-                        
-                        import asyncssh
-                        async with asyncssh.connect(
-                            vpn_manager.VPN_SSH_HOST,
-                            username=vpn_manager.VPN_SSH_USER,
-                            password=vpn_manager.VPN_SSH_PASSWORD,
-                            known_hosts=None
-                        ) as conn:
-                            await conn.run(f"sudo wg set wg0 peer {pub_key_b64} remove")
-                            await conn.run(f"sudo sed -i '/{pub_key_b64}/,+2d' /etc/wireguard/wg0.conf")
-                except Exception as pe:
-                    logger.error(f"Failed to remove peer on blacklist toggle: {pe}")
-                    
         return {"status": "ok", "telegram_id": telegram_id, "is_blacklisted": is_blacklisted}
     except Exception as e:
         logger.error(f"Error toggling blacklist: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/user/update_vpn_expiry")
-async def update_vpn_expiry(request: Request):
-    if not is_authenticated(request):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-        
-    try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON")
-        
-    telegram_id = body.get("telegram_id")
-    action = body.get("action")
-    
-    if telegram_id is None or action is None:
-        raise HTTPException(status_code=400, detail="Missing telegram_id or action")
-        
-    try:
-        telegram_id = int(telegram_id)
-        user_row = await db_manager.get_user(telegram_id)
-        if not user_row:
-            raise HTTPException(status_code=404, detail="User not found")
-            
-        if action == "reset":
-            async with db_manager.pool.acquire() as conn:
-                await conn.execute("UPDATE users SET vpn_expires_at = NULL, vpn_enabled = FALSE WHERE telegram_id = $1", telegram_id)
-                
-            if user_row['vpn_key'] and vpn_manager.VPN_SSH_HOST:
-                try:
-                    priv_key_match = re.search(r'PrivateKey\s*=\s*([a-zA-Z0-9+/=]+)', user_row['vpn_key'])
-                    if priv_key_match:
-                        priv_key_b64 = priv_key_match.group(1)
-                        priv_bytes = base64.b64decode(priv_key_b64)
-                        from cryptography.hazmat.primitives.asymmetric import x25519
-                        from cryptography.hazmat.primitives import serialization
-                        private_key = x25519.X25519PrivateKey.from_private_bytes(priv_bytes)
-                        public_key = private_key.public_key()
-                        pub_bytes = public_key.public_bytes(
-                            encoding=serialization.Encoding.Raw,
-                            format=serialization.PublicFormat.Raw
-                        )
-                        pub_key_b64 = base64.b64encode(pub_bytes).decode('utf-8')
-                        
-                        import asyncssh
-                        async with asyncssh.connect(
-                            vpn_manager.VPN_SSH_HOST,
-                            username=vpn_manager.VPN_SSH_USER,
-                            password=vpn_manager.VPN_SSH_PASSWORD,
-                            known_hosts=None
-                        ) as conn:
-                            await conn.run(f"sudo wg set wg0 peer {pub_key_b64} remove")
-                            await conn.run(f"sudo sed -i '/{pub_key_b64}/,+2d' /etc/wireguard/wg0.conf")
-                except Exception as pe:
-                    logger.error(f"Failed to remove peer on reset expiry: {pe}")
-            
-            return {"status": "ok", "vpn_expires_at": None, "vpn_enabled": False}
-        else:
-            days = int(action)
-            current_expiry = user_row.get("vpn_expires_at")
-            now = datetime.now()
-            
-            if current_expiry and current_expiry > now:
-                new_expiry = current_expiry + timedelta(days=days)
-            else:
-                new_expiry = now + timedelta(days=days)
-                
-            # If the user doesn't have a key, generate one
-            config_text = user_row.get('vpn_key')
-            if not config_text:
-                try:
-                    config_text = await vpn_manager.generate_user_vpn_config(user_row['id'])
-                except Exception as ge:
-                    logger.error(f"Failed to generate config on update vpn expiry: {ge}")
-                    config_text = None
-                    
-            async with db_manager.pool.acquire() as conn:
-                if config_text:
-                    await conn.execute("UPDATE users SET vpn_expires_at = $2, vpn_enabled = TRUE, vpn_key = $3 WHERE telegram_id = $1", telegram_id, new_expiry, config_text)
-                else:
-                    await conn.execute("UPDATE users SET vpn_expires_at = $2, vpn_enabled = TRUE WHERE telegram_id = $1", telegram_id, new_expiry)
-                
-            return {
-                "status": "ok",
-                "vpn_expires_at": new_expiry.strftime("%d.%m.%Y %H:%M:%S"),
-                "vpn_enabled": True
-            }
-    except Exception as e:
-        logger.error(f"Error updating VPN expiry: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/user/toggle_vpn_ajax")
-async def toggle_vpn_ajax(request: Request):
-    if not is_authenticated(request):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-        
-    try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON")
-        
-    telegram_id = body.get("telegram_id")
-    vpn_enabled = body.get("vpn_enabled")
-    
-    if telegram_id is None or vpn_enabled is None:
-        raise HTTPException(status_code=400, detail="Missing telegram_id or vpn_enabled")
-        
-    try:
-        telegram_id = int(telegram_id)
-        enabled = bool(vpn_enabled)
-        user_row = await db_manager.get_user(telegram_id)
-        if not user_row:
-            raise HTTPException(status_code=404, detail="User not found")
-            
-        if enabled:
-            if not user_row['vpn_key']:
-                config_text = await vpn_manager.generate_user_vpn_config(user_row['id'])
-                await db_manager.set_user_vpn(telegram_id, enabled=True, key=config_text)
-            else:
-                try:
-                    ip_match = re.search(r'Address\s*=\s*([0-9.]+)', user_row['vpn_key'])
-                    priv_key_match = re.search(r'PrivateKey\s*=\s*([a-zA-Z0-9+/=]+)', user_row['vpn_key'])
-                    if ip_match and priv_key_match:
-                        client_ip = ip_match.group(1)
-                        priv_key_b64 = priv_key_match.group(1)
-                        from cryptography.hazmat.primitives.asymmetric import x25519
-                        from cryptography.hazmat.primitives import serialization
-                        priv_bytes = base64.b64decode(priv_key_b64)
-                        private_key = x25519.X25519PrivateKey.from_private_bytes(priv_bytes)
-                        public_key = private_key.public_key()
-                        pub_bytes = public_key.public_bytes(
-                            encoding=serialization.Encoding.Raw,
-                            format=serialization.PublicFormat.Raw
-                        )
-                        pub_key_b64 = base64.b64encode(pub_bytes).decode('utf-8')
-                        await vpn_manager.register_peer_on_server(pub_key_b64, client_ip)
-                except Exception as pe:
-                    logger.error(f"Failed to register peer: {pe}")
-                await db_manager.set_user_vpn(telegram_id, enabled=True)
-        else:
-            await db_manager.set_user_vpn(telegram_id, enabled=False)
-            if user_row['vpn_key'] and vpn_manager.VPN_SSH_HOST:
-                try:
-                    priv_key_match = re.search(r'PrivateKey\s*=\s*([a-zA-Z0-9+/=]+)', user_row['vpn_key'])
-                    if priv_key_match:
-                        priv_key_b64 = priv_key_match.group(1)
-                        priv_bytes = base64.b64decode(priv_key_b64)
-                        from cryptography.hazmat.primitives.asymmetric import x25519
-                        from cryptography.hazmat.primitives import serialization
-                        private_key = x25519.X25519PrivateKey.from_private_bytes(priv_bytes)
-                        public_key = private_key.public_key()
-                        pub_bytes = public_key.public_bytes(
-                            encoding=serialization.Encoding.Raw,
-                            format=serialization.PublicFormat.Raw
-                        )
-                        pub_key_b64 = base64.b64encode(pub_bytes).decode('utf-8')
-                        
-                        import asyncssh
-                        async with asyncssh.connect(
-                            vpn_manager.VPN_SSH_HOST,
-                            username=vpn_manager.VPN_SSH_USER,
-                            password=vpn_manager.VPN_SSH_PASSWORD,
-                            known_hosts=None
-                        ) as conn:
-                            await conn.run(f"sudo wg set wg0 peer {pub_key_b64} remove")
-                            await conn.run(f"sudo sed -i '/{pub_key_b64}/,+2d' /etc/wireguard/wg0.conf")
-                except Exception as pe:
-                    logger.error(f"Failed to remove peer: {pe}")
-                    
-        return {"status": "ok", "vpn_enabled": enabled}
-    except Exception as e:
-        logger.error(f"Error toggling VPN status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/keys/generate")
-async def generate_key(
-    request: Request,
-    request_limit: int = Form(100)
-):
-    if not is_authenticated(request):
-        return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
-        
-    try:
-        key = await db_manager.generate_ai_key(request_limit)
-        msg = f"Успешно создан ключ: {key}"
-        return RedirectResponse(url=f"/?notification={msg}", status_code=status.HTTP_303_SEE_OTHER)
-    except Exception as e:
-        logger.error(f"Error generating AI key: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/settings/openrouter_keys")
 async def update_openrouter_keys(
     request: Request,
     openrouter_key: str = Form(None),
-    openrouter_management_key: str = Form(None)
 ):
     if not is_authenticated(request):
         return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
@@ -499,8 +160,6 @@ async def update_openrouter_keys(
     try:
         if openrouter_key is not None:
             await db_manager.set_setting("openrouter_api_key", openrouter_key.strip())
-        if openrouter_management_key is not None:
-            await db_manager.set_setting("openrouter_management_key", openrouter_management_key.strip())
         return RedirectResponse(url="/?notification=Настройки OpenRouter успешно обновлены!", status_code=status.HTTP_303_SEE_OTHER)
     except Exception as e:
         logger.error(f"Error saving OpenRouter keys: {e}")
@@ -517,89 +176,59 @@ import urllib.parse
 import collections
 import psutil
 from datetime import datetime, timedelta, timezone
-from ai_manager import get_ai_response, create_openrouter_key
+from ai_manager import get_ai_response, get_chat_models, normalize_model_id, normalize_chat_image
 
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 dao = redis.Redis(host=REDIS_HOST, port=6379, decode_responses=True)
 ADMIN_IDS = [474095004]
 
-GROUPS_DB = {
-    "Ит-24107 гр.1": "756cb41d-42af-11ef-b448-00155d7f1420%3A309c2eb3-6dea-11f0-b44a-00155d7f1420",
-    "Ит-24107 гр.2": "ea53e266-6dd2-11f0-b44a-00155d7f1420%3A5bbb50dd-6dea-11f0-b44a-00155d7f1420",
-    "Ит-24107 гр.3": "e694ebbb-6dd3-11f0-b44a-00155d7f1420%3A9293ef2e-6dea-11f0-b44a-00155d7f1420",
-    "А-24101": "b47ff74e-3d0f-11ef-b448-00155d7f1420%3A715cc0fc-3eb1-11ef-b448-00155d7f1420",
-    "М-24102": "926cd860-42b2-11ef-b448-00155d7f1420%3A372960bb-4374-11ef-b448-00155d7f1420",
-    "Т-24105": "0e9d8133-42b5-11ef-b448-00155d7f1420%3A5873fb74-4373-11ef-b448-00155d7f1420",
-    "Эн-24103": "171f74fb-3d19-11ef-b448-00155d7f1420%3A19692d41-3ead-11ef-b448-00155d7f1420",
-    "ГД-24104": "14064fbf-4335-11ef-b448-00155d7f1420%3A148d5959-4376-11ef-b448-00155d7f1420",
-    "Гэм-24106": "d53322fa-4338-11ef-b448-00155d7f1420%3A629425ac-4375-11ef-b448-00155d7f1420",
-    "Эк-25109": "c52cf4a3-1542-11f0-b44a-00155d7f1420%3A06321270-5d88-11f0-b44a-00155d7f1420",
-    "А-25101": "64345217-d3ec-11ef-b449-00155d7f1420%3A87999d48-5d7f-11f0-b44a-00155d7f1420",
-    "Ит-25107": "4e6528d3-d3ef-11ef-b449-00155d7f1420%3A9a9bd9dc-5d84-11f0-b44a-00155d7f1420",
-    "М-25102": "efdd4827-d3fb-11ef-b449-00155d7f1420%3Aa7f635af-5d85-11f0-b44a-00155d7f1420",
-    "Т-25105": "8dd0b75a-d400-11ef-b449-00155d7f1420%3A690b7f2d-5d87-11f0-b44a-00155d7f1420",
-    "Эн-25103": "3d685fd3-d402-11ef-b449-00155d7f1420%3A5dfec504-5d88-11f0-b44a-00155d7f1420",
-    "Гд-25104": "8e4c58f1-d40a-11ef-b449-00155d7f1420%3A11b10f9e-5d82-11f0-b44a-00155d7f1420",
-    "Гэм-25106": "ef68433a-d40c-11ef-b449-00155d7f1420%3A14e87d8c-5d84-11f0-b44a-00155d7f1420",
-    "А-23101": "71b1e8a9-1979-11ee-86ac-005056953b1b%3A57124d43-1bca-11ee-86ac-005056953b1b",
-    "М-23102": "0cfbe051-196e-11ee-86ac-005056953b1b%3Ade1d410d-1bbf-11ee-86ac-005056953b1b",
-    "Т-23105": "7a4b0dc4-1998-11ee-86ac-005056953b1b%3A63885cf0-245e-11ee-92f9-005056953b1b",
-    "Ит-23107 гр.1": "2f95ecc0-1bd1-11ee-86ac-005056953b1b%3Aa933615b-6dd7-11f0-b44a-00155d7f1420",
-    "Ит-23107 гр.2": "7900f4dd-6e9f-11ef-b448-00155d7f1420%3A90401ef5-6ea0-11ef-b448-00155d7f1420",
-    "Гэм-23106": "92a56d28-1bc7-11ee-86ac-005056953b1b%3A0c22bf22-1bc4-11ee-86ac-005056953b1b",
-    "Гд-23104": "2ffaff2f-1a69-11ee-86ac-005056953b1b%3A0bb2e3d9-1bca-11ee-86ac-005056953b1b",
-    "Гэм-22106": "03092314-09a5-11ed-b935-005056953b1b%3Aa1b619de-0c15-11ed-b935-005056953b1b",
-}
+from schedule_config import GROUPS_DB, CACHE_VERSION, canonical_group, active_group, merged_groups, lesson_matches_group, migrate_group_preferences
 
-TEACHERS_DB = {
-    "Сакулин Валерий Александрович": "000000376",
-    "Мазитов Виктор Расульевич": "000000421",
-    "Котельников Сергей Андреевич": "000000383",
-    "Голубина Валентина Васильевна": "000000467",
-    "Кабанов Александр Михайлович": "000000409",
-    "Игумнова Юлия Олеговна": "000002912",
-    "Тюжина Ирина Викторовна": "000002915",
-    "Ивлев Андрей Дмитриевич": "000002261",
-    "Гавриленко Никита Сергеевич": "000001833",
-}
+DEFAULT_AI_MODEL = "openrouter/free"
 
-CLASSROOMS_DB = {
-    "Ауд. 300": "2355c22e-2bcd-11e7-b191-005056953b1b",
-    "Ауд. 203": "67941c0b-ca51-11ee-b440-00155d7f0e19",
-}
 
-FREE_MODELS = [
-    "nemotron-3-ultra-free",
-    "laguna-xs-2-free",
-    "qwen3-next-free",
-    "gpt-oss-free",
-    "llama-3.3-free"
-]
+async def get_catalog_model(model_name: str | None) -> tuple[str, dict | None]:
+    """Return a canonical model ID and its catalog metadata, if it is allowed."""
+    canonical_model = normalize_model_id(model_name)
+    models = await get_chat_models()
+    model_by_id = {model["id"]: model for model in models}
+    return canonical_model, model_by_id.get(canonical_model)
 
-PREMIUM_MODELS = [
-    "kimi-k2.7-code",
-    "claude-opus-4.8",
-    "gpt-4",
-    "gpt-5.5"
-]
+
+async def get_valid_user_model(model_name: str | None) -> tuple[str, dict]:
+    canonical_model, metadata = await get_catalog_model(model_name)
+    if metadata:
+        return canonical_model, metadata
+
+    default_model, default_metadata = await get_catalog_model(DEFAULT_AI_MODEL)
+    if default_metadata:
+        return default_model, default_metadata
+    # A provider can remove the default model from the live catalog.  In that
+    # case use the first currently available text model rather than accepting a
+    # stale ID.
+    models = await get_chat_models()
+    return models[0]["id"], models[0]
 
 class ScheduleManager:
     async def fetch_schedule(self, wo=0, t_type=None, t_val=None) -> dict:
+        if wo not in (0, 1):
+            return {}
         tz = timezone(timedelta(hours=5))
         mon = datetime.now(tz).date() - timedelta(days=datetime.now(tz).weekday()) + timedelta(weeks=wo)
         sd = mon.strftime("%d.%m.%Y")
-        key = f"data:v39:{sd}:{t_type}:{t_val}"
+        key = f"data:v{CACHE_VERSION}:{sd}:{t_type}:{t_val}"
         try:
             if await dao.exists(key): return json.loads(await dao.get(key))
         except Exception as e: logger.error(f"Redis get error: {e}")
-        await dao.lpush('schedule_jobs', json.dumps({"week_offset": wo, "target_type": t_type, "target_value": t_val}))
+        if await dao.set(f"queued:{key}", "1", nx=True, ex=120):
+            await dao.lpush('schedule_jobs', json.dumps({"week_offset": wo, "target_type": t_type, "target_value": t_val}))
         
         for _ in range(80):
             await asyncio.sleep(0.1)
             try:
                 if await dao.exists(key): return json.loads(await dao.get(key))
             except Exception as e: logger.error(f"Redis poll error: {e}")
-        return {}
+        return {"_pending": True}
 
 sm = ScheduleManager()
 
@@ -608,8 +237,9 @@ def verify_telegram_init_data(init_data: str) -> dict | None:
     try:
         parsed_data = dict(urllib.parse.parse_qsl(init_data))
         
-        # Bypass for testing/debugging
-        if "hash" not in parsed_data and "test_user_id" in parsed_data:
+        # Explicit opt-in for isolated local development only. Never enabled by default.
+        test_mode = os.getenv("WEBAPP_TEST_MODE", "").lower() in {"1", "true", "yes"}
+        if test_mode and "hash" not in parsed_data and "test_user_id" in parsed_data:
             return {"id": int(parsed_data["test_user_id"]), "username": parsed_data.get("username", "test_user")}
             
         if "hash" not in parsed_data:
@@ -624,7 +254,13 @@ def verify_telegram_init_data(init_data: str) -> dict | None:
         secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
         calculated_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
         
-        if calculated_hash == received_hash:
+        if hmac.compare_digest(calculated_hash, received_hash):
+            auth_date = int(parsed_data.get("auth_date", "0"))
+            max_age = int(os.getenv("WEBAPP_AUTH_MAX_AGE", "3600"))
+            now = int(datetime.now(timezone.utc).timestamp())
+            if auth_date <= 0 or abs(now - auth_date) > max_age:
+                logger.warning("Rejected expired Telegram WebApp init data")
+                return None
             user_str = parsed_data.get("user")
             if user_str:
                 return json.loads(user_str)
@@ -641,48 +277,25 @@ async def get_active_user_row(uid: int):
     if user_row.get('is_blacklisted'):
         raise HTTPException(status_code=403, detail="Вы находитесь в черном списке")
         
-    ai_expires_at = user_row.get('ai_expires_at')
-    if ai_expires_at and ai_expires_at < datetime.now():
-        await db_manager.set_user_ai_key(uid, None)
-        async with db_manager.pool.acquire() as conn:
-            await conn.execute("UPDATE users SET ai_balance = 0 WHERE telegram_id = $1", uid)
-        user_row = await db_manager.get_user(uid)
-        logger.info(f"Cleared expired key and balance for user {uid}")
-        
     return user_row
 
 async def _build_user_status_dict(uid: int, user_row):
-    model = user_row['ai_model'] or 'gpt-4o-mini'
+    model, model_metadata = await get_valid_user_model(user_row['ai_model'])
+    if model != user_row['ai_model']:
+        await db_manager.set_user_ai_model(uid, model)
     has_key = bool(user_row['custom_ai_key'])
-    ai_balance = user_row['ai_balance'] or 0
-    is_free = model in FREE_MODELS
-    is_programmatic = has_key and bool(user_row.get('ai_expires_at'))
-    has_real_key = has_key and not is_programmatic
-    can_chat = has_real_key or (ai_balance > 0) or is_free
-    
     group = await dao.hget("user_subs", str(uid)) or user_row['group_name']
     morn_time = await dao.hget("user_morning_time", str(uid)) or "08:00"
     eve_time = await dao.hget("user_evening_time", str(uid)) or "Отключено"
     bot_name = await get_bot_username()
     is_starosta = bool(await dao.hget("starosta_group_saved", str(uid)))
     starosta_name = await dao.hget("starosta_name", str(uid)) or "Староста"
-    vpn_expires_at = user_row['vpn_expires_at']
-    vpn_enabled = user_row['vpn_enabled'] or False
-    if vpn_expires_at and vpn_expires_at < datetime.now():
-        vpn_enabled = False
-        
     return {
         "telegram_id": uid,
         "ai_model": model,
-        "ai_balance": ai_balance,
-        "vpn_enabled": vpn_enabled,
-        "vpn_expires_at": vpn_expires_at.strftime("%d.%m.%Y") if vpn_expires_at else None,
-        "ai_expires_at": user_row['ai_expires_at'].strftime("%d.%m.%Y") if user_row['ai_expires_at'] else None,
         "group_name": group,
         "has_custom_key": has_key,
-        "is_programmatic_key": is_programmatic,
-        "can_chat": can_chat,
-        "vpn_key": user_row['vpn_key'],
+        "can_chat": True,
         "morning_time": morn_time,
         "evening_time": eve_time,
         "bot_username": bot_name,
@@ -727,13 +340,14 @@ async def api_verify(request: Request):
         tz = timezone(timedelta(hours=5))
         mon = datetime.now(tz).date() - timedelta(days=datetime.now(tz).weekday())
         sd = mon.strftime("%d.%m.%Y")
-        cache_key = f"data:v39:{sd}:group:{group}"
+        cache_key = f"data:v{CACHE_VERSION}:{sd}:group:{group}"
         try:
             if await dao.exists(cache_key):
                 schedule = json.loads(await dao.get(cache_key))
             else:
                 # Add to queue in background so it starts parsing, but do NOT block!
-                await dao.lpush('schedule_jobs', json.dumps({"week_offset": 0, "target_type": "group", "target_value": group}))
+                if await dao.set(f"queued:{cache_key}", "1", nx=True, ex=120):
+                    await dao.lpush('schedule_jobs', json.dumps({"week_offset": 0, "target_type": "group", "target_value": group}))
         except Exception as e:
             logger.error(f"Failed to check cache in verify: {e}")
             
@@ -758,9 +372,18 @@ async def api_user_status(uid: int, init_data: str):
     return await _build_user_status_dict(uid, user_row)
 
 
+@app.get("/api/models")
+async def api_models(uid: int, init_data: str):
+    """Models are fetched server-side so the OpenRouter key never reaches Telegram clients."""
+    tg_user = verify_telegram_init_data(init_data)
+    if not tg_user or tg_user["id"] != uid:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return {"models": await get_chat_models()}
+
+
 @app.get("/api/groups")
 async def api_groups():
-    return {"groups": list(GROUPS_DB.keys())}
+    return {"groups": list(merged_groups(await dao.hgetall("db_groups")))}
 
 @app.post("/api/set_group")
 async def api_set_group(request: Request):
@@ -773,7 +396,8 @@ async def api_set_group(request: Request):
     if not tg_user or tg_user["id"] != uid:
         raise HTTPException(status_code=401, detail="Unauthorized")
         
-    if group_name not in GROUPS_DB:
+    group_name = canonical_group(group_name)
+    if not active_group(group_name) or group_name not in merged_groups(await dao.hgetall("db_groups")):
         raise HTTPException(status_code=400, detail="Invalid group name")
         
     await dao.hset("user_subs", str(uid), group_name)
@@ -791,10 +415,19 @@ async def api_schedule(week_offset: int, uid: int, init_data: str, group_name: s
     
     if not t_name:
         raise HTTPException(status_code=400, detail="Target name is required")
+
+    if week_offset not in (0, 1):
+        raise HTTPException(status_code=400, detail="Invalid week offset")
+
+    if t_type != "group":
+        raise HTTPException(status_code=400, detail="Only group schedules are supported")
+    t_name = canonical_group(t_name)
+    if not active_group(t_name) or (t_name not in GROUPS_DB and not await dao.hexists("db_groups", t_name)):
+        raise HTTPException(status_code=400, detail="Unknown schedule target")
         
     # Call ScheduleManager to fetch the schedule (uses Redis queue and cache)
     schedule = await sm.fetch_schedule(week_offset, t_type, t_name)
-    return {"schedule": schedule}
+    return {"schedule": schedule, "group_name": t_name, "week_offset": week_offset}
 
 @app.post("/api/set_model")
 async def api_set_model(request: Request):
@@ -806,6 +439,10 @@ async def api_set_model(request: Request):
     tg_user = verify_telegram_init_data(init_data)
     if not tg_user or tg_user["id"] != uid:
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+    model, metadata = await get_catalog_model(model)
+    if not metadata:
+        raise HTTPException(status_code=400, detail="Unsupported AI model")
         
     await db_manager.set_user_ai_model(uid, model)
     
@@ -864,6 +501,8 @@ async def api_request_history(uid: int, init_data: str):
 
 @app.post("/api/ai_chat")
 async def api_ai_chat(request: Request):
+    if len(await request.body()) > 7_100_000:
+        raise HTTPException(status_code=413, detail="Фото слишком большое. Максимум — 5 МБ.")
     body = await request.json()
     uid = body.get("uid")
     prompt = body.get("prompt")
@@ -872,283 +511,88 @@ async def api_ai_chat(request: Request):
     tg_user = verify_telegram_init_data(init_data)
     if not tg_user or tg_user["id"] != uid:
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+    image_data = body.get("image")
+    if image_data is not None:
+        try:
+            image_data = await asyncio.to_thread(normalize_chat_image, image_data)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error))
+    if prompt is None and image_data:
+        prompt = ""
+    if not isinstance(prompt, str) or (not prompt.strip() and not image_data):
+        raise HTTPException(status_code=400, detail="Prompt is required")
+    prompt = prompt.strip() or "Разбери изображение и помоги с заданием."
+    if len(prompt) > 20_000:
+        raise HTTPException(status_code=400, detail="Prompt is too long")
         
     user_row = await get_active_user_row(uid)
     if not user_row:
         raise HTTPException(status_code=404, detail="User not found")
         
-    model_name = user_row['ai_model'] or 'gpt-4o-mini'
+    model_name, model_metadata = await get_valid_user_model(user_row['ai_model'])
+    if image_data and not model_metadata["supports_images"]:
+        raise HTTPException(status_code=400, detail="Для фотографии выберите модель с отметкой «Фото».")
+    if model_name != user_row['ai_model']:
+        await db_manager.set_user_ai_model(uid, model_name)
     api_key = user_row['custom_ai_key']
     
     has_custom_key = bool(api_key)
-    is_programmatic_key = has_custom_key and bool(user_row.get('ai_expires_at'))
-    is_free = model_name in FREE_MODELS
-    is_premium = model_name in PREMIUM_MODELS
-    
-    # Enforce balance checks for paid models under programmatic keys
-    if (not has_custom_key or is_programmatic_key) and not is_free:
-        balance = user_row['ai_balance'] or 0
-        required_balance = 4 if is_premium else 1
-        if balance < required_balance:
-            raise HTTPException(status_code=403, detail=f"Недостаточно запросов! Требуется {required_balance} (у вас {balance})")
-            
-    # Fetch history from Redis
     history_key = f"ai_history:{uid}"
     history = []
     history_str = await dao.get(history_key)
     if history_str:
-        try: history = json.loads(history_str)
-        except Exception: history = []
-        
+        try:
+            history = json.loads(history_str)
+        except Exception:
+            history = []
+
     try:
         response_text = await get_ai_response(
             prompt=prompt,
-            api_key=api_key if (has_custom_key and not is_programmatic_key) else None,
+            api_key=api_key,
             model_name=model_name,
-            history=history
+            history=history,
+            image_data_b64=image_data,
         )
         
         # Log request
         await db_manager.log_ai_request(
             telegram_id=uid,
-            prompt=prompt,
+            prompt=f"[Фото] {prompt}" if image_data else prompt,
             response=response_text,
             model_used=model_name
         )
         
-        # Decrement balance if standard/premium
-        new_balance = user_row['ai_balance'] or 0
-        if not has_custom_key or is_programmatic_key:
-            if not is_free:
-                deduct_amount = 4 if is_premium else 1
-                async with db_manager.pool.acquire() as conn:
-                    await conn.execute("UPDATE users SET ai_balance = GREATEST(0, ai_balance - $2) WHERE telegram_id = $1", uid, deduct_amount)
-                new_balance = max(0, new_balance - deduct_amount)
-                
         # Append to history
-        history.append({"role": "user", "content": prompt})
+        content = [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}}] if image_data else prompt
+        history.append({"role": "user", "content": content})
         history.append({"role": "assistant", "content": response_text})
         history = history[-10:]
         await dao.setex(history_key, 604800, json.dumps(history, ensure_ascii=False))
         
-        return {"status": "ok", "response": response_text, "new_balance": new_balance}
+        return {"status": "ok", "response": response_text}
         
     except Exception as e:
         logger.error(f"AI response failed: {e}")
         err_msg = str(e).lower()
-        if has_custom_key and any(x in err_msg for x in ["budget", "limit", "payment", "expired", "402", "403", "401", "unauthorized", "invalid key"]):
+        if getattr(e, "status_code", None) == 429 or "429" in err_msg or "rate limit" in err_msg:
+            raise HTTPException(status_code=429, detail="Модель временно занята или достигнут лимит OpenRouter. Подождите или выберите другую модель.")
+        if has_custom_key and any(x in err_msg for x in ["401", "unauthorized", "invalid key"]):
             await db_manager.set_user_ai_key(uid, None)
-            raise HTTPException(status_code=402, detail="API key limit exceeded or expired.")
+            raise HTTPException(status_code=401, detail="Личный ключ OpenRouter недействителен. Повторите запрос с общим ключом бота.")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/vpn_toggle")
-async def api_vpn_toggle(request: Request):
-    body = await request.json()
-    uid = body.get("uid")
-    init_data = body.get("init_data")
-    
-    tg_user = verify_telegram_init_data(init_data)
-    if not tg_user or tg_user["id"] != uid:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-        
-    user_row = await get_active_user_row(uid)
-    if not user_row:
-        raise HTTPException(status_code=404, detail="User not found")
-        
-    enabled = not (user_row['vpn_enabled'] or False)
-    
-    # If enabling VPN, check if subscription is valid
-    if enabled:
-        now = datetime.now()
-        vpn_expires_at = user_row.get('vpn_expires_at')
-        if not vpn_expires_at or vpn_expires_at < now:
-            raise HTTPException(status_code=403, detail="VPN подписка отсутствует или истекла")
-            
-    try:
-        user_db_id = user_row['id']
-        if enabled:
-            # Enable VPN
-            if not user_row['vpn_key']:
-                # Generate a new config
-                config_text = await vpn_manager.generate_user_vpn_config(user_db_id)
-                await db_manager.set_user_vpn(uid, enabled=True, key=config_text)
-            else:
-                # Reregister peer on server using existing configuration
-                try:
-                    ip_match = re.search(r'Address\s*=\s*([0-9.]+)', user_row['vpn_key'])
-                    priv_key_match = re.search(r'PrivateKey\s*=\s*([a-zA-Z0-9+/=]+)', user_row['vpn_key'])
-                    if ip_match and priv_key_match:
-                        client_ip = ip_match.group(1)
-                        priv_key_b64 = priv_key_match.group(1)
-                        
-                        from cryptography.hazmat.primitives.asymmetric import x25519
-                        from cryptography.hazmat.primitives import serialization
-                        
-                        priv_bytes = base64.b64decode(priv_key_b64)
-                        private_key = x25519.X25519PrivateKey.from_private_bytes(priv_bytes)
-                        public_key = private_key.public_key()
-                        pub_bytes = public_key.public_bytes(
-                            encoding=serialization.Encoding.Raw,
-                            format=serialization.PublicFormat.Raw
-                        )
-                        pub_key_b64 = base64.b64encode(pub_bytes).decode('utf-8')
-                        await vpn_manager.register_peer_on_server(pub_key_b64, client_ip)
-                except Exception as pe:
-                    logger.error(f"Failed to register peer on VPN server: {pe}")
-                await db_manager.set_user_vpn(uid, enabled=True)
-            msg = "VPN успешно включен"
-        else:
-            # Disable VPN
-            await db_manager.set_user_vpn(uid, enabled=False)
-            if user_row['vpn_key'] and vpn_manager.VPN_SSH_HOST:
-                try:
-                    priv_key_match = re.search(r'PrivateKey\s*=\s*([a-zA-Z0-9+/=]+)', user_row['vpn_key'])
-                    if priv_key_match:
-                        priv_key_b64 = priv_key_match.group(1)
-                        priv_bytes = base64.b64decode(priv_key_b64)
-                        from cryptography.hazmat.primitives.asymmetric import x25519
-                        from cryptography.hazmat.primitives import serialization
-                        private_key = x25519.X25519PrivateKey.from_private_bytes(priv_bytes)
-                        public_key = private_key.public_key()
-                        pub_bytes = public_key.public_bytes(
-                            encoding=serialization.Encoding.Raw,
-                            format=serialization.PublicFormat.Raw
-                        )
-                        pub_key_b64 = base64.b64encode(pub_bytes).decode('utf-8')
-                        
-                        import asyncssh
-                        async with asyncssh.connect(
-                            vpn_manager.VPN_SSH_HOST,
-                            username=vpn_manager.VPN_SSH_USER,
-                            password=vpn_manager.VPN_SSH_PASSWORD,
-                            known_hosts=None
-                        ) as conn:
-                            await conn.run(f"sudo wg set wg0 peer {pub_key_b64} remove")
-                            await conn.run(f"sudo sed -i '/{pub_key_b64}/,+2d' /etc/wireguard/wg0.conf")
-                except Exception as pe:
-                    logger.error(f"Failed to remove peer from VPN server: {pe}")
-            msg = "VPN успешно отключен"
-            
-        # Fetch updated status
-        updated_user = await get_active_user_row(uid)
-        user_status = await _build_user_status_dict(uid, updated_user)
-        return {
-            "status": "ok",
-            "msg": msg,
-            "vpn_enabled": updated_user['vpn_enabled'] or False,
-            "vpn_key": updated_user['vpn_key'],
-            "user_status": user_status
-        }
-    except Exception as e:
-        logger.error(f"Error toggling VPN status in webapp: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/send_invoice")
-async def api_send_invoice(request: Request):
-    try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON")
-        
-    uid = body.get("uid")
-    init_data = body.get("init_data")
-    pkg = body.get("pkg")
-    
-    if uid is None or init_data is None or pkg is None:
-        raise HTTPException(status_code=400, detail="Missing uid, init_data, or pkg")
-        
-    tg_user = verify_telegram_init_data(init_data)
-    if not tg_user or tg_user["id"] != uid:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-        
-    token = os.getenv("BOT_TOKEN")
-    if not token:
-        raise HTTPException(status_code=500, detail="Bot token not configured")
-        
-    # Determine package details
-    if pkg == "vpn_only":
-        title = "WireGuard VPN на 30 дней"
-        desc = "Подписка на высокоскоростной WireGuard VPN сроком на 30 дней."
-        payload = "vpn_only_30_days"
-        amount = 100
-    elif pkg == "ai_standard":
-        title = "150 стандартных запросов к ИИ"
-        desc = "Пополнение баланса ИИ-Ассистента на 150 стандартных (или 37 премиум) запросов."
-        payload = "ai_150_requests"
-        amount = 400
-    elif pkg == "ai_premium":
-        title = "30 премиум запросов к ИИ"
-        desc = "Пополнение баланса ИИ-Ассистента на 30 премиум (или 120 стандартных) запросов."
-        payload = "ai_30_premium"
-        amount = 500
-    elif pkg == "pkg_standard":
-        title = "VPN + 150 Стандарт ИИ"
-        desc = "Подписка WireGuard VPN на 30 дней и промокод на 150 стандартных запросов к ИИ."
-        payload = "vpn_sub_standard"
-        amount = 500
-    elif pkg == "pkg_premium":
-        title = "VPN + 30 Премиум ИИ"
-        desc = "Подписка WireGuard VPN на 30 дней и промокод на 30 премиум запросов к ИИ (Claude, GPT, Kimi, Qwen)."
-        payload = "vpn_sub_premium"
-        amount = 600
-    else:
-        raise HTTPException(status_code=400, detail="Unknown package")
-        
-    url = f"https://api.telegram.org/bot{token}/sendInvoice"
-    prices = [{"label": title, "amount": amount}]
-    
-    post_data = {
-        "chat_id": uid,
-        "title": title,
-        "description": desc,
-        "payload": payload,
-        "provider_token": "",
-        "currency": "XTR",
-        "prices": json.dumps(prices)
-    }
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=post_data) as response:
-                resp_json = await response.json()
-                if not resp_json.get("ok"):
-                    logger.error(f"Failed to send invoice via Telegram API: {resp_json}")
-                    raise HTTPException(status_code=500, detail=resp_json.get("description", "Failed to send invoice"))
-    except Exception as e:
-        logger.error(f"Error calling sendInvoice: {e}")
-        if isinstance(e, HTTPException):
-            raise e
-        raise HTTPException(status_code=500, detail=str(e))
-        
-    return {"status": "ok"}
 
 @app.get("/api/search")
 async def api_search(q: str, type: str):
     q_lower = q.strip().lower()
     
-    if type == "teacher":
-        db = dict(TEACHERS_DB)
-        try:
-            redis_db = await dao.hgetall("db_teachers")
-            if redis_db: db.update(redis_db)
-        except Exception as e: logger.error(f"Error fetching teachers from Redis: {e}")
-        matches = [name for name in db.keys() if q_lower in name.lower()]
-        return {"results": matches[:20]}
-        
-    elif type == "classroom":
-        db = dict(CLASSROOMS_DB)
-        try:
-            redis_db = await dao.hgetall("db_classrooms")
-            if redis_db: db.update(redis_db)
-        except Exception as e: logger.error(f"Error fetching classrooms from Redis: {e}")
-        matches = [name for name in db.keys() if q_lower in name.lower()]
-        return {"results": matches[:20]}
-        
-    elif type == "group":
-        db = dict(GROUPS_DB)
+    if type == "group":
+        db = merged_groups()
         try:
             redis_db = await dao.hgetall("db_groups")
-            if redis_db: db.update(redis_db)
+            if redis_db: db = merged_groups(redis_db)
         except Exception as e: logger.error(f"Error fetching groups from Redis: {e}")
         matches = [name for name in db.keys() if q_lower in name.lower()]
         return {"results": matches[:20]}
@@ -1215,7 +659,7 @@ async def send_telegram_message(token: str, chat_id: int, text: str):
         "parse_mode": "HTML"
     }
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(connector=telegram_connector()) as session:
             async with session.post(url, json=payload) as response:
                 return response.status == 200
     except Exception as e:
@@ -1239,6 +683,15 @@ async def api_starosta_add_event(request: Request):
     is_starosta = bool(await dao.hget("starosta_group_saved", str(uid)))
     if not is_starosta:
         raise HTTPException(status_code=403, detail="Forbidden: Not a starosta")
+
+    if not isinstance(title, str) or not title.strip():
+        raise HTTPException(status_code=400, detail="Название мероприятия обязательно")
+    if not isinstance(description, str) or not description.strip():
+        raise HTTPException(status_code=400, detail="Описание мероприятия обязательно")
+    title = title.strip()
+    description = description.strip()
+    if len(title) > 255:
+        raise HTTPException(status_code=400, detail="Название мероприятия слишком длинное")
         
     event_date = None
     if event_date_str:
@@ -1265,6 +718,14 @@ async def api_starosta_broadcast(request: Request):
     is_starosta = bool(await dao.hget("starosta_group_saved", str(uid)))
     if not is_starosta:
         raise HTTPException(status_code=403, detail="Forbidden: Not a starosta")
+
+    if not isinstance(text, str) or not text.strip():
+        raise HTTPException(status_code=400, detail="Текст рассылки обязателен")
+    text = text.strip()
+    if len(text) > 3500:
+        raise HTTPException(status_code=400, detail="Текст рассылки слишком длинный")
+    if target not in {"group", "all"}:
+        raise HTTPException(status_code=400, detail="Неизвестный получатель рассылки")
         
     starosta_name = await dao.hget("starosta_name", str(uid)) or "Староста"
     starosta_group = await dao.hget("starosta_group_saved", str(uid))
@@ -1284,7 +745,7 @@ async def api_starosta_broadcast(request: Request):
     if not token:
         raise HTTPException(status_code=500, detail="Bot token not configured")
         
-    broadcast_text = f"📢 <b>{starosta_name}:</b>\n\n{text}"
+    broadcast_text = f"📢 <b>{html.escape(str(starosta_name))}:</b>\n\n{html.escape(str(text or ''))}"
     
     async def run_broadcast_task():
         success = 0
@@ -1318,6 +779,9 @@ async def api_starosta_setup(request: Request):
     if password != correct_pass:
         raise HTTPException(status_code=403, detail="Неверный пароль старосты")
         
+    group = canonical_group(group)
+    if not active_group(group) or group not in merged_groups(await dao.hgetall("db_groups")):
+        raise HTTPException(status_code=400, detail="Выберите действующую учебную группу")
     if name:
         await dao.hset("starosta_name", uid_str, name)
     if group:
@@ -1404,6 +868,15 @@ async def api_starosta_update_event(request: Request):
         
     if not event_id:
         raise HTTPException(status_code=400, detail="Missing event_id")
+
+    if not isinstance(title, str) or not title.strip():
+        raise HTTPException(status_code=400, detail="Название мероприятия обязательно")
+    if not isinstance(description, str) or not description.strip():
+        raise HTTPException(status_code=400, detail="Описание мероприятия обязательно")
+    title = title.strip()
+    description = description.strip()
+    if len(title) > 255:
+        raise HTTPException(status_code=400, detail="Название мероприятия слишком длинное")
         
     event_date = None
     if event_date_str:
@@ -1469,8 +942,6 @@ async def api_admin_detailed_stats(request: Request):
     top_morning = [{"time": t, "count": count} for t, count in morn_counts.most_common(5)]
     
     db_g_size = await dao.hlen("db_groups")
-    db_t_size = await dao.hlen("db_teachers")
-    db_c_size = await dao.hlen("db_classrooms")
     
     return {
         "status": "ok",
@@ -1479,9 +950,7 @@ async def api_admin_detailed_stats(request: Request):
         "top_groups": top_groups,
         "top_morning": top_morning,
         "db_sizes": {
-            "groups": db_g_size,
-            "teachers": db_t_size,
-            "classrooms": db_c_size
+            "groups": db_g_size
         }
     }
 
@@ -1585,7 +1054,7 @@ async def api_admin_update(request: Request):
             try:
                 url = f"https://api.telegram.org/bot{token}/sendMessage"
                 payload = {"chat_id": int(target_uid), "text": maintenance_msg, "parse_mode": "HTML"}
-                async with aiohttp.ClientSession() as session:
+                async with aiohttp.ClientSession(connector=telegram_connector()) as session:
                     async with session.post(url, json=payload) as resp:
                         if resp.status == 200:
                             data = await resp.json()

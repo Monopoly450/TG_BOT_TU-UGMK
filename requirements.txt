@@ -9,10 +9,7 @@ python-dotenv
 cryptography
 psutil
 asyncpg
-asyncssh
-qrcode
 pillow
-google-generativeai
 openai
 fastapi
 uvicorn

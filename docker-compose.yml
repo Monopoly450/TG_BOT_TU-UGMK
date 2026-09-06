@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # 🤖 Бот - интерфейс и логика Telegram
   bot:
@@ -11,7 +9,6 @@ services:
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - PROXY_URL=http://proxy:8888
       - DB_HOST=db
       - DB_USER=postgres
       - DB_PASSWORD=ugmk_postgres_pass
@@ -20,9 +17,10 @@ services:
       - bot_data:/app/data
       - shared_cache:/app/cache
     depends_on:
-      - redis
-      - proxy
-      - db
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
     command: python bot.py
 
   # ⚙️ Воркеры (Скраперы) - парсинг сайта
@@ -32,9 +30,18 @@ services:
     env_file:
       - .env
     environment:
+      # Override inherited proxy settings: the university portal is direct.
+      - PROXY_URL=
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
+      - ALL_PROXY=
+      - http_proxy=
+      - https_proxy=
+      - all_proxy=
+      - NO_PROXY=*
+      - no_proxy=*
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - PROXY_URL=http://proxy:8888
       - DB_HOST=db
       - DB_USER=postgres
       - DB_PASSWORD=ugmk_postgres_pass
@@ -42,19 +49,13 @@ services:
     volumes:
       - shared_cache:/app/cache
     depends_on:
-      - redis
-      - proxy
-      - db
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
     deploy:
       replicas: 5
     command: python scraper.py
-
-  # 🌐 Прокси-сервер - туннель через внешний SOCKS5
-  proxy:
-    image: ginuerzh/gost
-    container_name: network_proxy
-    restart: always
-    command: -L=:8888 -F=socks5://user377122:dolyzf@84.32.218.225:13811
 
   # 🗄️ База данных (Redis) - кэш и очередь
   redis:
@@ -64,6 +65,11 @@ services:
     volumes:
       - redis_data:/data
     command: redis-server --save 60 1 --loglevel warning
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   # 🐘 База данных (PostgreSQL) - реляционные данные
   db:
@@ -76,6 +82,11 @@ services:
       - POSTGRES_DB=tu_bot
     volumes:
       - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tu_bot"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   # 🖥️ Веб-панель управления администратора
   dashboard:
@@ -91,14 +102,65 @@ services:
       - DB_NAME=tu_bot
       - REDIS_HOST=redis
     ports:
-      - "8080:8080"
+      - "127.0.0.1:${ADMIN_PORT:-8081}:8080"
     depends_on:
-      - db
-      - redis
-    command: uvicorn dashboard:app --host 0.0.0.0 --port 8080
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn web_runtime:admin_app --host 0.0.0.0 --port 8080
+
+  # Public Mini App has its own process, port and restart cycle.
+  miniapp:
+    build: .
+    container_name: tu_miniapp
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - DB_HOST=db
+      - DB_USER=postgres
+      - DB_PASSWORD=ugmk_postgres_pass
+      - DB_NAME=tu_bot
+      - REDIS_HOST=redis
+    ports:
+      - "127.0.0.1:${MINIAPP_PORT:-8080}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn web_runtime:miniapp_app --host 0.0.0.0 --port 8080
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  # Optional permanent HTTPS endpoint; enable after setting DNS and MINIAPP_DOMAIN.
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["https"]
+    restart: always
+    environment:
+      - MINIAPP_DOMAIN=${MINIAPP_DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      miniapp:
+        condition: service_healthy
 
 volumes:
   redis_data:
   bot_data:
   shared_cache:
   pg_data:
+  caddy_data:
+  caddy_config:

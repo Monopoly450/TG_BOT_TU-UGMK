@@ -1,0 +1,4 @@
+{$MINIAPP_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy miniapp:8080
+}

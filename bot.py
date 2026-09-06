@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import base64
 import logging
 import asyncio
 import urllib.parse
@@ -19,8 +20,8 @@ from aiogram.client.session.middlewares.base import BaseRequestMiddleware # type
 from aiogram.types import ( # type: ignore
     Message, CallbackQuery, InlineKeyboardButton,    
     InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton,
-    LabeledPrice, PreCheckoutQuery, SuccessfulPayment, BufferedInputFile,
-    WebAppInfo
+    BufferedInputFile,
+    WebAppInfo, MenuButtonDefault, MenuButtonWebApp
 )
 from aiogram.filters import CommandStart, Command, CommandObject # type: ignore
 from aiogram.fsm.storage.memory import MemoryStorage # type: ignore
@@ -31,10 +32,8 @@ from aiogram.dispatcher.middlewares.base import BaseMiddleware # type: ignore
 import redis.asyncio as redis # type: ignore
 from secure_store import SecureStore
 from db_manager import db_manager
-from ai_manager import get_ai_response, create_openrouter_key, transcribe_audio
-import vpn_manager
+from ai_manager import get_ai_response, get_chat_models, normalize_model_id, filter_chat_models, normalize_chat_image
 import io
-import qrcode
 
 # ═══════════════════ НАСТРОЙКИ ═══════════════════
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -45,9 +44,10 @@ if not BOT_TOKEN:
     raise ValueError("⚠️ BOT_TOKEN не найден! Убедитесь, что он указан в .env файле или переменных окружения.")
 
 DATA_DIR, CACHE_DIR, USERS_FILE = "data", "cache", os.path.join("data", "users.json")
-CACHE_LIFETIME, CACHE_VERSION = 86400, 39
+CACHE_LIFETIME = 86400
 MSG_STORE_LIMIT = 172800 # 48 часов
 ADMIN_IDS = [474095004]
+YEKATERINBURG_TZ = timezone(timedelta(hours=5))
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(CACHE_DIR, exist_ok=True)
@@ -177,6 +177,11 @@ class OutgoingMessageTracker(BaseRequestMiddleware):
         if isinstance(result, Message):
             try:
                 await track_message(result.chat.id, result.message_id) # type: ignore
+                markup = getattr(method, "reply_markup", None)
+                if isinstance(markup, ReplyKeyboardMarkup) and any(
+                    b.text == "📅 Мое расписание" for row in markup.keyboard for b in row
+                ):
+                    await send_app_launcher(bot, result.chat.id)
             except Exception as e:
                 logger.error(f"Outgoing tracking failed: {e}")
         return result
@@ -207,87 +212,31 @@ dp.message.middleware(AntiFloodMiddleware())
 dp.callback_query.middleware(AntiFloodMiddleware())      
 
 # --- DATABASES ---
-GROUPS_DB = {
-    "Ит-24107 гр.1": "756cb41d-42af-11ef-b448-00155d7f1420%3A309c2eb3-6dea-11f0-b44a-00155d7f1420",
-    "Ит-24107 гр.2": "ea53e266-6dd2-11f0-b44a-00155d7f1420%3A5bbb50dd-6dea-11f0-b44a-00155d7f1420",
-    "Ит-24107 гр.3": "e694ebbb-6dd3-11f0-b44a-00155d7f1420%3A9293ef2e-6dea-11f0-b44a-00155d7f1420",
-    "А-24101": "b47ff74e-3d0f-11ef-b448-00155d7f1420%3A715cc0fc-3eb1-11ef-b448-00155d7f1420",
-    "М-24102": "926cd860-42b2-11ef-b448-00155d7f1420%3A372960bb-4374-11ef-b448-00155d7f1420",
-    "Т-24105": "0e9d8133-42b5-11ef-b448-00155d7f1420%3A5873fb74-4373-11ef-b448-00155d7f1420",
-    "Эн-24103": "171f74fb-3d19-11ef-b448-00155d7f1420%3A19692d41-3ead-11ef-b448-00155d7f1420",
-    "ГД-24104": "14064fbf-4335-11ef-b448-00155d7f1420%3A148d5959-4376-11ef-b448-00155d7f1420",
-    "Гэм-24106": "d53322fa-4338-11ef-b448-00155d7f1420%3A629425ac-4375-11ef-b448-00155d7f1420",
-    "Эк-25109": "c52cf4a3-1542-11f0-b44a-00155d7f1420%3A06321270-5d88-11f0-b44a-00155d7f1420",
-    "А-25101": "64345217-d3ec-11ef-b449-00155d7f1420%3A87999d48-5d7f-11f0-b44a-00155d7f1420",
-    "Ит-25107": "4e6528d3-d3ef-11ef-b449-00155d7f1420%3A9a9bd9dc-5d84-11f0-b44a-00155d7f1420",
-    "М-25102": "efdd4827-d3fb-11ef-b449-00155d7f1420%3Aa7f635af-5d85-11f0-b44a-00155d7f1420",
-    "Т-25105": "8dd0b75a-d400-11ef-b449-00155d7f1420%3A690b7f2d-5d87-11f0-b44a-00155d7f1420",
-    "Эн-25103": "3d685fd3-d402-11ef-b449-00155d7f1420%3A5dfec504-5d88-11f0-b44a-00155d7f1420",
-    "Гд-25104": "8e4c58f1-d40a-11ef-b449-00155d7f1420%3A11b10f9e-5d82-11f0-b44a-00155d7f1420",
-    "Гэм-25106": "ef68433a-d40c-11ef-b449-00155d7f1420%3A14e87d8c-5d84-11f0-b44a-00155d7f1420",
-    "А-23101": "71b1e8a9-1979-11ee-86ac-005056953b1b%3A57124d43-1bca-11ee-86ac-005056953b1b",
-    "М-23102": "0cfbe051-196e-11ee-86ac-005056953b1b%3Ade1d410d-1bbf-11ee-86ac-005056953b1b",
-    "Т-23105": "7a4b0dc4-1998-11ee-86ac-005056953b1b%3A63885cf0-245e-11ee-92f9-005056953b1b",
-    "Ит-23107 гр.1": "2f95ecc0-1bd1-11ee-86ac-005056953b1b%3Aa933615b-6dd7-11f0-b44a-00155d7f1420",
-    "Ит-23107 гр.2": "7900f4dd-6e9f-11ef-b448-00155d7f1420%3A90401ef5-6ea0-11ef-b448-00155d7f1420",
-    "Гэм-23106": "92a56d28-1bc7-11ee-86ac-005056953b1b%3A0c22bf22-1bc4-11ee-86ac-005056953b1b",
-    "Гд-23104": "2ffaff2f-1a69-11ee-86ac-005056953b1b%3A0bb2e3d9-1bca-11ee-86ac-005056953b1b",
-    "Гэм-22106": "03092314-09a5-11ed-b935-005056953b1b%3Aa1b619de-0c15-11ed-b935-005056953b1b",
-}
+from schedule_config import GROUPS_DB, CACHE_VERSION, canonical_group, active_group, merged_groups, lesson_matches_group, migrate_group_preferences
 
-TEACHERS_DB = {
-    "Сакулин Валерий Александрович": "000000376",
-    "Мазитов Виктор Расульевич": "000000421",
-    "Котельников Сергей Андреевич": "000000383",
-    "Голубина Валентина Васильевна": "000000467",
-    "Кабанов Александр Михайлович": "000000409",
-    "Игумнова Юлия Олеговна": "000002912",
-    "Тюжина Ирина Викторовна": "000002915",
-    "Ивлев Андрей Дмитриевич": "000002261",
-    "Гавриленко Никита Сергеевич": "000001833",
-}
-
-CLASSROOMS_DB = {
-    "Ауд. 300": "2355c22e-2bcd-11e7-b191-005056953b1b",
-    "Ауд. 203": "67941c0b-ca51-11ee-b440-00155d7f0e19",
-}
 DAYS_OF_WEEK = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]        
 
 async def get_groups_db() -> dict:
-    db = dict(GROUPS_DB)
+    db = merged_groups()
     try:
         redis_db = await dao.hgetall("db_groups")
-        if redis_db: db.update(redis_db)
+        if redis_db: db = merged_groups(redis_db)
     except Exception as e: logger.error(f"Error fetching groups from Redis: {e}")
-    return db
-
-async def get_teachers_db() -> dict:
-    db = dict(TEACHERS_DB)
-    try:
-        redis_db = await dao.hgetall("db_teachers")
-        if redis_db: db.update(redis_db)
-    except Exception as e: logger.error(f"Error fetching teachers from Redis: {e}")
-    return db
-
-async def get_classrooms_db() -> dict:
-    db = dict(CLASSROOMS_DB)
-    try:
-        redis_db = await dao.hgetall("db_classrooms")
-        if redis_db: db.update(redis_db)
-    except Exception as e: logger.error(f"Error fetching classrooms from Redis: {e}")
     return db
 
 # --- SCHEDULE MANAGER ---
 class ScheduleManager:
     async def fetch_schedule(self, wo=0, t_type=None, t_val=None) -> dict:
-        tz = timezone(timedelta(hours=5))
-        mon = datetime.now(tz).date() - timedelta(days=datetime.now(tz).weekday()) + timedelta(weeks=wo)
+        if wo not in (0, 1):
+            return {}
+        mon = datetime.now(YEKATERINBURG_TZ).date() - timedelta(days=datetime.now(YEKATERINBURG_TZ).weekday()) + timedelta(weeks=wo)
         sd = mon.strftime("%d.%m.%Y")
         key = f"data:v{CACHE_VERSION}:{sd}:{t_type}:{t_val}"
         try:
             if await dao.exists(key): return json.loads(await dao.get(key))
         except Exception as e: logger.error(f"Redis get error: {e}")
-        await dao.lpush('schedule_jobs', json.dumps({"week_offset": wo, "target_type": t_type, "target_value": t_val}))
+        if await dao.set(f"queued:{key}", "1", nx=True, ex=120):
+            await dao.lpush('schedule_jobs', json.dumps({"week_offset": wo, "target_type": t_type, "target_value": t_val}))
         
         for _ in range(600): # 60 сек таймаут (0.1s интервал)
             await asyncio.sleep(0.1)
@@ -304,17 +253,15 @@ class ScheduleStates(StatesGroup): viewing = State()
 class UserStates(StatesGroup):
     waiting_for_evening_time = State()
     waiting_for_morning_time = State()
-    waiting_for_teacher_search = State()
-    waiting_for_classroom_search = State()
     waiting_for_ai_prompt = State()
     waiting_for_ai_key = State()
-    waiting_for_activation_key = State()
+    waiting_for_model_search = State()
 
 class StarostStates(StatesGroup):
     waiting_for_password = State()
     waiting_for_new_pass = State()
     waiting_for_name = State()
-    waiting_for_course = State()
+    waiting_for_group_name = State()
     waiting_for_group = State()
     waiting_for_message = State()
     waiting_for_message_all = State()
@@ -336,13 +283,11 @@ class AdminStates(StatesGroup):
     waiting_for_channel_cat = State()
 
 def get_greeting() -> str:
-    tz = timezone(timedelta(hours=5))
-    h = datetime.now(tz).hour
+    h = datetime.now(YEKATERINBURG_TZ).hour
     if 5 <= h < 12: return "🌅 <b>Доброе утро!</b>"
     elif 12 <= h < 17: return "☀️ <b>Добрый день!</b>"
     elif 17 <= h < 22: return "🌆 <b>Добрый вечер!</b>"
     else: return "🌙 <b>Доброй ночи!</b>"
-
 
 
 @asynccontextmanager
@@ -369,10 +314,29 @@ def get_main_menu(val=None):
             [KeyboardButton(text="📅 Мое расписание"), KeyboardButton(text="🔔 Моя подписка")],
             [KeyboardButton(text="🤖 ИИ-Ассистент"), KeyboardButton(text="🏫 Экосистема")],
             [KeyboardButton(text="⭐ Избранное"), KeyboardButton(text="💻 Толк")],
-            [KeyboardButton(text="👩‍🏫 Преподаватели"), KeyboardButton(text="🏫 Аудитории")],
             [KeyboardButton(text="🧹 Очистить")]
         ]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
+
+async def send_app_launcher(bot_client, chat_id):
+    """Keep one launcher in the conversation whenever the main menu is shown."""
+    previous = await dao.get(f"miniapp_launcher:{chat_id}")
+    message = await bot_client.send_message(
+        chat_id,
+        "🎓 <b>ТУ УГМК · Кампус</b>\n\nРасписание, ИИ и жизнь университета — в одном приложении.",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="Открыть приложение ↗", web_app=WebAppInfo(url=f"{WEBAPP_URL.rstrip('/')}/webapp"))
+        ]]),
+    )
+    await dao.set(f"miniapp_launcher:{chat_id}", message.message_id)
+    if previous:
+        try:
+            await bot_client.delete_message(chat_id, int(previous))
+        except TelegramBadRequest:
+            pass
+    return message
+
 
 def get_submenu_keyboard():
     return ReplyKeyboardMarkup(
@@ -383,16 +347,20 @@ def get_submenu_keyboard():
     )
 
 def get_day_pagination_kb(target_date: date):        
-    prev, next = (target_date - timedelta(days=1)).isoformat(), (target_date + timedelta(days=1)).isoformat()
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⬅️ Пред. день", callback_data=f"day_nav:{prev}"), 
-         InlineKeyboardButton(text="След. день ➡️", callback_data=f"day_nav:{next}")], 
+    today = datetime.now(YEKATERINBURG_TZ).date()
+    monday = today - timedelta(days=today.weekday())
+    arrows = []
+    if target_date > monday:
+        arrows.append(InlineKeyboardButton(text="⬅️ Пред. день", callback_data=f"day_nav:{(target_date - timedelta(days=1)).isoformat()}"))
+    if target_date < monday + timedelta(days=13):
+        arrows.append(InlineKeyboardButton(text="След. день ➡️", callback_data=f"day_nav:{(target_date + timedelta(days=1)).isoformat()}"))
+    return InlineKeyboardMarkup(inline_keyboard=[arrows,
         [InlineKeyboardButton(text="📅 Экспорт iCal", callback_data="ical:export"),
          InlineKeyboardButton(text="🔙 Назад", callback_data="cancel_menu")]
     ])       
 
-async def format_lesson(l: dict, t_type: str, day_name: str, group_name: str) -> str:      
-    subj, l_type, time, room, grp, teach = (l.get(k, 'Н/Д') for k in ['subject', 'type', 'time', 'room', 'group', 'teacher'])
+async def format_lesson(l: dict, day_name: str, group_name: str) -> str:
+    subj, l_type, time, room, teach = (l.get(k, 'Н/Д') for k in ['subject', 'type', 'time', 'room', 'teacher'])
     link = l.get('link')
 
     text = f"📖 <b>{subj}</b>\n"
@@ -403,36 +371,30 @@ async def format_lesson(l: dict, t_type: str, day_name: str, group_name: str) ->
     if link:
         text += f"   └ 💻 <a href='{link}'>Подключиться онлайн</a>\n"
 
-    if t_type == "group":
-        text += f"   └ 👤 {teach}"
-        try:
-            hw = await dao.hget(f"homework:{group_name}", f"{day_name}:{time}")
-            if hw: text += f"\n   ✍️ <b>Д/З:</b> <i>{hw}</i>"
-        except Exception as e: logger.error(f"Homework read error: {e}")
-    elif t_type == "teacher":
-        text += f"   └ 👥 {grp}"
-    else: # classroom
-        text += f"   └ 👥 {grp} | 👤 {teach}"     
+    text += f"   └ 👤 {teach}"
+    try:
+        hw = await dao.hget(f"homework:{group_name}", f"{day_name}:{time}")
+        if hw: text += f"\n   ✍️ <b>Д/З:</b> <i>{hw}</i>"
+    except Exception as e: logger.error(f"Homework read error: {e}")
 
     return text
 
-async def fmt_day(day_date: date, lessons: list, t_type: str, group_name: str = "") -> str:
+async def fmt_day(day_date: date, lessons: list, group_name: str = "") -> str:
     day_name, date_str = DAYS_OF_WEEK[day_date.weekday()], day_date.strftime("%d.%m.%Y")
     text = f"<b>📅 {day_name.upper()}</b> ({date_str})\n" + "─" * 24 + "\n\n"
     if not lessons: return text + "😴 Нет занятий"   
     sorted_lessons = sorted(lessons, key=lambda x: x.get('time', '00:00'))
     formatted_lessons = []
     for l in sorted_lessons:
-        g_name = group_name if t_type == "group" else l.get('group', '')
-        formatted_lessons.append(await format_lesson(l, t_type, day_name, g_name))
+        formatted_lessons.append(await format_lesson(l, day_name, group_name))
     return text + "\n\n".join(formatted_lessons)
 
-async def fmt_week(s: dict, t_type: str, group_name: str = "") -> str:
+async def fmt_week(s: dict, group_name: str = "") -> str:
     full_text = ""
     for day_name in DAYS_OF_WEEK[:6]: # type: ignore
         if d_str := s.get("_dates", {}).get(day_name):
             d_date, d_lessons = datetime.strptime(d_str, "%d.%m.%Y").date(), s.get(day_name, [])
-            full_text += await fmt_day(d_date, d_lessons, t_type, group_name) + "\n\n" + "═" * 24 + "\n\n" # type: ignore
+            full_text += await fmt_day(d_date, d_lessons, group_name) + "\n\n" + "═" * 24 + "\n\n" # type: ignore
     return full_text if full_text.strip() else "😴 На этой неделе занятий нет." # type: ignore
 
 # --- ADMIN HANDLERS ---
@@ -503,18 +465,14 @@ async def admin_actions(c: CallbackQuery, state: FSMContext):
         top_morn = "\n".join([f"  • {t}: {count} чел." for t, count in morn_counts.most_common(5)])
         
         db_g_size = await dao.hlen("db_groups")
-        db_t_size = await dao.hlen("db_teachers")
-        db_c_size = await dao.hlen("db_classrooms")
         
         text = (f"📈 <b>Детальная статистика бота:</b>\n\n"
                 f"👤 <b>Всего пользователей:</b> {total_users}\n"
                 f"🔔 <b>С активной подпиской:</b> {subbed_users}\n\n"
                 f"🎓 <b>Топ-10 популярных групп:</b>\n{top_groups}\n\n"
                 f"🌅 <b>Утренние рассылки (топ время):</b>\n{top_morn}\n\n"
-                f"📂 <b>Размер динамических БД:</b>\n"
-                f"  • Групп: {db_g_size}\n"
-                f"  • Преподавателей: {db_t_size}\n"
-                f"  • Аудиторий: {db_c_size}")
+                f"📂 <b>Размер динамической БД:</b>\n"
+                f"  • Групп: {db_g_size}")
                 
         await c.message.edit_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
     elif action == "update":
@@ -534,17 +492,15 @@ async def admin_actions(c: CallbackQuery, state: FSMContext):
             import time
             count = 0
             now = time.time()
-            data_dbs = [("group", await get_groups_db()), ("teacher", await get_teachers_db()), ("classroom", await get_classrooms_db())]
-            for t_type, db in data_dbs:
-                for name, tid in db.items():
-                    for wo in [0, 1]:
-                        job = {
-                            "week_offset": wo,
-                            "target_type": t_type,
-                            "target_value": name
-                        }
-                        await dao.rpush("schedule_jobs", json.dumps(job))
-                        count += 1
+            for name in (await get_groups_db()).keys():
+                for wo in [0, 1]:
+                    job = {
+                        "week_offset": wo,
+                        "target_type": "group",
+                        "target_value": name
+                    }
+                    await dao.rpush("schedule_jobs", json.dumps(job))
+                    count += 1
             await c.message.edit_text(f"✅ <b>Отправлено в очередь: {count}</b>\nВоркеры в фоновом режиме загрузят расписания (текущая и следующая неделя) в кэш! (Около 2 минут)", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]), parse_mode="HTML")
             
             async def notify_when_done(admin_id: int):
@@ -564,7 +520,6 @@ async def admin_actions(c: CallbackQuery, state: FSMContext):
         await state.set_state(AdminStates.waiting_for_broadcast_message)
     elif action == "test_schedule_broadcast":
         await c.message.edit_text("⏳ <b>Формирую тестовую рассылку для вас...</b>", parse_mode="HTML")
-        tz = timezone(timedelta(hours=5))
         try:
             subs = await dao.hgetall("user_subs")
             admin_gid = subs.get(str(c.from_user.id))
@@ -572,7 +527,7 @@ async def admin_actions(c: CallbackQuery, state: FSMContext):
             if not admin_gid:
                 await c.message.edit_text("❌ Вы не подписаны на утреннюю рассылку.\nПерейдите в меню '🔔 Моя подписка', выберите любую группу и попробуйте снова.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
             else:
-                today = datetime.now(tz).date()
+                today = datetime.now(YEKATERINBURG_TZ).date()
                 week_s = await sm.fetch_schedule(0, "group", admin_gid)
                 day_name = DAYS_OF_WEEK[today.weekday()]
                 day_lessons = week_s.get(day_name, [])
@@ -583,7 +538,7 @@ async def admin_actions(c: CallbackQuery, state: FSMContext):
                     await c.message.edit_text(f"❌ Ошибка при получении расписания.\nПричина: <b>{error_msg}</b>", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
                 else:
                     text = f"🧪 <b>ТЕСТ УТРЕННЕЙ РАССЫЛКИ</b>\n\n{get_greeting()} <b>Расписание на сегодня:</b>\n\n"
-                    text += await fmt_day(today, day_lessons, "group", admin_gid)
+                    text += await fmt_day(today, day_lessons, admin_gid)
                     await bot.send_message(c.from_user.id, text, parse_mode="HTML")
                     await c.message.edit_text("✅ <b>Тестовая рассылка успешно отправлена!</b>\nПроверьте новые сообщения от бота.", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
         except Exception as e:
@@ -602,8 +557,7 @@ async def admin_actions(c: CallbackQuery, state: FSMContext):
         await c.message.edit_text(f"✅ <b>Отложенная рассылка завершена!</b>\nОтправлено сообщений: <b>{count}</b>", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
 
     elif action == "server_time":
-        tz = timezone(timedelta(hours=5))
-        now = datetime.now(tz)
+        now = datetime.now(YEKATERINBURG_TZ)
         await c.message.edit_text(f"🕒 <b>Текущее время на сервере (Екатеринбург):</b>\n<code>{now.strftime('%Y-%m-%d %H:%M:%S')}</code>", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:back")]]))
 
     elif action == "back":
@@ -704,7 +658,7 @@ async def cb_set_evening_time_save(c: CallbackQuery, state: FSMContext):
 async def run_evening_broadcast(target_time: str):
     users = await dao.hgetall("user_subs")
     user_times = await dao.hgetall("user_evening_time")
-    tomorrow = datetime.now(timezone(timedelta(hours=5))).date() + timedelta(days=1)
+    tomorrow = datetime.now(YEKATERINBURG_TZ).date() + timedelta(days=1)
     count = 0
     for user_id, group_name in users.items():
         if user_times.get(user_id) != target_time:
@@ -713,7 +667,7 @@ async def run_evening_broadcast(target_time: str):
             week_s = await sm.fetch_schedule(0, "group", group_name)
             day_lessons = week_s.get(DAYS_OF_WEEK[tomorrow.weekday()], [])
             if day_lessons:
-                text = f"{get_greeting()} <b>Расписание на завтра, {tomorrow.strftime('%d.%m')}:</b>\n\n" + await fmt_day(tomorrow, day_lessons, "group", group_name)
+                text = f"{get_greeting()} <b>Расписание на завтра, {tomorrow.strftime('%d.%m')}:</b>\n\n" + await fmt_day(tomorrow, day_lessons, group_name)
                 await bot.send_message(int(user_id), text, parse_mode="HTML")
                 count += 1
             await asyncio.sleep(0.05)
@@ -727,8 +681,7 @@ async def check_schedule_changes():
         active_groups = set(subs.values())
         logger.info(f"Checking schedule changes for {len(active_groups)} groups...")
         for group_name in active_groups:
-            tz = timezone(timedelta(hours=5))
-            today = datetime.now(tz).date()
+            today = datetime.now(YEKATERINBURG_TZ).date()
             mon = today - timedelta(days=today.weekday())
             sd = mon.strftime("%d.%m.%Y")
             cache_key = f"data:v{CACHE_VERSION}:{sd}:group:{group_name}"
@@ -763,7 +716,7 @@ async def check_schedule_changes():
 
 async def main_scheduler():
     while True:
-        now_dt = datetime.now(timezone(timedelta(hours=5)))
+        now_dt = datetime.now(YEKATERINBURG_TZ)
         now = now_dt.strftime("%H:%M")
         await asyncio.gather(
             run_morning_broadcast(now),
@@ -805,41 +758,6 @@ async def talk_links(m: Message):
     ])
     await m.answer("🎥 <b>Ссылки на онлайн-комнаты Толк:</b>\nВыберите нужную комнату для подключения:", reply_markup=kb, parse_mode="HTML")
 
-@dp.message(Command("debug_ai"))
-async def cmd_debug_ai(m: Message, state: FSMContext):
-    uid = m.from_user.id
-    user_row = await db_manager.get_user(uid)
-    state_data = await state.get_data()
-    
-    db_global_key = None
-    try:
-        db_global_key = await db_manager.get_setting("openrouter_api_key")
-    except Exception:
-        pass
-        
-    def mask_key(k):
-        if not k: return "None"
-        k = str(k).strip()
-        if len(k) < 15: return "too_short"
-        return f"{k[:10]}...{k[-4:]}"
-        
-    custom_key = user_row.get("custom_ai_key") if user_row else None
-    ai_balance = user_row.get("ai_balance") if user_row else 0
-    ai_expires = user_row.get("ai_expires_at") if user_row else None
-    ai_purchased = user_row.get("ai_purchased_at") if user_row else None
-    state_key = state_data.get("ai_key")
-    
-    text = (
-        "🔬 <b>AI Debug Information:</b>\n\n"
-        f"👤 <b>Telegram ID:</b> <code>{uid}</code>\n"
-        f"🔑 <b>custom_ai_key (DB):</b> <code>{mask_key(custom_key)}</code>\n"
-        f"💳 <b>ai_balance (DB):</b> <code>{ai_balance}</code>\n"
-        f"📅 <b>ai_expires_at (DB):</b> <code>{ai_expires}</code>\n"
-        f"📥 <b>ai_purchased_at (DB):</b> <code>{ai_purchased}</code>\n"
-        f"🌐 <b>global_key (DB settings):</b> <code>{mask_key(db_global_key)}</code>\n"
-        f"🧠 <b>ai_key (FSM state):</b> <code>{mask_key(state_key)}</code>"
-    )
-    await m.answer(text, parse_mode="HTML")
 
 @dp.message(Command("bot_logs"), F.from_user.id.in_(ADMIN_IDS))
 async def cmd_bot_logs(m: Message):
@@ -874,66 +792,6 @@ async def start(m: Message, state: FSMContext, command: CommandObject = None):
         
     await state.clear()
     
-    if command and command.args:
-        args = command.args
-        if args.startswith("buy_"):
-            pkg = args[4:]
-            try:
-                if pkg == "vpn_only":
-                    await m.answer_invoice(
-                        title="WireGuard VPN на 30 дней",
-                        description="Подписка на высокоскоростной WireGuard VPN сроком на 30 дней.",
-                        payload="vpn_only_30_days",
-                        provider_token="",
-                        currency="XTR",
-                        prices=[LabeledPrice(label="WireGuard VPN на 30 дней", amount=100)]
-                    )
-                    return
-                elif pkg == "ai_standard":
-                    await m.answer_invoice(
-                        title="150 стандартных запросов к ИИ",
-                        description="Пополнение баланса ИИ-Ассистента на 150 стандартных (или 37 премиум) запросов.",
-                        payload="ai_150_requests",
-                        provider_token="",
-                        currency="XTR",
-                        prices=[LabeledPrice(label="150 Стандарт ИИ-запросов", amount=400)]
-                    )
-                    return
-                elif pkg == "ai_premium":
-                    await m.answer_invoice(
-                        title="30 премиум запросов к ИИ",
-                        description="Пополнение баланса ИИ-Ассистента на 30 премиум (или 120 стандартных) запросов.",
-                        payload="ai_30_premium",
-                        provider_token="",
-                        currency="XTR",
-                        prices=[LabeledPrice(label="30 Премиум ИИ-запросов", amount=500)]
-                    )
-                    return
-                elif pkg == "pkg_standard":
-                    await m.answer_invoice(
-                        title="VPN + 150 Стандарт ИИ",
-                        description="Подписка WireGuard VPN на 30 дней и промокод на 150 стандартных запросов к ИИ.",
-                        payload="vpn_sub_standard",
-                        provider_token="",
-                        currency="XTR",
-                        prices=[LabeledPrice(label="VPN + 150 Стандарт ИИ", amount=500)]
-                    )
-                    return
-                elif pkg == "pkg_premium":
-                    await m.answer_invoice(
-                        title="VPN + 30 Премиум ИИ",
-                        description="Подписка WireGuard VPN на 30 дней и промокод на 30 премиум запросов к ИИ (Claude, GPT, Kimi, Qwen).",
-                        payload="vpn_sub_premium",
-                        provider_token="",
-                        currency="XTR",
-                        prices=[LabeledPrice(label="VPN + 30 Премиум ИИ", amount=600)]
-                    )
-                    return
-            except Exception as e:
-                logger.error(f"Failed to send deep linked invoice: {e}")
-                await m.answer(f"⚠️ <b>Ошибка при создании счета:</b>\n<code>{str(e)}</code>\n\nУбедитесь, что в @BotFather для вашего бота подключен прием платежей Telegram Stars (XTR).", parse_mode="HTML")
-                return
-                
     await m.answer("👋 <b>Бот расписания готов к работе!</b>", reply_markup=get_main_menu(), parse_mode="HTML")
     await show_subscription_time_menu(m)
 
@@ -954,40 +812,13 @@ async def show_subscription_time_menu(m: Message | CallbackQuery, user_id: str =
         user_row = await db_manager.get_user(int(uid))
         
     group_name = user_row['group_name'] if user_row and user_row['group_name'] else "❌ Не выбрана"
-    vpn_enabled = user_row['vpn_enabled'] if user_row else False
-    vpn_expires_at = user_row.get('vpn_expires_at') if user_row else None
-    if vpn_enabled and vpn_expires_at and vpn_expires_at < datetime.now():
-        vpn_enabled = False
-    ai_model = user_row['ai_model'] if user_row else 'gpt-4o-mini'
-    has_key = bool(user_row['custom_ai_key']) if user_row else False
-    ai_balance = user_row['ai_balance'] if user_row else 0
-    ai_expires_at = user_row.get('ai_expires_at') if user_row else None
-    
-    # Format VPN status
-    if vpn_enabled:
-        vpn_status = "✅ Активна"
-        if vpn_expires_at:
-            vpn_status += f" (до {vpn_expires_at.strftime('%d.%m.%Y')})"
-    else:
-        vpn_status = "❌ Не активна"
-        
-    # Format AI status
-    ai_key_status = "✅ Установлен" if has_key else "❌ Не установлен"
-    ai_expiry_str = ""
-    if ai_expires_at:
-        ai_expiry_str = f" (до {ai_expires_at.strftime('%d.%m.%Y')})"
-        
     # Get notification times
     morn_time = await dao.hget("user_morning_time", str(uid)) or "08:00"
     eve_time = await dao.hget("user_evening_time", str(uid)) or "Отключено"
     
     text = (
-        "🔔 <b>Мой профиль и подписки</b>\n\n"
+        "🔔 <b>Моя подписка на расписание</b>\n\n"
         f"🎓 <b>Ваша группа:</b> <code>{group_name}</code>\n\n"
-        f"🔌 <b>WireGuard VPN:</b>\n"
-        f"• Статус: <b>{vpn_status}</b>\n\n"
-        f"🤖 <b>ИИ-Ассистент:</b>\n"
-        f"• Баланс запросов: <b>{ai_balance}</b>{ai_expiry_str}\n\n"
         f"🕒 <b>Ежедневная рассылка расписания:</b>\n"
         f"• Утро: <code>{morn_time}</code>\n"
         f"• Вечер: <code>{eve_time}</code>"
@@ -997,19 +828,6 @@ async def show_subscription_time_menu(m: Message | CallbackQuery, user_id: str =
     
     # Group row
     kb_rows.append([InlineKeyboardButton(text="🎓 Выбрать/Изменить группу", callback_data="sub:change_group")])
-    
-    # VPN controls row
-    if vpn_enabled:
-        kb_rows.append([
-            InlineKeyboardButton(text="📁 Скачать WG файл", callback_data="vpn:get_file"),
-            InlineKeyboardButton(text="🖼 Показать QR-код", callback_data="vpn:get_qr")
-        ])
-        kb_rows.append([InlineKeyboardButton(text="❌ Отключить VPN", callback_data="sub:disable_vpn")])
-    else:
-        kb_rows.append([InlineKeyboardButton(text="🔌 Подключить VPN", callback_data="sub:buy_vpn_only_direct")])
-        
-    # Buy subscription row
-    kb_rows.append([InlineKeyboardButton(text="💳 Купить подписку", callback_data="sub:buy_menu")])
     
     # Daily notification setup row
     kb_rows.append([
@@ -1026,135 +844,15 @@ async def show_subscription_time_menu(m: Message | CallbackQuery, user_id: str =
 
 @dp.callback_query(F.data == "sub:change_group")
 async def cb_sub_change_group(c: CallbackQuery):
-    await show_courses_menu(c)
+    await show_group_name_menu(c)
     await c.answer()
 
-@dp.callback_query(F.data == "sub:buy_menu")
-async def cb_sub_buy_menu(c: CallbackQuery):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🤖 Купить отдельно ИИ", callback_data="sub:buy_ai_menu")],
-        [InlineKeyboardButton(text="🔌 Купить отдельный VPN", callback_data="sub:buy_vpn_only_menu")],
-        [InlineKeyboardButton(text="📦 Купить всё вместе (VPN + ИИ)", callback_data="sub:buy_bundle_menu")],
-        [InlineKeyboardButton(text="🔙 Назад в подписки", callback_data="sub:back_to_menu")]
-    ])
-    text = (
-        "💳 <b>Выбор варианта подписки:</b>\n\n"
-        "Вы можете приобрести услуги по отдельности или в выгодных пакетах:\n\n"
-        "1. <b>ИИ-Ассистент (отдельно):</b> доступ к передовым языковым моделям.\n"
-        "2. <b>WireGuard VPN (отдельно):</b> стабильный и безопасный интернет.\n"
-        "3. <b>Всё вместе (Выгодный пакет):</b> VPN и ИИ-запросы со скидкой."
-    )
-    await c.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
-    await c.answer()
-
-@dp.callback_query(F.data == "sub:buy_ai_menu")
-async def cb_sub_buy_ai_menu(c: CallbackQuery):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 150 Стандарт ИИ (400 ⭐)", callback_data="ai:buy_requests")],
-        [InlineKeyboardButton(text="💳 30 Премиум ИИ (500 ⭐)", callback_data="ai:buy_premium")],
-        [InlineKeyboardButton(text="🔙 Назад в меню покупок", callback_data="sub:buy_menu")]
-    ])
-    text = (
-        "🤖 <b>Приобретение запросов ИИ (отдельно):</b>\n\n"
-        "Выберите пакет запросов:\n"
-        "1. <b>150 стандартных запросов</b> — 400 ⭐\n"
-        "2. <b>30 премиум запросов</b> — 500 ⭐\n\n"
-        "При покупке вам будет автоматически сгенерирован и привязан персональный API-ключ OpenRouter со сроком действия 30 дней."
-    )
-    await c.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
-    await c.answer()
-
-@dp.callback_query(F.data == "sub:buy_vpn_only_menu")
-async def cb_sub_buy_vpn_only_menu(c: CallbackQuery):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 VPN на 30 дней (100 ⭐)", callback_data="vpn:buy_only")],
-        [InlineKeyboardButton(text="🔙 Назад в меню покупок", callback_data="sub:buy_menu")]
-    ])
-    text = (
-        "🔌 <b>Подписка на WireGuard VPN (отдельно):</b>\n\n"
-        "• Срок действия: <b>30 дней</b>\n"
-        "• Цена: <b>100 ⭐</b>\n\n"
-        "Обеспечивает надежный и быстрый доступ к зарубежным ресурсам."
-    )
-    await c.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
-    await c.answer()
-
-@dp.callback_query(F.data == "sub:buy_bundle_menu")
-async def cb_sub_buy_bundle_menu(c: CallbackQuery):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎁 Тест: VPN + 10 Премиум (Бесплатно)", callback_data="vpn:activate_test_free")],
-        [InlineKeyboardButton(text="💳 VPN + 150 Стандарт (500 ⭐)", callback_data="vpn:buy_standard")],
-        [InlineKeyboardButton(text="💳 VPN + 30 Премиум (600 ⭐)", callback_data="vpn:buy_premium")],
-        [InlineKeyboardButton(text="🔙 Назад в меню покупок", callback_data="sub:buy_menu")]
-    ])
-    text = (
-        "📦 <b>Купить всё вместе (ИИ + VPN):</b>\n\n"
-        "Выберите выгодный пакет:\n"
-        "• <b>Тест: VPN + 10 Премиум ИИ</b> — Бесплатно (для проверки)\n"
-        "1. <b>VPN + 150 Стандарт ИИ</b> — 500 ⭐\n"
-        "2. <b>VPN + 30 Премиум ИИ</b> — 600 ⭐\n\n"
-        "Все тарифы действуют 30 дней с момента покупки."
-    )
-    await c.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
-    await c.answer()
-
-@dp.callback_query(F.data == "sub:buy_vpn_only")
-async def cb_sub_buy_vpn_only(c: CallbackQuery):
-    await cb_sub_buy_vpn_only_menu(c)
-
-@dp.callback_query(F.data == "sub:buy_vpn_only_direct")
-async def cb_sub_buy_vpn_only_direct(c: CallbackQuery):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 VPN на 30 дней (100 ⭐)", callback_data="vpn:buy_only")],
-        [InlineKeyboardButton(text="🔙 Назад в подписки", callback_data="sub:back_to_menu")]
-    ])
-    text = (
-        "🔌 <b>Подписка на WireGuard VPN (отдельно):</b>\n\n"
-        "• Срок действия: <b>30 дней</b>\n"
-        "• Цена: <b>100 ⭐</b>\n\n"
-        "Обеспечивает надежный и быстрый доступ к зарубежным ресурсам."
-    )
-    await c.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
-    await c.answer()
 
 @dp.callback_query(F.data == "sub:back_to_menu")
 async def cb_sub_back_to_menu(c: CallbackQuery):
     await show_subscription_time_menu(c)
     await c.answer()
 
-@dp.callback_query(F.data == "sub:disable_vpn")
-async def cb_sub_disable_vpn(c: CallbackQuery):
-    uid = c.from_user.id
-    user_row = await db_manager.get_user(uid)
-    await db_manager.set_user_vpn(uid, enabled=False)
-    
-    try:
-        if user_row and user_row['vpn_key'] and vpn_manager.VPN_SSH_HOST:
-            import base64
-            from cryptography.hazmat.primitives.asymmetric import x25519
-            from cryptography.hazmat.primitives import serialization
-            
-            priv_key_match = re.search(r'PrivateKey\s*=\s*([a-zA-Z0-9+/=]+)', user_row['vpn_key'])
-            if priv_key_match:
-                priv_key_b64 = priv_key_match.group(1)
-                priv_bytes = base64.b64decode(priv_key_b64)
-                private_key = x25519.X25519PrivateKey.from_private_bytes(priv_bytes)
-                public_key = private_key.public_key()
-                pub_bytes = public_key.public_bytes(
-                    encoding=serialization.Encoding.Raw,
-                    format=serialization.PublicFormat.Raw
-                )
-                pub_key_b64 = base64.b64encode(pub_bytes).decode('utf-8')
-                
-                import asyncssh
-                async with asyncssh.connect(vpn_manager.VPN_SSH_HOST, username=vpn_manager.VPN_SSH_USER, password=vpn_manager.VPN_SSH_PASSWORD, known_hosts=None) as conn:
-                    await conn.run(f"sudo wg set wg0 peer {pub_key_b64} remove")
-                    await conn.run(f"sudo sed -i '/{pub_key_b64}/,+2d' /etc/wireguard/wg0.conf")
-    except Exception as e:
-        logger.error(f"Failed to remove WG peer on server for {uid}: {e}")
-        
-    await c.answer("VPN успешно отключен", show_alert=True)
-    await show_subscription_time_menu(c)
 
 @dp.message(F.text == "📅 Мое расписание")
 async def show_my_schedule(m: Message, state: FSMContext):
@@ -1173,15 +871,6 @@ async def show_my_schedule(m: Message, state: FSMContext):
     ])
     await m.answer("💡 Вы можете экспортировать расписание группы в календарь телефона:", reply_markup=kb)
 
-@dp.message(F.text.in_({"👩‍🏫 Преподаватели", "🏫 Аудитории"}))
-async def show_filter_menu(m: Message, state: FSMContext, explicit_type: str = None):
-    t_type = explicit_type if explicit_type else ("teacher" if m.text == "👩‍🏫 Преподаватели" else "classroom")
-    await state.set_state(UserStates.waiting_for_teacher_search if t_type == "teacher" else UserStates.waiting_for_classroom_search)
-    msg = await m.answer("🔍 Открываю поиск...", reply_markup=get_submenu_keyboard())
-    await clear_chat_history(m.chat.id, exclude_ids=[msg.message_id])
-    prompt = "🔍 <b>Введите фамилию преподавателя</b> (или её часть) для поиска:" if t_type == "teacher" else "🔍 <b>Введите номер или название аудитории</b> для поиска:"
-    await m.answer(prompt, parse_mode="HTML")
-
 @dp.message(F.text == "🎓 Моя группа")
 async def handle_my_group_menu(m: Message):
     msg = await m.answer("🎓 Открываю меню группы...", reply_markup=get_submenu_keyboard())
@@ -1193,17 +882,29 @@ async def handle_my_group_menu(m: Message):
         ])
         await m.answer(f"✅ Ваша текущая сохраненная группа: <b>{subbed_group}</b>", parse_mode="HTML", reply_markup=kb)
     else:
-        await show_courses_menu(m)
+        await show_group_name_menu(m)
 
-async def show_courses_menu(m_or_c):
+def get_group_name(group: str) -> str:
+    """Return the textual part of a group name before its numeric code."""
+    return group.split("-", maxsplit=1)[0].strip()
+
+
+def get_group_names() -> list[str]:
+    names = {get_group_name(group).casefold(): get_group_name(group) for group in GROUPS_DB}
+    return sorted(names.values(), key=str.casefold)
+
+
+async def show_group_name_menu(m_or_c):
+    group_names = get_group_names()
     btns = [
-        [InlineKeyboardButton(text="1️⃣ Первый курс", callback_data="course:25")],
-        [InlineKeyboardButton(text="2️⃣ Второй курс", callback_data="course:24")],
-        [InlineKeyboardButton(text="3️⃣ Третий курс", callback_data="course:23")],
-        [InlineKeyboardButton(text="4️⃣ Четвертый курс", callback_data="course:22")],
-        [InlineKeyboardButton(text="🔙 Назад в подписки", callback_data="sub:back_to_menu")]
+        [
+            InlineKeyboardButton(text=group_name, callback_data=f"group_name:{group_name}")
+            for group_name in group_names[index:index + 2]
+        ]
+        for index in range(0, len(group_names), 2)
     ]
-    text = "🎓 Выберите курс:"
+    btns.append([InlineKeyboardButton(text="🔙 Назад в подписки", callback_data="sub:back_to_menu")])
+    text = "🎓 Выберите название группы:"
     kb = InlineKeyboardMarkup(inline_keyboard=btns)
     if isinstance(m_or_c, CallbackQuery):
         await m_or_c.message.edit_text(text, reply_markup=kb)
@@ -1212,34 +913,33 @@ async def show_courses_menu(m_or_c):
 
 @dp.callback_query(F.data == "change_my_group")
 async def cb_change_my_group(c: CallbackQuery):
-    await show_courses_menu(c)
+    await show_group_name_menu(c)
     try: await c.answer()
     except: pass
 
-@dp.callback_query(F.data.startswith("course:"))
-async def cb_course(c: CallbackQuery):
+@dp.callback_query(F.data.startswith("group_name:"))
+async def cb_group_name(c: CallbackQuery):
     await c.message.delete()
-    prefix = c.data.split(":")[1]
-    
-    filtered_groups = []
-    for i, name in enumerate(GROUPS_DB.keys()):
-        # Ищем числа в названии группы (например, Ит-24107 -> 24)
-        match = re.search(r'\d+', name)
-        if match and match.group(0).startswith(prefix):
-            filtered_groups.append((i, name))
+    selected_name = c.data.split(":", maxsplit=1)[1].casefold()
+    filtered_groups = [
+        (index, group)
+        for index, group in enumerate(GROUPS_DB)
+        if get_group_name(group).casefold() == selected_name
+    ]
+    filtered_groups.sort(key=lambda item: (-int(re.search(r"\d+", item[1]).group()), item[1].casefold()))
             
     if not filtered_groups:
-        await c.message.answer("😔 Группы не найдены.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_courses")]]))
+        await c.message.answer("😔 Группы не найдены.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_group_names")]]))
     else:
-        btns = [InlineKeyboardButton(text=n, callback_data=f"fsel:group:{i}") for i, n in filtered_groups]
-        kb = InlineKeyboardMarkup(inline_keyboard=[[btn] for btn in btns] + [[InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_courses")]])
+        btns = [InlineKeyboardButton(text=n, callback_data=f"fsel:group:{n}") for i, n in filtered_groups]
+        kb = InlineKeyboardMarkup(inline_keyboard=[[btn] for btn in btns] + [[InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_group_names")]])
         await c.message.answer("👇 Выберите группу:", reply_markup=kb)
     try: await c.answer()
     except: pass
 
-@dp.callback_query(F.data == "back_to_courses")
-async def cb_back_to_courses(c: CallbackQuery):
-    await show_courses_menu(c)
+@dp.callback_query(F.data == "back_to_group_names")
+async def cb_back_to_group_names(c: CallbackQuery):
+    await show_group_name_menu(c)
     try: await c.answer()
     except: pass
 
@@ -1247,33 +947,38 @@ async def cb_back_to_courses(c: CallbackQuery):
 async def cb_sel(c: CallbackQuery, state: FSMContext):
     await c.message.delete()
     _, t_type, idx = c.data.split(":")
-    db_funcs = {"group": get_groups_db, "teacher": get_teachers_db, "classroom": get_classrooms_db}
-    db = await db_funcs[t_type]()
-    db_keys = list(db.keys())
-    idx_val = int(idx)
-    if idx_val >= len(db_keys):
-        await c.answer("⚠️ Элемент больше не доступен.", show_alert=True)
+    if t_type != "group":
+        await c.answer("Этот раздел больше недоступен.", show_alert=True)
         return
-    t_val = db_keys[idx_val]
-    
-    if t_type == "group":
-        await dao.hset("user_subs", str(c.from_user.id), t_val)
-        await db_manager.register_or_update_user(c.from_user.id, c.from_user.username, t_val)
-        await c.message.answer(f"✅ Ваша группа успешно сохранена: <b>{t_val}</b>\nТеперь вы будете получать важные уведомления от старосты.", parse_mode="HTML", reply_markup=get_submenu_keyboard())
-        await show_subscription_time_menu(c.message, user_id=str(c.from_user.id))
-        await c.answer()
-    else:
-        await state.set_state(ScheduleStates.viewing)
-        await state.update_data(target_type=t_type, target_value=t_val)
-        await c.message.answer(f"✅ Фильтр: <b>{t_val}</b>", parse_mode="HTML", reply_markup=get_main_menu(t_val))
-        await c.answer()
+    # Old messages used list positions; resolve their visible label so catalog
+    # changes never silently subscribe the user to a different group.
+    if idx.isdecimal():
+        markup = getattr(c.message, "reply_markup", None)
+        idx = next((button.text for row in getattr(markup, "inline_keyboard", [])
+                    for button in row if button.callback_data == c.data), "")
+    t_val = canonical_group(idx)
+    if not active_group(t_val) or t_val not in await get_groups_db():
+        await c.answer("Эта группа больше недоступна. Выберите группу из нового списка.", show_alert=True)
+        await show_group_name_menu(c.message)
+        return
+
+    await dao.hset("user_subs", str(c.from_user.id), t_val)
+    await db_manager.register_or_update_user(c.from_user.id, c.from_user.username, t_val)
+    await c.message.answer(f"✅ Ваша группа успешно сохранена: <b>{t_val}</b>\nТеперь вы будете получать важные уведомления от старосты.", parse_mode="HTML", reply_markup=get_submenu_keyboard())
+    await show_subscription_time_menu(c.message, user_id=str(c.from_user.id))
+    await c.answer()
 
 async def display_day_schedule(message: Message | CallbackQuery, state: FSMContext, target_date: date):   
     data = await state.get_data()
     t_val, t_type = data.get("target_value"), data.get("target_type")
     chat_id = message.chat.id if isinstance(message, Message) else message.message.chat.id
-    today = datetime.now().date()
+    today = datetime.now(YEKATERINBURG_TZ).date()
     wo = ((target_date - timedelta(days=target_date.weekday())) - (today - timedelta(days=today.weekday()))).days // 7
+
+    if wo not in (0, 1):
+        if isinstance(message, CallbackQuery):
+            await message.answer("Доступны текущая и следующая недели.", show_alert=True)
+        return
 
     async with loading_animation(chat_id):
         week_s = await sm.fetch_schedule(wo, t_type, t_val)
@@ -1285,7 +990,7 @@ async def display_day_schedule(message: Message | CallbackQuery, state: FSMConte
     if is_error:
         text = "⚠️ <b>Ошибка загрузки.</b>\nУниверситетский сайт не ответил вовремя или произошла ошибка парсинга. Попробуйте еще раз."
     else:
-        text = await fmt_day(target_date, day_lessons, t_type, t_val if t_type == "group" else "")
+        text = await fmt_day(target_date, day_lessons, t_val)
 
     kb = get_day_pagination_kb(target_date)
 
@@ -1306,14 +1011,14 @@ async def cb_day_nav(c: CallbackQuery, state: FSMContext):
 @dp.message(F.text.in_({"📅 Сегодня", "📆 Завтра"}), ScheduleStates.viewing)
 async def handle_days(m: Message, state: FSMContext):
     offset = 1 if m.text == "📆 Завтра" else 0       
-    await display_day_schedule(m, state, datetime.now().date() + timedelta(days=offset))
+    await display_day_schedule(m, state, datetime.now(YEKATERINBURG_TZ).date() + timedelta(days=offset))
 
 @dp.message(F.text.in_({"🗓 Эта неделя", "➡️ След. неделя"}), ScheduleStates.viewing)
 async def handle_weeks(m: Message, state: FSMContext):
     data, wo = await state.get_data(), 1 if m.text == "➡️ След. неделя" else 0
     async with loading_animation(m.chat.id):
         s = await sm.fetch_schedule(wo, data.get("target_type"), data.get("target_value"))
-    text = await fmt_week(s, data.get("target_type"), data.get("target_value") if data.get("target_type") == "group" else "") # type: ignore      
+    text = await fmt_week(s, data.get("target_value", "")) # type: ignore
     
     messages = []
     current_msg = ""
@@ -1335,7 +1040,10 @@ async def handle_weeks(m: Message, state: FSMContext):
         await m.answer(msg, parse_mode="HTML")
 
 async def clear_chat_history(chat_id: int, exclude_ids: list = None):
-    exclude_ids = exclude_ids or []
+    exclude_ids = list(exclude_ids or [])
+    launcher = await dao.get(f"miniapp_launcher:{chat_id}")
+    if launcher:
+        exclude_ids.append(int(launcher))
     ids = list(set(await dao.smembers(f"msg_history:{chat_id}")))
     ids = [int(x) for x in ids if int(x) not in exclude_ids]
     for i in range(0, len(ids), 100):
@@ -1356,40 +1064,21 @@ async def clear(m: Message, state: FSMContext):
 
 @dp.callback_query(F.data == "cancel_menu")
 async def cb_cancel_menu(c: CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    tt = data.get("target_type")
     await state.clear()
     try: await c.message.delete()
     except: pass
-    
-    if tt == "group":
-        await show_courses_menu(c.message)
-    elif tt == "teacher":
-        await show_filter_menu(c.message, explicit_type="teacher")
-    elif tt == "classroom":
-        await show_filter_menu(c.message, explicit_type="classroom")
-    else:
-        await c.message.answer("🔙 Главное меню", reply_markup=get_main_menu())
+    await c.message.answer("🔙 Главное меню", reply_markup=get_main_menu())
     try: await c.answer()
     except: pass
 
 @dp.message(F.text.in_({"🔄 Сбросить", "🔙 Назад"}))
 async def reset(m: Message, state: FSMContext):
-    data = await state.get_data()
-    tt = data.get("target_type")
     await state.clear()
     msg = await m.answer("🔙 Возвращаюсь...", reply_markup=get_main_menu())
     await clear_chat_history(m.chat.id, exclude_ids=[msg.message_id])
-    
-    if tt == "group":
-        await show_courses_menu(m)
-    elif tt == "teacher":
-        await show_filter_menu(m, explicit_type="teacher")
-
 
 
 async def run_morning_broadcast(target_time: str = None):
-    tz = timezone(timedelta(hours=5))
     try:
         subs = await dao.hgetall("user_subs")
         user_mornings = await dao.hgetall("user_morning_time")
@@ -1403,7 +1092,7 @@ async def run_morning_broadcast(target_time: str = None):
                 continue
             groups_to_users[gid].append(uid)
         
-        today = datetime.now(tz).date()
+        today = datetime.now(YEKATERINBURG_TZ).date()
         wo = 0
         
         count = 0
@@ -1417,7 +1106,7 @@ async def run_morning_broadcast(target_time: str = None):
                 continue
             
             text = f"{get_greeting()} <b>Расписание на сегодня:</b>\n\n"
-            text += await fmt_day(today, day_lessons, "group", gid)
+            text += await fmt_day(today, day_lessons, gid)
             
             for uid in uids:
                 try:
@@ -1430,7 +1119,6 @@ async def run_morning_broadcast(target_time: str = None):
     except Exception as e:
         logger.error(f"Scheduler failed: {e}")
         return 0
-
 
 
 async def notify_on_startup():
@@ -1472,11 +1160,38 @@ async def notify_on_shutdown():
     except Exception as e:
         logger.error(f"Notify on shutdown failed: {e}")
 
+
+async def configure_mini_app_menu_button(chat_id: int | None = None):
+    """Synchronize Telegram's persistent Mini App button with WEBAPP_URL."""
+    if not WEBAPP_URL.startswith("https://"):
+        logger.warning("Mini App menu button was not configured: WEBAPP_URL must use HTTPS")
+        return
+    try:
+        if chat_id is not None:
+            # A per-chat WebApp button keeps its old URL forever. Reset it so the
+            # chat always inherits the current global Mini App button instead.
+            await bot.set_chat_menu_button(
+                chat_id=chat_id,
+                menu_button=MenuButtonDefault(),
+            )
+            return
+
+        web_app_url = f"{WEBAPP_URL.rstrip('/')}/webapp"
+        await bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(
+                text="Mini App",
+                web_app=WebAppInfo(url=web_app_url),
+            )
+        )
+        logger.info("Telegram Mini App menu button configured for %s", web_app_url)
+    except Exception as error:
+        logger.error("Failed to configure Telegram Mini App menu button: %s", error)
 async def admin_command_listener():
     logger.info("🤖 Admin command listener started.")
     while True:
         try:
-            cmd_data = await dao.blpop("admin_bot_commands", timeout=5)
+            # Keep the blocking wait below redis-py's 5-second socket timeout.
+            cmd_data = await dao.blpop("admin_bot_commands", timeout=4)
             if cmd_data:
                 payload = json.loads(cmd_data[1])
                 command = payload.get("command")
@@ -1508,13 +1223,12 @@ async def admin_command_listener():
                 elif command == "test_schedule_broadcast":
                     try:
                         await bot.send_message(admin_id, "⏳ <b>Формирую тестовую рассылку для вас...</b>", parse_mode="HTML")
-                        tz = timezone(timedelta(hours=5))
                         subs = await dao.hgetall("user_subs")
                         admin_gid = subs.get(str(admin_id))
                         if not admin_gid:
                             await bot.send_message(admin_id, "❌ Вы не подписаны на утреннюю рассылку. Перейдите в меню 'Моя подписка' в боте и подпишитесь.")
                         else:
-                            today = datetime.now(tz).date()
+                            today = datetime.now(YEKATERINBURG_TZ).date()
                             week_s = await sm.fetch_schedule(0, "group", admin_gid)
                             day_name = DAYS_OF_WEEK[today.weekday()]
                             day_lessons = week_s.get(day_name, [])
@@ -1524,7 +1238,7 @@ async def admin_command_listener():
                                 await bot.send_message(admin_id, f"❌ Ошибка получения расписания: {error_msg}")
                             else:
                                 text = f"🧪 <b>ТЕСТ УТРЕННЕЙ РАССЫЛКИ</b>\n\n{get_greeting()} <b>Расписание на сегодня:</b>\n\n"
-                                text += await fmt_day(today, day_lessons, "group", admin_gid)
+                                text += await fmt_day(today, day_lessons, admin_gid)
                                 await bot.send_message(admin_id, text, parse_mode="HTML")
                     except Exception as e:
                         logger.error(f"Test schedule broadcast failed: {e}")
@@ -1535,17 +1249,15 @@ async def admin_command_listener():
                     try:
                         await bot.send_message(admin_id, "⏳ <b>Добавляю все расписания в очередь парсеров...</b>", parse_mode="HTML")
                         count = 0
-                        data_dbs = [("group", await get_groups_db()), ("teacher", await get_teachers_db()), ("classroom", await get_classrooms_db())]
-                        for t_type, db in data_dbs:
-                            for name, tid in db.items():
-                                for wo in [0, 1]:
-                                    job = {
-                                        "week_offset": wo,
-                                        "target_type": t_type,
-                                        "target_value": name
-                                    }
-                                    await dao.rpush("schedule_jobs", json.dumps(job))
-                                    count += 1
+                        for name in (await get_groups_db()).keys():
+                            for wo in [0, 1]:
+                                job = {
+                                    "week_offset": wo,
+                                    "target_type": "group",
+                                    "target_value": name
+                                }
+                                await dao.rpush("schedule_jobs", json.dumps(job))
+                                count += 1
                         await bot.send_message(admin_id, f"✅ <b>Отправлено в очередь: {count}</b>\nВоркеры в фоновом режиме загрузят расписания в кэш! (Около 2 минут)", parse_mode="HTML")
                         
                         async def notify_preload_done(target_admin_id: int):
@@ -1570,7 +1282,9 @@ async def admin_command_listener():
 
 async def main():
     await db_manager.init_db()
-    if PROXY_URL: logger.info(f"🌐 Используется прокси: {PROXY_URL}")
+    await migrate_group_preferences(dao, db_manager)
+    await configure_mini_app_menu_button()
+    if PROXY_URL: logger.info("🌐 Для Telegram включён прокси")
     dp.startup.register(notify_on_startup)
     dp.shutdown.register(notify_on_shutdown)
     asyncio.create_task(main_scheduler())
@@ -1597,7 +1311,8 @@ async def show_starosta_dashboard(m_or_c, user_id):
          InlineKeyboardButton(text="🔑 Изменить пароль", callback_data="st_dash:pass")],
         [InlineKeyboardButton(text="❌ Выйти", callback_data="cancel_menu")]
     ])
-    text = f"🎓 <b>Панель старосты</b>\n\n👤 Сохраненное имя: <b>{name}</b>\n🏫 Ваша группа: <b>{group or 'Не выбрана'}</b>\n\nВыберите действие:"
+    kb.inline_keyboard.insert(0, [InlineKeyboardButton(text="Открыть удобную панель ↗", web_app=WebAppInfo(url=f"{WEBAPP_URL.rstrip('/')}/webapp?tab=profile&panel=starosta"))])
+    text = f"🎓 <b>Панель старосты</b>\n\n👤 <b>{name or 'Староста'}</b>\n🏫 Ваша группа: <b>{group or 'Не выбрана'}</b>\n\nОбъявления и афиша — в приложении.\nОпросы и домашние задания — кнопками ниже:"
     
     if isinstance(m_or_c, CallbackQuery):
         await m_or_c.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
@@ -1622,7 +1337,7 @@ async def starost_password(m: Message, state: FSMContext):
         await state.clear()
         await show_starosta_dashboard(m, uid)
 
-@dp.callback_query(F.data.startswith("st_dash:"))
+@dp.callback_query(F.data.in_({"st_dash:name", "st_dash:pass", "st_dash:broadcast_all", "st_dash:broadcast", "st_dash:change_group", "st_dash:back"}))
 async def starost_dash_action(c: CallbackQuery, state: FSMContext):
     action = c.data.split(":")[1]
     if action == "name":
@@ -1644,23 +1359,19 @@ async def starost_dash_action(c: CallbackQuery, state: FSMContext):
             action = "change_group" # fallback
             
     if action == "change_group":
-        courses = set()
-        groups_db = await get_groups_db()
-        for grp in groups_db.keys():
-            parts = grp.split('-')
-            if len(parts) > 1 and len(parts[1]) >= 2:
-                year = parts[1][:2]
-                courses.add(year)
-                
-        courses = sorted(list(courses), reverse=True)
-        kb_rows = []
-        for i, year in enumerate(courses):
-            kb_rows.append([InlineKeyboardButton(text=f"{i+1} курс (набор 20{year})", callback_data=f"st_course:{year}")])
+        group_names = get_group_names()
+        kb_rows = [
+            [
+                InlineKeyboardButton(text=group_name, callback_data=f"st_group_name:{group_name}")
+                for group_name in group_names[index:index + 2]
+            ]
+            for index in range(0, len(group_names), 2)
+        ]
         kb_rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="st_dash:back")])
         
         kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
-        await c.message.edit_text("📚 Выберите ваш курс:", reply_markup=kb, parse_mode="HTML")
-        await state.set_state(StarostStates.waiting_for_course)
+        await c.message.edit_text("📚 Выберите название группы:", reply_markup=kb, parse_mode="HTML")
+        await state.set_state(StarostStates.waiting_for_group_name)
     elif action == "back":
         await state.clear()
         await show_starosta_dashboard(c, str(c.from_user.id))
@@ -1679,12 +1390,11 @@ async def starost_name(m: Message, state: FSMContext):
     await state.clear()
     await show_starosta_dashboard(m, str(m.from_user.id))
 
-@dp.callback_query(F.data.startswith("st_course:"), StarostStates.waiting_for_course)
-async def starost_course(c: CallbackQuery, state: FSMContext):
-    year = c.data.split(":")[1]
-    
-    groups_db = await get_groups_db()
-    groups = [g for g in groups_db.keys() if len(g.split('-')) > 1 and g.split('-')[1].startswith(year)]
+@dp.callback_query(F.data.startswith("st_group_name:"), StarostStates.waiting_for_group_name)
+async def starost_group_name(c: CallbackQuery, state: FSMContext):
+    selected_name = c.data.split(":", maxsplit=1)[1].casefold()
+    groups = [group for group in GROUPS_DB if get_group_name(group).casefold() == selected_name]
+    groups.sort(key=lambda group: (-int(re.search(r"\d+", group).group()), group.casefold()))
     
     kb_rows = []
     for i in range(0, len(groups), 2):
@@ -1693,7 +1403,7 @@ async def starost_course(c: CallbackQuery, state: FSMContext):
     kb_rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="st_dash:back")])
     
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
-    await c.message.edit_text(f"🏫 Выберите вашу группу (набор 20{year}):", reply_markup=kb)
+    await c.message.edit_text("🏫 Выберите вашу группу:", reply_markup=kb)
     await state.set_state(StarostStates.waiting_for_group)
 
 @dp.callback_query(F.data.startswith("st_group:"), StarostStates.waiting_for_group)
@@ -1764,35 +1474,6 @@ async def starost_broadcast_all(m: Message, state: FSMContext):
             
     await m.answer(f"✅ <b>Глобальная рассылка завершена!</b>\nУспешно доставлено: <b>{success} из {len(target_users)}</b>.", parse_mode="HTML")
     await show_starosta_dashboard(m, str(m.from_user.id))
-
-@dp.message(UserStates.waiting_for_teacher_search)
-@dp.message(UserStates.waiting_for_classroom_search)
-async def handle_search_input(m: Message, state: FSMContext):
-    curr_state = await state.get_state()
-    t_type = "teacher" if curr_state == UserStates.waiting_for_teacher_search.state else "classroom"
-    search_q = m.text.strip().lower()
-    
-    db = await get_teachers_db() if t_type == "teacher" else await get_classrooms_db()
-    matches = [(name, idx) for idx, name in enumerate(db.keys()) if search_q in name.lower()]
-    
-    if not matches:
-        await m.answer("😔 Ничего не найдено. Пожалуйста, попробуйте ввести другой запрос:", 
-                       reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_menu")]]))
-        return
-        
-    if len(matches) == 1:
-        name, idx = matches[0]
-        await state.set_state(ScheduleStates.viewing)
-        await state.update_data(target_type=t_type, target_value=name)
-        await m.answer(f"✅ Выбрано: <b>{name}</b>", parse_mode="HTML", reply_markup=get_main_menu(name))
-        await display_day_schedule(m, state, datetime.now().date())
-        return
-        
-    btns = []
-    for name, idx in matches[:40]:
-        btns.append([InlineKeyboardButton(text=name, callback_data=f"fsel:{t_type}:{idx}")])
-    btns.append([InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_menu")])
-    await m.answer("👇 Выберите подходящий вариант:", reply_markup=InlineKeyboardMarkup(inline_keyboard=btns))
 
 @dp.callback_query(F.data == "ical:export")
 async def cb_ical_export(c: CallbackQuery, state: FSMContext):
@@ -1892,9 +1573,8 @@ async def cb_ical_export(c: CallbackQuery, state: FSMContext):
 async def add_to_favorites(m: Message, state: FSMContext):
     data = await state.get_data()
     t_val = data.get("target_value")
-    t_type = data.get("target_type")
-    if t_val and t_type:
-        await dao.sadd(f"favs:{m.from_user.id}", f"{t_type}:{t_val}")
+    if t_val:
+        await dao.sadd(f"favs:{m.from_user.id}", f"group:{t_val}")
         await m.answer(f"⭐ <b>{t_val}</b> успешно добавлено в избранное!", parse_mode="HTML")
     else:
         await m.answer("❌ Не удалось определить активное расписание для сохранения.")
@@ -1903,39 +1583,37 @@ async def add_to_favorites(m: Message, state: FSMContext):
 async def show_favorites(m: Message):
     msg = await m.answer("⭐ Открываю избранное...", reply_markup=get_submenu_keyboard())
     await clear_chat_history(m.chat.id, exclude_ids=[msg.message_id])
-    favs = list(await dao.smembers(f"favs:{m.from_user.id}"))
+    favs = [favorite for favorite in await dao.smembers(f"favs:{m.from_user.id}") if favorite.startswith("group:")]
     if not favs:
         await m.answer("⭐ <b>Избранное</b>\n\nУ вас пока нет сохраненных расписаний.\nЧтобы добавить расписание в избранное, откройте его и нажмите кнопку <b>«⭐ В избранное»</b>.", parse_mode="HTML")
         return
     btns = []
     for f in favs:
-        t_type, t_val = f.split(":", 1)
-        prefix = "🎓" if t_type == "group" else ("👩‍🏫" if t_type == "teacher" else "🏫")
-        btns.append([InlineKeyboardButton(text=f"{prefix} {t_val}", callback_data=f"fav_select:{t_type}:{t_val}")])
+        _, t_val = f.split(":", 1)
+        btns.append([InlineKeyboardButton(text=f"🎓 {t_val}", callback_data=f"fav_select:group:{t_val}")])
     btns.append([InlineKeyboardButton(text="⚙️ Управление избранным", callback_data="fav_manage")])
     await m.answer("⭐ <b>Ваши избранные расписания:</b>", reply_markup=InlineKeyboardMarkup(inline_keyboard=btns), parse_mode="HTML")
 
-@dp.callback_query(F.data.startswith("fav_select:"))
+@dp.callback_query(F.data.startswith("fav_select:group:"))
 async def cb_fav_select(c: CallbackQuery, state: FSMContext):
     await c.message.delete()
-    _, t_type, t_val = c.data.split(":", 2)
+    _, _, t_val = c.data.split(":", 2)
     await state.set_state(ScheduleStates.viewing)
-    await state.update_data(target_type=t_type, target_value=t_val)
+    await state.update_data(target_type="group", target_value=t_val)
     await c.message.answer(f"✅ Фильтр из избранного: <b>{t_val}</b>", parse_mode="HTML", reply_markup=get_main_menu(t_val))
-    await display_day_schedule(c.message, state, datetime.now().date())
+    await display_day_schedule(c.message, state, datetime.now(YEKATERINBURG_TZ).date())
     await c.answer()
 
 @dp.callback_query(F.data == "fav_manage")
 async def cb_fav_manage(c: CallbackQuery):
-    favs = list(await dao.smembers(f"favs:{c.from_user.id}"))
+    favs = [favorite for favorite in await dao.smembers(f"favs:{c.from_user.id}") if favorite.startswith("group:")]
     if not favs:
         await c.message.edit_text("Список избранного пуст.")
         return
     btns = []
     for f in favs:
-        t_type, t_val = f.split(":", 1)
-        prefix = "🎓" if t_type == "group" else ("👩‍🏫" if t_type == "teacher" else "🏫")
-        btns.append([InlineKeyboardButton(text=f"❌ {prefix} {t_val}", callback_data=f"fav_del:{t_type}:{t_val}")])
+        _, t_val = f.split(":", 1)
+        btns.append([InlineKeyboardButton(text=f"❌ 🎓 {t_val}", callback_data=f"fav_del:group:{t_val}")])
     btns.append([InlineKeyboardButton(text="🔙 Назад", callback_data="fav_back_to_list")])
     await c.message.edit_text("Выберите элемент для удаления:", reply_markup=InlineKeyboardMarkup(inline_keyboard=btns))
     await c.answer()
@@ -1946,7 +1624,7 @@ async def cb_fav_back_to_list(c: CallbackQuery):
     await show_favorites(c.message)
     await c.answer()
 
-@dp.callback_query(F.data.startswith("fav_del:"))
+@dp.callback_query(F.data.startswith("fav_del:group:"))
 async def cb_fav_del(c: CallbackQuery):
     _, t_type, t_val = c.data.split(":", 2)
     await dao.srem(f"favs:{c.from_user.id}", f"{t_type}:{t_val}")
@@ -1954,7 +1632,7 @@ async def cb_fav_del(c: CallbackQuery):
     await cb_fav_manage(c)
 
 # Handle starosta HW clicks
-@dp.callback_query(F.data.startswith("st_dash:"))
+@dp.callback_query(F.data.in_({"st_dash:add_hw", "st_dash:del_hw"}))
 async def cb_st_dash_homework(c: CallbackQuery, state: FSMContext):
     action = c.data.split(":")[1]
     uid = str(c.from_user.id)
@@ -2050,33 +1728,47 @@ async def cb_st_hw_del(c: CallbackQuery, state: FSMContext):
     await show_starosta_dashboard(c, uid)
 
 # ═══════════════════ ИИ-АССИСТЕНТ ═══════════════════
-FREE_MODELS = [
-    "nemotron-3-ultra-free",
-    "laguna-xs-2-free",
-    "qwen3-next-free",
-    "gpt-oss-free",
-    "llama-3.3-free"
-]
+MODEL_PAGE_SIZE = 8
 
-PREMIUM_MODELS = [
-    "kimi-k2.7-code",
-    "claude-opus-4.8",
-    "gpt-4",
-    "gpt-5.5"
-]
+
+async def ensure_current_chat_model(uid: int, user_row: dict | None) -> str:
+    """Replace deleted/legacy models with an available free chat model."""
+    models = await get_chat_models()
+    available_ids = {model["id"] for model in models}
+    model = normalize_model_id(user_row["ai_model"] if user_row else None)
+    if model not in available_ids:
+        model = models[0]["id"]
+    if user_row and model != user_row.get("ai_model"):
+        await db_manager.set_user_ai_model(uid, model)
+    return model
+
+
+async def clear_ai_ui_messages(chat_id: int, exclude_ids: list[int] | None = None):
+    """Remove the bot's previous AI panels before displaying a new one."""
+    exclude_ids = exclude_ids or []
+    ids = [int(message_id) for message_id in await dao.smembers(f"ai_ui_messages:{chat_id}") if int(message_id) not in exclude_ids]
+    for message_id in ids:
+        try:
+            await bot.delete_message(chat_id, message_id)
+        except Exception:
+            # Telegram cannot delete some historical messages (for example,
+            # after its deletion window); do not prevent opening the new UI.
+            pass
+    await dao.delete(f"ai_ui_messages:{chat_id}")
+    for message_id in exclude_ids:
+        await remember_ai_ui_message(chat_id, message_id)
+
+
+async def remember_ai_ui_message(chat_id: int, message_id: int):
+    key = f"ai_ui_messages:{chat_id}"
+    await dao.sadd(key, message_id)
+    await dao.expire(key, MSG_STORE_LIMIT)
 
 async def get_active_user_row(uid: int):
     user_row = await db_manager.get_user(uid)
     if not user_row:
         return None
         
-    ai_expires_at = user_row.get('ai_expires_at')
-    if ai_expires_at and ai_expires_at < datetime.now():
-        await db_manager.set_user_ai_key(uid, None)
-        async with db_manager.pool.acquire() as conn:
-            await conn.execute("UPDATE users SET ai_balance = 0 WHERE telegram_id = $1", uid)
-        user_row = await db_manager.get_user(uid)
-        logger.info(f"Cleared expired key and balance for user {uid}")
         
     return user_row
 
@@ -2084,8 +1776,13 @@ async def get_active_user_row(uid: int):
 @dp.message(Command("ai"))
 async def ai_menu(m: Message, state: FSMContext):
     await state.clear()
-    msg = await m.answer("🤖 Открываю панель ИИ...", reply_markup=get_submenu_keyboard())
-    await clear_chat_history(m.chat.id, exclude_ids=[msg.message_id])
+    await configure_mini_app_menu_button(m.chat.id)
+    await clear_ai_ui_messages(m.chat.id)
+    navigation_message = await m.answer(
+        "🤖 Панель ИИ открыта. Для выхода используйте «🔙 Назад» в нижней панели.",
+        reply_markup=get_submenu_keyboard(),
+    )
+    await clear_chat_history(m.chat.id, exclude_ids=[navigation_message.message_id])
     uid = m.from_user.id
     user_row = await get_active_user_row(uid)
     
@@ -2093,50 +1790,33 @@ async def ai_menu(m: Message, state: FSMContext):
         await db_manager.register_or_update_user(uid, m.from_user.username)
         user_row = await get_active_user_row(uid)
         
-    model = user_row['ai_model'] if user_row else 'gpt-4o-mini'
-    has_key = bool(user_row['custom_ai_key']) if user_row else False
-    
+    model = await ensure_current_chat_model(int(uid), user_row)
 
-    ai_balance = user_row['ai_balance'] if user_row else 0
-    key_status = "✅ Установлен" if has_key else "❌ Не установлен"
-    
+
     text = (
         "🤖 <b>Панель ИИ-Ассистента</b>\n\n"
         f"🧠 Выбранная модель: <code>{model}</code>\n"
-        f"💳 Баланс ИИ-запросов (OpenRouter): <b>{ai_balance}</b>"
+        "Бесплатные и недорогие модели · текст и фото"
     )
     
-    is_free = model in FREE_MODELS
-    is_programmatic = has_key and bool(user_row.get('ai_expires_at')) if user_row else False
-    has_real_key = has_key and not is_programmatic
-    can_chat = has_real_key or (ai_balance > 0) or is_free
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💬 Начать диалог", callback_data="ai:chat") if can_chat else
-         InlineKeyboardButton(text="💬 Начать диалог (нужен ключ/баланс)", callback_data="ai:need_key")],
+        [InlineKeyboardButton(text="🚀 Чат в Mini App", web_app=WebAppInfo(url=f"{WEBAPP_URL}/webapp?tab=chat"))],
+        [InlineKeyboardButton(text="💬 Начать диалог", callback_data="ai:chat")],
         [InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model")],
         [InlineKeyboardButton(text="🧹 Очистить контекст", callback_data="ai:clear_context")]
     ])
-    await m.answer(text, reply_markup=kb, parse_mode="HTML")
+    panel_message = await m.answer(text, reply_markup=kb, parse_mode="HTML")
+    await remember_ai_ui_message(m.chat.id, panel_message.message_id)
 
 @dp.callback_query(F.data == "ai:chat")
 async def cb_ai_chat(c: CallbackQuery, state: FSMContext):
     uid = c.from_user.id
     user_row = await get_active_user_row(uid)
     has_key = bool(user_row['custom_ai_key']) if user_row else False
-    ai_balance = user_row['ai_balance'] if user_row else 0
-    model = user_row['ai_model'] if user_row else 'gpt-4o-mini'
-    
-    is_free = model in FREE_MODELS
-    
+    model = await ensure_current_chat_model(uid, user_row)
 
-    is_programmatic = has_key and bool(user_row.get('ai_expires_at')) if user_row else False
-    has_real_key = has_key and not is_programmatic
-    
-    if not has_real_key and ai_balance <= 0 and not is_free:
-        await c.answer("⚠️ У вас нет личного ключа и баланс запросов равен 0!", show_alert=True)
-        return
-        
+
     await state.set_state(UserStates.waiting_for_ai_prompt)
     await state.update_data(
         ai_key=user_row['custom_ai_key'] if has_key else None,
@@ -2154,9 +1834,6 @@ async def cb_ai_chat(c: CallbackQuery, state: FSMContext):
     await c.message.delete()
     await c.answer()
 
-@dp.callback_query(F.data == "ai:need_key")
-async def cb_ai_need_key(c: CallbackQuery):
-    await c.answer("⚠️ У вас нет личного ключа и ваш баланс ИИ равен 0. Пожалуйста, пополните баланс!", show_alert=True)
 
 def format_ai_response_to_html(text: str) -> str:
     import html
@@ -2188,71 +1865,41 @@ async def ai_chat_message(m: Message, state: FSMContext):
         
     data = await state.get_data()
     api_key = data.get("ai_key")
-    model_name = data.get("ai_model", "gpt-4o-mini")
+    model_name = data.get("ai_model", "openrouter/free")
     uid = m.from_user.id
     
     user_row = await get_active_user_row(uid)
     has_custom_key = bool(api_key)
-    is_programmatic_key = has_custom_key and bool(user_row.get('ai_expires_at')) if user_row else False
-    is_free = model_name in FREE_MODELS
-    is_premium = model_name in PREMIUM_MODELS
+    model_name = await ensure_current_chat_model(uid, user_row)
+    await state.update_data(ai_model=model_name)
     
     prompt = ""
     image_data_b64 = None
-    transcription_msg = None
     
     if m.text:
         prompt = m.text
-    elif m.voice:
-        transcription_msg = await m.answer("🗣 <b>Распознаю вашу речь...</b>", parse_mode="HTML")
-        try:
-            voice_file = await bot.get_file(m.voice.file_id)
-            file_bytes = io.BytesIO()
-            await bot.download(voice_file, destination=file_bytes)
-            audio_data = file_bytes.getvalue()
-            
-            prompt = await transcribe_audio(audio_data, "ogg", api_key if (has_custom_key and not is_programmatic_key) else None)
-            if not prompt or not prompt.strip():
-                await transcription_msg.edit_text("❌ <b>Не удалось распознать речь.</b> Попробуйте говорить чётче или отправьте текстовое сообщение.", parse_mode="HTML")
-                return
-                
-            await transcription_msg.edit_text(f"🗣 <b>Распознанный текст:</b>\n«<i>{prompt}</i>»\n\n⏳ <i>Запрос отправлен ИИ...</i>", parse_mode="HTML")
-        except Exception as e:
-            logger.error(f"Voice transcription failed: {e}")
-            await transcription_msg.edit_text(f"❌ <b>Ошибка распознавания речи:</b>\n<code>{str(e)}</code>", parse_mode="HTML")
-            return
     elif m.photo:
-        prompt = m.caption or ""
-        try:
-            import base64
-            photo_file = await bot.get_file(m.photo[-1].file_id)
-            file_bytes = io.BytesIO()
-            await bot.download(photo_file, destination=file_bytes)
-            image_data_b64 = base64.b64encode(file_bytes.getvalue()).decode("utf-8")
-        except Exception as e:
-            logger.error(f"Downloading photo failed: {e}")
-            await m.answer(f"❌ <b>Ошибка загрузки фотографии:</b>\n<code>{str(e)}</code>", parse_mode="HTML")
+        metadata = next((model for model in await get_chat_models() if model["id"] == model_name), None)
+        if not metadata or not metadata["supports_images"]:
+            await m.answer("Для фото выберите модель в разделе «📷 Фото».", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📷 Выбрать модель для фото", callback_data="ai_model_filter:photo")]
+            ]))
             return
+        if (m.photo[-1].file_size or 0) > 5 * 1024 * 1024:
+            await m.answer("Фото слишком большое. Максимум — 5 МБ.")
+            return
+        photo_bytes = io.BytesIO()
+        await bot.download(m.photo[-1], destination=photo_bytes)
+        try:
+            image_data_b64 = await asyncio.to_thread(normalize_chat_image, base64.b64encode(photo_bytes.getvalue()).decode("ascii"))
+        except ValueError as error:
+            await m.answer(str(error))
+            return
+        prompt = m.caption or "Разбери изображение и помоги с заданием."
     else:
-        await m.answer("⚠️ <b>Бот принимает только текстовые сообщения, голосовые сообщения или фотографии.</b>", parse_mode="HTML")
+        await m.answer("⚠️ <b>Бот принимает только текстовые сообщения или фотографии.</b>", parse_mode="HTML")
         return
 
-    if (not has_custom_key or is_programmatic_key) and not is_free:
-        balance = await db_manager.check_user_ai_balance(uid)
-        required_balance = 4 if is_premium else 1
-        if balance < required_balance:
-            await state.clear()
-            await m.answer(
-                f"❌ <b>Недостаточно запросов!</b>\n"
-                f"Для использования этой модели требуется минимум <b>{required_balance}</b> 💳 (ваш баланс: <b>{balance}</b>).\n"
-                f"Чат завершен. Пожалуйста, пополните баланс.",
-                reply_markup=get_main_menu(),
-                parse_mode="HTML"
-            )
-            if transcription_msg:
-                try: await transcription_msg.delete()
-                except Exception: pass
-            return
             
     history_key = f"ai_history:{uid}"
     history = []
@@ -2267,7 +1914,7 @@ async def ai_chat_message(m: Message, state: FSMContext):
         try:
             response_text = await get_ai_response(
                 prompt=prompt,
-                api_key=api_key if (has_custom_key and not is_programmatic_key) else None,
+                api_key=api_key,
                 model_name=model_name,
                 history=history,
                 image_data_b64=image_data_b64
@@ -2283,15 +1930,6 @@ async def ai_chat_message(m: Message, state: FSMContext):
             clean_response = response_text
             formatted_response = format_ai_response_to_html(clean_response)
             
-            if not has_custom_key or is_programmatic_key:
-                if not is_free:
-                    deduct_amount = 4 if is_premium else 1
-                    async with db_manager.pool.acquire() as conn:
-                        await conn.execute("UPDATE users SET ai_balance = GREATEST(0, ai_balance - $2) WHERE telegram_id = $1", uid, deduct_amount)
-                    new_bal = await db_manager.check_user_ai_balance(uid)
-                    formatted_response += f"\n\n<i>(Осталось запросов: {new_bal} 💳)</i>"
-                else:
-                    formatted_response += f"\n\n<i>(🆓 Бесплатный запрос)</i>"
             
             if image_data_b64:
                 history_content = [
@@ -2312,9 +1950,6 @@ async def ai_chat_message(m: Message, state: FSMContext):
             
             await dao.setex(history_key, 3600, json.dumps(history, ensure_ascii=False))
             
-            if transcription_msg:
-                try: await transcription_msg.delete()
-                except Exception: pass
                 
             if len(formatted_response) > 4096:
                 for chunk in [formatted_response[i:i+4000] for i in range(0, len(formatted_response), 4000)]:
@@ -2323,9 +1958,6 @@ async def ai_chat_message(m: Message, state: FSMContext):
                 await m.answer(formatted_response, parse_mode="HTML")
                 
         except Exception as e:
-            if transcription_msg:
-                try: await transcription_msg.delete()
-                except Exception: pass
                 
             logger.error(f"AI response failed: {e}")
             err_msg = str(e).lower()
@@ -2341,15 +1973,15 @@ async def ai_chat_message(m: Message, state: FSMContext):
             elif is_vision_unsupported:
                 await m.answer(
                     "❌ <b>Выбранная модель ИИ не поддерживает анализ изображений (Vision).</b>\n\n"
-                    "Пожалуйста, выберите мультимодальную модель (например, <b>GPT-4o-mini</b>) в меню настроек ИИ.",
+                    "Выберите модель в разделе <b>«📷 Фото»</b> в настройках ИИ.",
                     parse_mode="HTML"
                 )
-            elif has_custom_key and any(x in err_msg for x in ["budget", "limit", "payment", "expired", "402", "403", "401", "unauthorized", "invalid key", "credential", "user not found"]):
+            elif has_custom_key and any(x in err_msg for x in ["401", "unauthorized", "invalid key", "invalid credential", "user not found"]):
                 await db_manager.set_user_ai_key(uid, None)
                 await state.clear()
                 await m.answer(
-                    "⚠️ <b>Ваш персональный ключ OpenRouter исчерпал баланс, истек или был удален.</b>\n\n"
-                    "Бот автоматически сбросил ключ. Пожалуйста, приобретите новый пакет запросов в меню ИИ.",
+                    "⚠️ <b>Персональный ключ OpenRouter недействителен.</b>\n\n"
+                    "Ключ сброшен. Откройте ИИ заново, чтобы использовать общий ключ бота.",
                     reply_markup=get_main_menu(),
                     parse_mode="HTML"
                 )
@@ -2366,8 +1998,7 @@ async def cb_ai_set_key(c: CallbackQuery, state: FSMContext):
     await c.message.answer(
         "🔑 <b>Установка API-ключа ИИ</b>\n\n"
         "Отправьте ваш API-ключ в ответ на это сообщение.\n"
-        "• Для <b>Google Gemini</b> ключ обычно начинается с <code>AIzaSy...</code>\n"
-        "• Для <b>OpenAI GPT</b> ключ начинается с <code>sk-...</code>\n\n"
+        "Ключ <b>OpenRouter</b> начинается с <code>sk-or-...</code>.\n\n"
         "Ваш ключ будет сохранен в базе данных.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="ai_cancel_settings")]]),
         parse_mode="HTML"
@@ -2396,45 +2027,125 @@ async def cb_ai_ignore(c: CallbackQuery):
 
 @dp.callback_query(F.data == "ai:select_model")
 async def cb_ai_select_model(c: CallbackQuery):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💎 --- СТАНДАРТНЫЕ (1 💳) ---", callback_data="ai_ignore")],
-        [InlineKeyboardButton(text="🧠 GPT-4o-mini", callback_data="ai_set_mod:gpt-4o-mini"),
-         InlineKeyboardButton(text="🔮 DeepSeek v3.2", callback_data="ai_set_mod:deepseek-v3.2")],
-        [InlineKeyboardButton(text="🤖 MiniMax M2.7", callback_data="ai_set_mod:minimax-m2.7"),
-         InlineKeyboardButton(text="🔮 GLM-5", callback_data="ai_set_mod:glm-5")],
-         
-        [InlineKeyboardButton(text="🔥 --- ПРЕМИУМ (4 💳) ---", callback_data="ai_ignore")],
-        [InlineKeyboardButton(text="🌙 Kimi K2.7 Code", callback_data="ai_set_mod:kimi-k2.7-code"),
-         InlineKeyboardButton(text="🦉 Claude Opus 4.8", callback_data="ai_set_mod:claude-opus-4.8")],
-        [InlineKeyboardButton(text="🧠 GPT-4", callback_data="ai_set_mod:gpt-4"),
-         InlineKeyboardButton(text="🧠 GPT-5.5", callback_data="ai_set_mod:gpt-5.5")],
-         
-        [InlineKeyboardButton(text="🆓 --- БЕСПЛАТНЫЕ (0 💳) ---", callback_data="ai_ignore")],
-        [InlineKeyboardButton(text="⚡ Nemotron 3 Ultra (Free)", callback_data="ai_set_mod:nemotron-3-ultra-free")],
-        [InlineKeyboardButton(text="💧 Laguna XS.2 (Free)", callback_data="ai_set_mod:laguna-xs-2-free"),
-         InlineKeyboardButton(text="🐉 Qwen 3 Next (Free)", callback_data="ai_set_mod:qwen3-next-free")],
-        [InlineKeyboardButton(text="🧠 GPT OSS 120B (Free)", callback_data="ai_set_mod:gpt-oss-free"),
-         InlineKeyboardButton(text="🦙 Llama 3.3 70B (Free)", callback_data="ai_set_mod:llama-3.3-free")],
-         
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="ai:back_to_menu")]
-    ])
-    await c.message.edit_text("⚙️ <b>Выберите модель ИИ:</b>", reply_markup=kb, parse_mode="HTML")
+    await show_openrouter_models(c)
+
+
+async def show_openrouter_models(c: CallbackQuery, page: int = 0, query: str = "", category: str = "all"):
+    models = await get_chat_models()
+    models = filter_chat_models(models, category)
+    await dao.setex(f"ai_model_filter:{c.from_user.id}", 3600, category)
+    query = query.strip().casefold()
+    if query:
+        models = [model for model in models if query in model["name"].casefold() or query in model["id"].casefold()]
+
+    await dao.setex(f"ai_model_options:{c.from_user.id}", 3600, json.dumps(models, ensure_ascii=False))
+    await dao.setex(f"ai_model_query:{c.from_user.id}", 3600, query)
+    max_page = max(0, (len(models) - 1) // MODEL_PAGE_SIZE)
+    page = min(max(page, 0), max_page)
+    chunk = models[page * MODEL_PAGE_SIZE:(page + 1) * MODEL_PAGE_SIZE]
+
+    rows = [[InlineKeyboardButton(text=("✓ " if category == key else "") + label, callback_data=f"ai_model_filter:{key}")
+             for key, label in (("all", "Все"), ("text", "Текст"), ("photo", "📷 Фото"), ("free", "Free"), ("cheap", "Недорогие"))]]
+    for offset, model in enumerate(chunk):
+        index = page * MODEL_PAGE_SIZE + offset
+        label = f"{'📷' if model['supports_images'] else '📝'} {model['name']} · {'Free' if model['is_free'] else '$'}"
+        rows.append([InlineKeyboardButton(text=label[:60], callback_data=f"ai_model_pick:{index}")])
+
+    navigation = [InlineKeyboardButton(text="🔎 Поиск", callback_data="ai:model_search")]
+    if page > 0:
+        navigation.append(InlineKeyboardButton(text="◀", callback_data=f"ai_models_page:{page - 1}"))
+    if page < max_page:
+        navigation.append(InlineKeyboardButton(text="▶", callback_data=f"ai_models_page:{page + 1}"))
+    rows.extend([navigation, [InlineKeyboardButton(text="🔙 Назад", callback_data="ai:back_to_menu")]])
+
+    title = "🔎 Результаты поиска" if query else "⚙️ Модели OpenRouter"
+    subtitle = f"Показано {page * MODEL_PAGE_SIZE + 1}–{page * MODEL_PAGE_SIZE + len(chunk)} из {len(models)}"
+    if not chunk:
+        subtitle = "По вашему запросу моделей не найдено."
+    await c.message.edit_text(
+        f"<b>{title}</b>\n\n{subtitle}\n\n📷 — текст и фотографии. 📝 — только текст.\nБесплатные и недорогие модели. Каталог обновляется из OpenRouter. Возможны лимиты провайдера.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        parse_mode="HTML",
+    )
+    await remember_ai_ui_message(c.message.chat.id, c.message.message_id)
     await c.answer()
 
-@dp.callback_query(F.data.startswith("ai_set_mod:"))
-async def cb_ai_set_model_save(c: CallbackQuery):
-    model = c.data.split(":")[1]
-    await db_manager.set_user_ai_model(c.from_user.id, model)
-    
-    # Clear context history upon model change
-    history_key = f"ai_history:{c.from_user.id}"
-    await dao.delete(history_key)
-    
-    uid = c.from_user.id
-    user_row = await get_active_user_row(uid)
-    has_key = bool(user_row['custom_ai_key']) if user_row else False
 
-    await c.answer(f"Модель изменена на {model}. Контекст очищен.")
+@dp.callback_query(F.data.startswith("ai_model_filter:"))
+async def cb_ai_model_filter(c: CallbackQuery):
+    category = c.data.rsplit(":", 1)[1]
+    if category not in {"all", "text", "photo", "free", "cheap"}:
+        await c.answer()
+        return
+    await show_openrouter_models(c, category=category)
+
+
+@dp.callback_query(F.data.startswith("ai_models_page:"))
+async def cb_ai_models_page(c: CallbackQuery):
+    try:
+        page = int(c.data.rsplit(":", 1)[1])
+        query = await dao.get(f"ai_model_query:{c.from_user.id}") or ""
+    except ValueError:
+        await c.answer("Некорректная страница", show_alert=True)
+        return
+    category = await dao.get(f"ai_model_filter:{c.from_user.id}") or "all"
+    await show_openrouter_models(c, page, query, category)
+
+
+@dp.callback_query(F.data == "ai:model_search")
+async def cb_ai_model_search(c: CallbackQuery, state: FSMContext):
+    await state.set_state(UserStates.waiting_for_model_search)
+    await c.message.edit_text(
+        "🔎 <b>Поиск модели OpenRouter</b>\n\nВведите название, разработчика или часть ID модели.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="ai:select_model")]]),
+        parse_mode="HTML",
+    )
+    await c.answer()
+
+
+@dp.message(UserStates.waiting_for_model_search)
+async def ai_model_search_input(m: Message, state: FSMContext):
+    query = (m.text or "").strip()
+    if not query:
+        await m.answer("Введите название или ID модели.")
+        return
+    await state.clear()
+    models = await get_chat_models()
+    matches = [model for model in models if query.casefold() in model["name"].casefold() or query.casefold() in model["id"].casefold()]
+    category = await dao.get(f"ai_model_filter:{m.from_user.id}") or "all"
+    matches = filter_chat_models(matches, category)
+    await dao.setex(f"ai_model_options:{m.from_user.id}", 3600, json.dumps(matches, ensure_ascii=False))
+    await dao.setex(f"ai_model_query:{m.from_user.id}", 3600, query.casefold())
+    chunk = matches[:MODEL_PAGE_SIZE]
+    rows = [[InlineKeyboardButton(text=f"{model['name']} · {model['id']}"[:60], callback_data=f"ai_model_pick:{index}")] for index, model in enumerate(chunk)]
+    navigation = [InlineKeyboardButton(text="🔎 Новый поиск", callback_data="ai:model_search")]
+    if len(matches) > MODEL_PAGE_SIZE:
+        navigation.append(InlineKeyboardButton(text="▶", callback_data="ai_models_page:1"))
+    rows.append(navigation)
+    rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="ai:select_model")])
+    text = f"🔎 <b>Результаты: {len(matches)}</b>\n\nВыберите модель:" if matches else "🔎 <b>Ничего не найдено.</b>\nПопробуйте другой запрос."
+    result_message = await m.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows), parse_mode="HTML")
+    await remember_ai_ui_message(m.chat.id, result_message.message_id)
+
+
+@dp.callback_query(F.data.startswith("ai_model_pick:"))
+async def cb_ai_set_model_save(c: CallbackQuery):
+    try:
+        index = int(c.data.rsplit(":", 1)[1])
+        options_raw = await dao.get(f"ai_model_options:{c.from_user.id}")
+        options = json.loads(options_raw) if options_raw else []
+        model = options[index]["id"]
+    except (ValueError, IndexError, KeyError, TypeError, json.JSONDecodeError):
+        await c.answer("Список моделей устарел. Откройте его ещё раз.", show_alert=True)
+        return
+
+    if not any(item["id"] == model for item in await get_chat_models()):
+        await c.answer("Модель больше недоступна. Откройте список заново.", show_alert=True)
+        return
+    await db_manager.set_user_ai_model(c.from_user.id, model)
+    await dao.delete(f"ai_history:{c.from_user.id}")
+    await clear_ai_ui_messages(c.message.chat.id, exclude_ids=[c.message.message_id])
+    await c.answer("Модель изменена. Контекст очищен.")
     await show_ai_menu_directly(c, user_id=c.from_user.id)
 
 @dp.callback_query(F.data == "ai:clear_context")
@@ -2447,7 +2158,12 @@ async def cb_ai_clear_context(c: CallbackQuery):
 @dp.callback_query(F.data == "ai:close")
 async def cb_ai_close(c: CallbackQuery, state: FSMContext):
     await state.clear()
-    await c.message.delete()
+    # Старые сообщения с inline-кнопкой не удаляем: при удалении Telegram
+    # кратко показывает системную кнопку Start до появления нижней клавиатуры.
+    try:
+        await c.message.edit_text("🔙 Главное меню")
+    except Exception:
+        pass
     await c.message.answer("🔙 Главное меню", reply_markup=get_main_menu())
     await c.answer()
 
@@ -2459,58 +2175,44 @@ async def show_ai_menu_directly(message: Message | CallbackQuery, user_id: int =
         await db_manager.register_or_update_user(int(uid), username)
         user_row = await get_active_user_row(int(uid))
         
-    model = user_row['ai_model'] if user_row else 'gpt-4o-mini'
-    has_key = bool(user_row['custom_ai_key']) if user_row else False
-    
+    model = await ensure_current_chat_model(int(uid), user_row)
 
-    ai_balance = user_row['ai_balance'] if user_row else 0
-    
+
     text = (
         "🤖 <b>Панель ИИ-Ассистента</b>\n\n"
         f"🧠 Выбранная модель: <code>{model}</code>\n"
-        f"💳 Баланс ИИ-запросов (OpenRouter): <b>{ai_balance}</b>"
+        "Бесплатные и недорогие модели · текст и фото"
     )
     
-    is_free = model in FREE_MODELS
-    is_programmatic = has_key and bool(user_row.get('ai_expires_at')) if user_row else False
-    has_real_key = has_key and not is_programmatic
-    can_chat = has_real_key or (ai_balance > 0) or is_free
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🚀 Чат в Mini App", web_app=WebAppInfo(url=f"{WEBAPP_URL}/webapp?tab=chat"))],
-        [InlineKeyboardButton(text="💬 Начать диалог", callback_data="ai:chat") if can_chat else
-         InlineKeyboardButton(text="💬 Начать диалог (нужен ключ/баланс)", callback_data="ai:need_key")],
+        [InlineKeyboardButton(text="💬 Начать диалог", callback_data="ai:chat")],
         [InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model")],
         [InlineKeyboardButton(text="🧹 Очистить контекст", callback_data="ai:clear_context")]
     ])
     if isinstance(message, CallbackQuery):
         await message.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+        await remember_ai_ui_message(message.message.chat.id, message.message.message_id)
     else:
-        await message.answer(text, reply_markup=kb, parse_mode="HTML")
+        panel_message = await message.answer(text, reply_markup=kb, parse_mode="HTML")
+        await remember_ai_ui_message(panel_message.chat.id, panel_message.message_id)
 
 
 @dp.callback_query(F.data == "ai:back_to_menu")
 async def cb_ai_back_to_menu(c: CallbackQuery):
     uid = c.from_user.id
     user_row = await get_active_user_row(uid)
-    model = user_row['ai_model'] if user_row else 'gpt-4o-mini'
-    has_key = bool(user_row['custom_ai_key']) if user_row else False
-    ai_balance = user_row['ai_balance'] if user_row else 0
-    key_status = "✅ Установлен" if has_key else "❌ Не установлен"
+    model = await ensure_current_chat_model(uid, user_row)
     
     text = (
         "🤖 <b>Панель ИИ-Ассистента</b>\n\n"
         f"🧠 Выбранная модель: <code>{model}</code>\n"
-        f"💳 Баланс ИИ-запросов (OpenRouter): <b>{ai_balance}</b>"
+        "Бесплатные и недорогие модели · текст и фото"
     )
     
-    is_free = model in FREE_MODELS
-    is_programmatic = has_key and bool(user_row.get('ai_expires_at')) if user_row else False
-    has_real_key = has_key and not is_programmatic
-    can_chat = has_real_key or (ai_balance > 0) or is_free
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🚀 Чат в Mini App", web_app=WebAppInfo(url=f"{WEBAPP_URL}/webapp?tab=chat"))],
-        [InlineKeyboardButton(text="💬 Начать диалог", callback_data="ai:chat") if can_chat else
-         InlineKeyboardButton(text="💬 Начать диалог (нужен ключ/баланс)", callback_data="ai:need_key")],
+        [InlineKeyboardButton(text="💬 Начать диалог", callback_data="ai:chat")],
         [InlineKeyboardButton(text="⚙️ Выбрать модель", callback_data="ai:select_model")],
         [InlineKeyboardButton(text="🧹 Очистить контекст", callback_data="ai:clear_context")]
     ])
@@ -2518,694 +2220,7 @@ async def cb_ai_back_to_menu(c: CallbackQuery):
     await c.answer()
 
 
-# ═══════════════════ VPN-СЕРВИС ═══════════════════
-@dp.message(F.text == "🔌 VPN-сервис")
-@dp.message(Command("vpn"))
-async def vpn_menu(m: Message, state: FSMContext):
-    await state.clear()
-    msg = await m.answer("🔌 Открываю VPN-сервис...", reply_markup=get_submenu_keyboard())
-    await clear_chat_history(m.chat.id, exclude_ids=[msg.message_id])
-    uid = m.from_user.id
-    user_row = await db_manager.get_user(uid)
-    
-    if not user_row:
-        await db_manager.register_or_update_user(uid, m.from_user.username)
-        user_row = await db_manager.get_user(uid)
-        
-    vpn_enabled = user_row['vpn_enabled'] if user_row else False
-    vpn_expires_at = user_row.get('vpn_expires_at') if user_row else None
-    if vpn_enabled and vpn_expires_at and vpn_expires_at < datetime.now():
-        vpn_enabled = False
-        
-    if vpn_enabled:
-        text = (
-            "🔌 <b>Ваша подписка на VPN активна!</b>\n\n"
-            "Вы можете скачать файл конфигурации или отсканировать QR-код для быстрого импорта в приложение WireGuard.\n\n"
-            "<b>Инструкция по настройке:</b>\n"
-            "1. Установите приложение <b>WireGuard</b> из App Store или Google Play.\n"
-            "2. Отсканируйте QR-код ниже или импортируйте файл конфигурации.\n"
-            "3. Включите соединение в приложении."
-        )
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📁 Скачать файл .conf", callback_data="vpn:get_file"),
-             InlineKeyboardButton(text="🖼 Показать QR-код", callback_data="vpn:get_qr")]
-        ])
-    else:
-        text = (
-            "🔌 <b>Собственный VPN-сервис</b>\n\n"
-            "Мы предоставляем стабильный, быстрый и безопасный доступ к зарубежным образовательным платформам и библиотекам.\n\n"
-            "Выберите вариант подписки:\n"
-            "1. <b>WireGuard VPN (отдельно)</b> — 100 ⭐ (на 30 дней)\n"
-            "2. <b>VPN + 150 Стандарт ИИ</b> — 500 ⭐ (на 30 дней)\n"
-            "3. <b>VPN + 30 Премиум ИИ (Claude, GPT, Kimi, Qwen)</b> — 600 ⭐ (на 30 дней)\n\n"
-            "<i>Все тарифы рассчитаны для обеспечения 30%+ чистой прибыли в месяц для развития бота.</i>"
-        )
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔌 VPN на 30 дней (100 ⭐)", callback_data="vpn:buy_only")],
-            [InlineKeyboardButton(text="💳 VPN + 150 Стандарт (500 ⭐)", callback_data="vpn:buy_standard")],
-            [InlineKeyboardButton(text="💳 VPN + 30 Премиум (600 ⭐)", callback_data="vpn:buy_premium")]
-        ])
-        
-    await m.answer(text, reply_markup=kb, parse_mode="HTML")
-
-@dp.callback_query(F.data == "vpn:enable")
-async def cb_vpn_enable(c: CallbackQuery):
-    uid = c.from_user.id
-    await c.message.edit_text("⏳ <b>Генерация персональных ключей и настройка сервера...</b>\nПожалуйста, подождите.", parse_mode="HTML")
-    
-    try:
-        user_row = await db_manager.get_user(uid)
-        user_db_id = user_row['id'] if user_row else 1
-        
-        config_text = await vpn_manager.generate_user_vpn_config(user_db_id)
-        await db_manager.set_user_vpn(uid, enabled=True, key=config_text)
-        
-        await c.message.delete()
-        
-        from aiogram.types import BufferedInputFile
-        file_data = BufferedInputFile(config_text.encode("utf-8"), filename=f"tu_ugmk_vpn_{uid}.conf")
-        await c.message.answer_document(
-            document=file_data,
-            caption="✅ <b>VPN успешно подключен!</b>\n\nИмпортируйте этот файл в приложение WireGuard.\nВы также можете получить QR-код для настройки через меню.",
-            parse_mode="HTML"
-        )
-        await show_vpn_menu_directly(c.message, user_id=uid)
-        
-    except Exception as e:
-        logger.error(f"VPN activation failed for {uid}: {e}")
-        await c.message.edit_text(
-            f"❌ <b>Не удалось активировать VPN:</b>\n<code>{str(e)}</code>\n\nПожалуйста, обратитесь к администратору.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")]]),
-            parse_mode="HTML"
-        )
-    await c.answer()
-
-@dp.callback_query(F.data == "vpn:get_file")
-async def cb_vpn_get_file(c: CallbackQuery):
-    uid = c.from_user.id
-    user_row = await db_manager.get_user(uid)
-    if not user_row or not user_row['vpn_enabled'] or not user_row['vpn_key']:
-        await c.answer("⚠️ У вас нет активного VPN-ключа!", show_alert=True)
-        return
-        
-    from aiogram.types import BufferedInputFile
-    config_text = user_row['vpn_key']
-    file_data = BufferedInputFile(config_text.encode("utf-8"), filename=f"tu_ugmk_vpn_{uid}.conf")
-    
-    await c.message.answer_document(
-        document=file_data,
-        caption="📁 Ваш файл конфигурации WireGuard."
-    )
-    await c.answer()
-
-@dp.callback_query(F.data == "vpn:get_qr")
-async def cb_vpn_get_qr(c: CallbackQuery):
-    uid = c.from_user.id
-    user_row = await db_manager.get_user(uid)
-    if not user_row or not user_row['vpn_enabled'] or not user_row['vpn_key']:
-        await c.answer("⚠️ У вас нет активного VPN-ключа!", show_alert=True)
-        return
-        
-    await c.answer("⏳ Генерация QR-кода...")
-    
-    config_text = user_row['vpn_key']
-    
-    qr = qrcode.QRCode(
-        version=1,
-        error_correction=qrcode.constants.ERROR_CORRECT_L,
-        box_size=10,
-        border=4,
-    )
-    qr.add_data(config_text)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
-    bio = io.BytesIO()
-    img.save(bio, "PNG")
-    bio.seek(0)
-    
-    from aiogram.types import BufferedInputFile
-    photo_file = BufferedInputFile(bio.read(), filename="vpn_qr.png")
-    await c.message.answer_photo(
-        photo=photo_file,
-        caption="🖼 <b>QR-код для импорта в WireGuard:</b>\nОтсканируйте его камерой из приложения WireGuard для мгновенной настройки.",
-        parse_mode="HTML"
-    )
-
-@dp.callback_query(F.data == "vpn:disable")
-async def cb_vpn_disable(c: CallbackQuery):
-    uid = c.from_user.id
-    user_row = await db_manager.get_user(uid)
-    await db_manager.set_user_vpn(uid, enabled=False)
-    
-    # Try cleaning peer from WireGuard server if configured
-    try:
-        if user_row and user_row['vpn_key'] and vpn_manager.VPN_SSH_HOST:
-            import base64
-            from cryptography.hazmat.primitives.asymmetric import x25519
-            from cryptography.hazmat.primitives import serialization
-            
-            priv_key_match = re.search(r'PrivateKey\s*=\s*([a-zA-Z0-9+/=]+)', user_row['vpn_key'])
-            if priv_key_match:
-                priv_key_b64 = priv_key_match.group(1)
-                priv_bytes = base64.b64decode(priv_key_b64)
-                private_key = x25519.X25519PrivateKey.from_private_bytes(priv_bytes)
-                public_key = private_key.public_key()
-                pub_bytes = public_key.public_bytes(
-                    encoding=serialization.Encoding.Raw,
-                    format=serialization.PublicFormat.Raw
-                )
-                pub_key_b64 = base64.b64encode(pub_bytes).decode('utf-8')
-                
-                import asyncssh
-                async with asyncssh.connect(vpn_manager.VPN_SSH_HOST, username=vpn_manager.VPN_SSH_USER, password=vpn_manager.VPN_SSH_PASSWORD, known_hosts=None) as conn:
-                    await conn.run(f"sudo wg set wg0 peer {pub_key_b64} remove")
-                    await conn.run(f"sudo sed -i '/{pub_key_b64}/,+2d' /etc/wireguard/wg0.conf")
-    except Exception as e:
-        logger.error(f"Failed to remove WG peer on server for {uid}: {e}")
-        
-    await c.answer("VPN успешно отключен", show_alert=True)
-    await c.message.delete()
-    await show_vpn_menu_directly(c.message, user_id=uid)
-
-async def show_vpn_menu_directly(message: Message, user_id: int = None):
-    uid = user_id or message.chat.id
-    user_row = await db_manager.get_user(uid)
-    vpn_enabled = user_row['vpn_enabled'] if user_row else False
-    vpn_expires_at = user_row.get('vpn_expires_at') if user_row else None
-    if vpn_enabled and vpn_expires_at and vpn_expires_at < datetime.now():
-        vpn_enabled = False
-        
-    if vpn_enabled:
-        text = (
-            "🔌 <b>Ваша подписка на VPN активна!</b>\n\n"
-            "Вы можете скачать файл конфигурации или отсканировать QR-код для быстрого импорта в приложение WireGuard.\n\n"
-            "<b>Инструкция по настройке:</b>\n"
-            "1. Установите приложение <b>WireGuard</b> из App Store или Google Play.\n"
-            "2. Отсканируйте QR-код ниже или импортируйте файл конфигурации.\n"
-            "3. Включите соединение в приложении."
-        )
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📁 Скачать файл .conf", callback_data="vpn:get_file"),
-             InlineKeyboardButton(text="🖼 Показать QR-код", callback_data="vpn:get_qr")],
-            [InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")]
-        ])
-    else:
-        text = (
-            "🔌 <b>Собственный VPN-сервис</b>\n\n"
-            "Мы предоставляем стабильный, быстрый и безопасный доступ к зарубежным образовательным платформам и библиотекам.\n\n"
-            "Выберите вариант подписки:\n"
-            "1. <b>WireGuard VPN (отдельно)</b> — 100 ⭐ (на 30 дней)\n"
-            "2. <b>VPN + 150 Стандарт ИИ</b> — 500 ⭐ (на 30 дней)\n"
-            "3. <b>VPN + 30 Премиум ИИ (Claude, GPT, Kimi, Qwen)</b> — 600 ⭐ (на 30 дней)\n\n"
-            "<i>Все тарифы рассчитаны для обеспечения 30%+ чистой прибыли в месяц для развития бота.</i>"
-        )
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔌 VPN на 30 дней (100 ⭐)", callback_data="vpn:buy_only")],
-            [InlineKeyboardButton(text="💳 VPN + 150 Стандарт (500 ⭐)", callback_data="vpn:buy_standard")],
-            [InlineKeyboardButton(text="💳 VPN + 30 Премиум (600 ⭐)", callback_data="vpn:buy_premium")],
-            [InlineKeyboardButton(text="🔙 Назад", callback_data="ai:close")]
-        ])
-    await message.answer(text, reply_markup=kb, parse_mode="HTML")
-
-
 # ═══════════════════ ПЛАТЕЖНЫЕ ХЭНДЛЕРЫ И АКТИВАЦИЯ КЛЮЧЕЙ ═══════════════════
-
-@dp.callback_query(F.data == "vpn:activate_test_free")
-async def cb_vpn_activate_test_free(c: CallbackQuery):
-    uid = c.from_user.id
-    try:
-        await c.answer()
-    except Exception:
-        pass
-    await c.message.answer("⏳ <b>Настройка вашего бесплатного тестового подключения...</b>", parse_mode="HTML")
-    try:
-        user_row = await db_manager.get_user(uid)
-        if not user_row:
-            await db_manager.register_or_update_user(uid, c.from_user.username)
-            user_row = await db_manager.get_user(uid)
-            
-        user_db_id = user_row['id'] if user_row else 1
-        
-        # Compute new expiration times
-        now = datetime.now()
-        
-        # VPN
-        current_vpn_expires = user_row.get('vpn_expires_at') if user_row else None
-        if current_vpn_expires and current_vpn_expires > now:
-            new_vpn_expires = current_vpn_expires + timedelta(days=30)
-        else:
-            new_vpn_expires = now + timedelta(days=30)
-            
-        # AI
-        current_ai_expires = user_row.get('ai_expires_at') if user_row else None
-        if current_ai_expires and current_ai_expires > now:
-            new_ai_expires = current_ai_expires + timedelta(days=30)
-        else:
-            new_ai_expires = now + timedelta(days=30)
-            
-        expires_days = int((new_ai_expires - now).total_seconds() / 86400)
-        if expires_days < 30:
-            expires_days = 30
-        
-        # Generate config and update user VPN status
-        config_text = await vpn_manager.generate_user_vpn_config(user_db_id)
-        await db_manager.set_user_vpn(uid, enabled=True, key=config_text, expires_at=new_vpn_expires, purchased_at=now)
-        
-        # Generate actual OpenRouter key
-        limit_usd = 0.50  # 10 premium queries
-        ai_key = await create_openrouter_key(limit_usd=limit_usd, expires_days=expires_days)
-        await db_manager.set_user_ai_key(uid, ai_key, new_ai_expires, purchased_at=now)
-        
-        # Set AI balance to 10 queries
-        async with db_manager.pool.acquire() as conn:
-            await conn.execute("UPDATE users SET ai_balance = ai_balance + 10 WHERE telegram_id = $1", uid)
-        
-        # Send VPN file
-        file_data = BufferedInputFile(config_text.encode("utf-8"), filename=f"tu_ugmk_vpn_{uid}.conf")
-        await c.message.answer_document(
-            document=file_data,
-            caption="✅ <b>VPN успешно подключен!</b>\n\nИмпортируйте этот файл в приложение WireGuard.\nВы также можете получить QR-код для настройки через меню.",
-            parse_mode="HTML"
-        )
-        
-        # Generate & Send QR code
-        qr = qrcode.QRCode(
-            version=1,
-            error_correction=qrcode.constants.ERROR_CORRECT_L,
-            box_size=10,
-            border=4,
-        )
-        qr.add_data(config_text)
-        qr.make(fit=True)
-        img = qr.make_image(fill_color="black", back_color="white")
-        bio = io.BytesIO()
-        img.save(bio, "PNG")
-        bio.seek(0)
-        photo_file = BufferedInputFile(bio.read(), filename="vpn_qr.png")
-        
-        await c.message.answer_photo(
-            photo=photo_file,
-            caption="🖼 <b>QR-код для импорта в WireGuard:</b>\nОтсканируйте его из приложения WireGuard для настройки.",
-            parse_mode="HTML"
-        )
-        
-        await c.message.answer(
-            f"🎉 <b>Бесплатный тест успешно активирован!</b>\n\n"
-            f"🔑 Мы сгенерировали для вас персональный API-ключ OpenRouter (10 премиум запросов):\n"
-            f"<code>{ai_key}</code>\n\n"
-            f"Он уже автоматически активирован и привязан к вашему профилю! Вы можете сразу общаться с ИИ.",
-            parse_mode="HTML"
-        )
-    except Exception as e:
-        logger.error(f"Failed to complete free VPN test setup: {e}")
-        await c.message.answer(
-            f"⚠️ <b>Произошла ошибка при настройке теста:</b>\n<code>{str(e)}</code>\n\n"
-            f"Пожалуйста, обратитесь к администратору.",
-            parse_mode="HTML"
-        )
-
-@dp.callback_query(F.data == "vpn:buy_standard")
-async def cb_vpn_buy_standard(c: CallbackQuery):
-    uid = c.from_user.id
-    prices = [LabeledPrice(label="VPN + 150 Стандарт ИИ", amount=500)]
-    try:
-        await c.message.answer_invoice(
-            title="VPN + 150 Стандарт ИИ",
-            description="Подписка WireGuard VPN на 30 дней и промокод на 150 стандартных запросов к ИИ.",
-            payload="vpn_sub_standard",
-            provider_token="",
-            currency="XTR",
-            prices=prices
-        )
-        await c.answer("Счет выставлен!")
-    except Exception as e:
-        logger.error(f"Failed to send invoice for VPN standard: {e}")
-        await c.answer(f"⚠️ Ошибка: {str(e)}\n\n(Убедитесь, что Stars подключены в @BotFather)", show_alert=True)
-
-@dp.callback_query(F.data == "vpn:buy_premium")
-async def cb_vpn_buy_premium(c: CallbackQuery):
-    uid = c.from_user.id
-    prices = [LabeledPrice(label="VPN + 30 Премиум ИИ", amount=600)]
-    try:
-        await c.message.answer_invoice(
-            title="VPN + 30 Премиум ИИ",
-            description="Подписка WireGuard VPN на 30 дней и промокод на 30 премиум запросов к ИИ (Claude, GPT, Kimi, Qwen).",
-            payload="vpn_sub_premium",
-            provider_token="",
-            currency="XTR",
-            prices=prices
-        )
-        await c.answer("Счет выставлен!")
-    except Exception as e:
-        logger.error(f"Failed to send invoice for VPN premium: {e}")
-        await c.answer(f"⚠️ Ошибка: {str(e)}\n\n(Убедитесь, что Stars подключены в @BotFather)", show_alert=True)
-
-@dp.callback_query(F.data == "vpn:buy_only")
-async def cb_vpn_buy_only(c: CallbackQuery):
-    uid = c.from_user.id
-    prices = [LabeledPrice(label="WireGuard VPN на 30 дней", amount=100)]
-    try:
-        await c.message.answer_invoice(
-            title="WireGuard VPN на 30 дней",
-            description="Подписка на высокоскоростной WireGuard VPN сроком на 30 дней.",
-            payload="vpn_only_30_days",
-            provider_token="",
-            currency="XTR",
-            prices=prices
-        )
-        await c.answer("Счет выставлен!")
-    except Exception as e:
-        logger.error(f"Failed to send invoice for VPN only: {e}")
-        await c.answer(f"⚠️ Ошибка: {str(e)}\n\n(Убедитесь, что Stars подключены в @BotFather)", show_alert=True)
-
-@dp.callback_query(F.data == "ai:buy_requests")
-async def cb_ai_buy_requests(c: CallbackQuery):
-    uid = c.from_user.id
-    prices = [LabeledPrice(label="150 Стандарт ИИ-запросов", amount=400)]
-    try:
-        await c.message.answer_invoice(
-            title="150 стандартных запросов к ИИ",
-            description="Пополнение баланса ИИ-Ассистента на 150 стандартных (или 37 премиум) запросов.",
-            payload="ai_150_requests",
-            provider_token="",
-            currency="XTR",
-            prices=prices
-        )
-        await c.answer("Счет выставлен!")
-    except Exception as e:
-        logger.error(f"Failed to send invoice for AI: {e}")
-        await c.answer(f"⚠️ Ошибка: {str(e)}\n\n(Убедитесь, что Stars подключены в @BotFather)", show_alert=True)
-
-@dp.callback_query(F.data == "ai:buy_premium")
-async def cb_ai_buy_premium(c: CallbackQuery):
-    uid = c.from_user.id
-    prices = [LabeledPrice(label="30 Премиум ИИ-запросов", amount=500)]
-    try:
-        await c.message.answer_invoice(
-            title="30 премиум запросов к ИИ",
-            description="Пополнение баланса ИИ-Ассистента на 30 премиум (или 120 стандартных) запросов.",
-            payload="ai_30_premium",
-            provider_token="",
-            currency="XTR",
-            prices=prices
-        )
-        await c.answer("Счет выставлен!")
-    except Exception as e:
-        logger.error(f"Failed to send invoice for AI premium: {e}")
-        await c.answer(f"⚠️ Ошибка: {str(e)}\n\n(Убедитесь, что Stars подключены в @BotFather)", show_alert=True)
-
-@dp.pre_checkout_query()
-async def process_pre_checkout_query(pre_checkout_query: PreCheckoutQuery):
-    await pre_checkout_query.answer(ok=True)
-
-@dp.message(F.successful_payment)
-async def process_successful_payment(m: Message):
-    payload = m.successful_payment.invoice_payload
-    uid = m.from_user.id
-    
-    if payload in ["vpn_sub_standard", "vpn_sub_premium", "vpn_sub_test"]:
-        is_premium = (payload in ["vpn_sub_premium", "vpn_sub_test"])
-        is_test = (payload == "vpn_sub_test")
-        await m.answer("⏳ <b>Настройка вашего VPN-подключения и генерация ключей...</b>", parse_mode="HTML")
-        try:
-            user_row = await db_manager.get_user(uid)
-            if not user_row:
-                await db_manager.register_or_update_user(uid, m.from_user.username)
-                user_row = await db_manager.get_user(uid)
-                
-            user_db_id = user_row['id'] if user_row else 1
-            
-            # Compute new expiration times
-            now = datetime.now()
-            
-            # VPN
-            current_vpn_expires = user_row.get('vpn_expires_at') if user_row else None
-            if current_vpn_expires and current_vpn_expires > now:
-                new_vpn_expires = current_vpn_expires + timedelta(days=30)
-            else:
-                new_vpn_expires = now + timedelta(days=30)
-                
-            # AI
-            current_ai_expires = user_row.get('ai_expires_at') if user_row else None
-            if current_ai_expires and current_ai_expires > now:
-                new_ai_expires = current_ai_expires + timedelta(days=30)
-            else:
-                new_ai_expires = now + timedelta(days=30)
-                
-            expires_days = int((new_ai_expires - now).total_seconds() / 86400)
-            if expires_days < 30:
-                expires_days = 30
-            
-            # Generate config and update user VPN status
-            config_text = await vpn_manager.generate_user_vpn_config(user_db_id)
-            await db_manager.set_user_vpn(uid, enabled=True, key=config_text, expires_at=new_vpn_expires, purchased_at=now)
-            
-            # Generate actual OpenRouter key
-            if is_test:
-                limit_usd = 0.50
-            else:
-                limit_usd = 1.50 if is_premium else 0.15
-            ai_key = await create_openrouter_key(limit_usd=limit_usd, expires_days=expires_days)
-            await db_manager.set_user_ai_key(uid, ai_key, new_ai_expires, purchased_at=now)
-            
-            # Set AI balance queries
-            balance_add = 10 if is_test else (30 if is_premium else 150)
-            async with db_manager.pool.acquire() as conn:
-                await conn.execute("UPDATE users SET ai_balance = ai_balance + $2 WHERE telegram_id = $1", uid, balance_add)
-            
-            # Send VPN file
-            file_data = BufferedInputFile(config_text.encode("utf-8"), filename=f"tu_ugmk_vpn_{uid}.conf")
-            await m.answer_document(
-                document=file_data,
-                caption="✅ <b>VPN успешно подключен!</b>\n\nИмпортируйте этот файл в приложение WireGuard.\nВы также можете получить QR-код для настройки через меню.",
-                parse_mode="HTML"
-            )
-            
-            # Generate & Send QR code
-            qr = qrcode.QRCode(
-                version=1,
-                error_correction=qrcode.constants.ERROR_CORRECT_L,
-                box_size=10,
-                border=4,
-            )
-            qr.add_data(config_text)
-            qr.make(fit=True)
-            img = qr.make_image(fill_color="black", back_color="white")
-            bio = io.BytesIO()
-            img.save(bio, "PNG")
-            bio.seek(0)
-            photo_file = BufferedInputFile(bio.read(), filename="vpn_qr.png")
-            
-            await m.answer_photo(
-                photo=photo_file,
-                caption="🖼 <b>QR-код для импорта в WireGuard:</b>\nОтсканируйте его из приложения WireGuard для настройки.",
-                parse_mode="HTML"
-            )
-            
-            pkg_name = "10 премиум" if is_test else ("30 премиум" if is_premium else "150 стандартных")
-            await m.answer(
-                f"🎉 <b>Спасибо за покупку!</b>\n\n"
-                f"🔑 Мы сгенерировали для вас персональный API-ключ OpenRouter ({pkg_name} запросов):\n"
-                f"<code>{ai_key}</code>\n\n"
-                f"Он уже автоматически активирован и привязан к вашему профилю! Вы можете сразу общаться с ИИ.",
-                parse_mode="HTML"
-            )
-            
-        except Exception as e:
-            logger.error(f"Failed to complete VPN setup after payment: {e}")
-            await m.answer(
-                f"⚠️ <b>Произошла ошибка при настройке VPN:</b>\n<code>{str(e)}</code>\n\n"
-                f"Пожалуйста, свяжитесь с администратором. Ваша оплата зафиксирована.",
-                parse_mode="HTML"
-            )
-            
-    elif payload in ["ai_150_requests", "ai_30_premium"]:
-        is_premium = (payload == "ai_30_premium")
-        try:
-            user_row = await db_manager.get_user(uid)
-            if not user_row:
-                await db_manager.register_or_update_user(uid, m.from_user.username)
-                user_row = await db_manager.get_user(uid)
-                
-            now = datetime.now()
-            
-            # AI Expiry only
-            current_ai_expires = user_row.get('ai_expires_at') if user_row else None
-            if current_ai_expires and current_ai_expires > now:
-                new_ai_expires = current_ai_expires + timedelta(days=30)
-            else:
-                new_ai_expires = now + timedelta(days=30)
-                
-            expires_days = int((new_ai_expires - now).total_seconds() / 86400)
-            if expires_days < 30:
-                expires_days = 30
-                
-            # Generate actual OpenRouter key
-            limit_usd = 1.50 if is_premium else 0.15
-            ai_key = await create_openrouter_key(limit_usd=limit_usd, expires_days=expires_days)
-            await db_manager.set_user_ai_key(uid, ai_key, new_ai_expires, purchased_at=now)
-            
-            # Set AI balance queries
-            balance_add = 30 if is_premium else 150
-            async with db_manager.pool.acquire() as conn:
-                await conn.execute("UPDATE users SET ai_balance = ai_balance + $2 WHERE telegram_id = $1", uid, balance_add)
-            
-            pkg_name = "30 премиум" if is_premium else "150 стандартных"
-            await m.answer(
-                f"🎉 <b>Оплата прошла успешно!</b>\n\n"
-                f"🔑 Персональный API-ключ OpenRouter с лимитом на {pkg_name} запросов привязан к вашему профилю:\n"
-                f"<code>{ai_key}</code>\n\n"
-                f"Вы можете сразу приступать к общению с ИИ!",
-                parse_mode="HTML"
-            )
-        except Exception as e:
-            logger.error(f"Failed to add requests after payment: {e}")
-            await m.answer(
-                f"⚠️ <b>Произошла ошибка при обновлении баланса ИИ:</b>\n<code>{str(e)}</code>\n\n"
-                f"Свяжитесь с администратором для начисления.",
-                parse_mode="HTML"
-            )
-            
-    elif payload == "vpn_only_30_days":
-        await m.answer("⏳ <b>Настройка вашего VPN-подключения и генерация ключей...</b>", parse_mode="HTML")
-        try:
-            user_row = await db_manager.get_user(uid)
-            if not user_row:
-                await db_manager.register_or_update_user(uid, m.from_user.username)
-                user_row = await db_manager.get_user(uid)
-                
-            user_db_id = user_row['id'] if user_row else 1
-            
-            now = datetime.now()
-            current_vpn_expires = user_row.get('vpn_expires_at') if user_row else None
-            if current_vpn_expires and current_vpn_expires > now:
-                new_vpn_expires = current_vpn_expires + timedelta(days=30)
-            else:
-                new_vpn_expires = now + timedelta(days=30)
-                
-            config_text = await vpn_manager.generate_user_vpn_config(user_db_id)
-            await db_manager.set_user_vpn(uid, enabled=True, key=config_text, expires_at=new_vpn_expires, purchased_at=now)
-            
-            # Send VPN file
-            file_data = BufferedInputFile(config_text.encode("utf-8"), filename=f"tu_ugmk_vpn_{uid}.conf")
-            await m.answer_document(
-                document=file_data,
-                caption="✅ <b>VPN успешно подключен!</b>\n\nИмпортируйте этот файл в приложение WireGuard.\nВы также можете получить QR-код для настройки через меню.",
-                parse_mode="HTML"
-            )
-            
-            # Generate & Send QR code
-            qr = qrcode.QRCode(
-                version=1,
-                error_correction=qrcode.constants.ERROR_CORRECT_L,
-                box_size=10,
-                border=4,
-            )
-            qr.add_data(config_text)
-            qr.make(fit=True)
-            img = qr.make_image(fill_color="black", back_color="white")
-            bio = io.BytesIO()
-            img.save(bio, "PNG")
-            bio.seek(0)
-            photo_file = BufferedInputFile(bio.read(), filename="vpn_qr.png")
-            
-            await m.answer_photo(
-                photo=photo_file,
-                caption="🖼 <b>QR-код для импорта в WireGuard:</b>\nОтсканируйте его из приложения WireGuard для настройки.",
-                parse_mode="HTML"
-            )
-            
-            await m.answer("🎉 <b>VPN успешно продлен на 30 дней!</b>", parse_mode="HTML")
-        except Exception as e:
-            logger.error(f"Failed to complete VPN setup after payment: {e}")
-            await m.answer(
-                f"⚠️ <b>Произошла ошибка при настройке VPN:</b>\n<code>{str(e)}</code>\n\n"
-                f"Пожалуйста, свяжитесь с администратором. Ваша оплата зафиксирована.",
-                parse_mode="HTML"
-            )
-
-@dp.callback_query(F.data == "ai:activate_key")
-async def cb_ai_activate_key(c: CallbackQuery, state: FSMContext):
-    await state.set_state(UserStates.waiting_for_activation_key)
-    await c.message.answer(
-        "🔑 <b>Активация ИИ-ключа</b>\n\n"
-        "Пожалуйста, пришлите ваш ключ доступа (в формате <code>UGMK-AI-XXXXXX</code>) в ответ на это сообщение.",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="ai_cancel_settings")]]),
-        parse_mode="HTML"
-    )
-    await c.answer()
-
-@dp.message(UserStates.waiting_for_activation_key)
-async def process_ai_activation_key(m: Message, state: FSMContext):
-    key_val = m.text.strip().upper()
-    uid = m.from_user.id
-    
-    limit = await db_manager.activate_ai_key(key_val, uid)
-    if limit > 0:
-        await state.clear()
-        await m.answer(
-            f"🎉 <b>Успешно активировано!</b>\n"
-            f"На ваш баланс зачислено <b>{limit}</b> ИИ-запросов.",
-            parse_mode="HTML"
-        )
-        await show_ai_menu_directly(m)
-    else:
-        await m.answer(
-            "❌ <b>Неверный или уже использованный ключ!</b>\n"
-            "Пожалуйста, проверьте правильность ввода или обратитесь к администратору.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="ai_cancel_settings")]]),
-            parse_mode="HTML"
-        )
-
-@dp.message(Command("activate"))
-async def cmd_activate_key(m: Message):
-    parts = m.text.split(maxsplit=1)
-    if len(parts) < 2:
-        await m.answer(
-            "⚠️ <b>Использование команды:</b>\n"
-            "<code>/activate UGMK-AI-XXXXXX</code>",
-            parse_mode="HTML"
-        )
-        return
-        
-    key_val = parts[1].strip().upper()
-    uid = m.from_user.id
-    
-    limit = await db_manager.activate_ai_key(key_val, uid)
-    if limit > 0:
-        await m.answer(
-            f"🎉 <b>Успешно активировано!</b>\n"
-            f"На ваш баланс зачислено <b>{limit}</b> ИИ-запросов.",
-            parse_mode="HTML"
-        )
-    else:
-        await m.answer(
-            "❌ <b>Неверный или уже использованный ключ!</b>\n"
-            "Пожалуйста, проверьте правильность ввода.",
-            parse_mode="HTML"
-        )
-
-@dp.message(F.text.regexp(r'(?i)UGMK-AI-[A-Z0-9]{8}'))
-async def auto_activate_key(m: Message):
-    match = re.search(r'(?i)UGMK-AI-[A-Z0-9]{8}', m.text)
-    if not match:
-        return
-    key_val = match.group(0).upper()
-    uid = m.from_user.id
-    
-    limit = await db_manager.activate_ai_key(key_val, uid)
-    if limit > 0:
-        await m.answer(
-            f"🎉 <b>Обнаружен ключ активации!</b>\n"
-            f"Ключ: <code>{key_val}</code>\n"
-            f"На ваш баланс зачислено <b>{limit}</b> ИИ-запросов.",
-            parse_mode="HTML"
-        )
-    else:
-        await m.answer(
-            "❌ <b>Обнаружен ключ, но он недействителен или уже активирован.</b>",
-            parse_mode="HTML"
-        )
 
 
 # ═══════════════════ СТУДЕНЧЕСКАЯ ЭКОСИСТЕМА ═══════════════════

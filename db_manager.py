@@ -33,7 +33,9 @@ class DBManager:
 
     async def init_db(self):
         await self.connect()
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire() as conn, conn.transaction():
+            # Bot and dashboard may start simultaneously; serialize schema changes.
+            await conn.execute("SELECT pg_advisory_xact_lock(742619005)")
             # Create tables
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS users (
@@ -42,35 +44,23 @@ class DBManager:
                     username VARCHAR(255),
                     group_name VARCHAR(255),
                     custom_ai_key VARCHAR(512),
-                    ai_model VARCHAR(50) DEFAULT 'gemini-1.5-flash',
-                    vpn_enabled BOOLEAN DEFAULT FALSE,
-                    vpn_key TEXT,
-                    ai_balance INT DEFAULT 0,
+                    ai_model VARCHAR(255) DEFAULT 'openrouter/free',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
                 
-                ALTER TABLE users ADD COLUMN IF NOT EXISTS ai_balance INT DEFAULT 0;
-                ALTER TABLE users ADD COLUMN IF NOT EXISTS vpn_expires_at TIMESTAMP;
-                ALTER TABLE users ADD COLUMN IF NOT EXISTS ai_expires_at TIMESTAMP;
-                ALTER TABLE users ADD COLUMN IF NOT EXISTS vpn_purchased_at TIMESTAMP;
-                ALTER TABLE users ADD COLUMN IF NOT EXISTS ai_purchased_at TIMESTAMP;
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blacklisted BOOLEAN DEFAULT FALSE;
-                
-                CREATE TABLE IF NOT EXISTS ai_keys (
-                    id SERIAL PRIMARY KEY,
-                    key_value VARCHAR(255) UNIQUE NOT NULL,
-                    request_limit INT DEFAULT 100,
-                    used_by BIGINT REFERENCES users(telegram_id) ON DELETE SET NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    used_at TIMESTAMP
-                );
+                ALTER TABLE users ALTER COLUMN ai_model TYPE VARCHAR(255);
+                ALTER TABLE users ALTER COLUMN ai_model SET DEFAULT 'openrouter/free';
+                UPDATE users
+                SET ai_model = 'openrouter/free'
+                WHERE ai_model IS NULL OR ai_model = 'gemini-1.5-flash';
                 
                 CREATE TABLE IF NOT EXISTS ai_requests (
                     id SERIAL PRIMARY KEY,
                     telegram_id BIGINT NOT NULL,
                     prompt TEXT,
                     response TEXT,
-                    model_used VARCHAR(50),
+                    model_used VARCHAR(255),
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
                 
@@ -115,6 +105,10 @@ class DBManager:
                     value TEXT
                 );
             """)
+            await conn.execute("ALTER TABLE ai_requests ALTER COLUMN model_used TYPE VARCHAR(255)")
+            # One-time cleanup is isolated from the application schema.
+            from pathlib import Path
+            await conn.execute(Path(__file__).with_name("migrations").joinpath("001_remove_legacy_services.sql").read_text())
             logger.info("PostgreSQL database tables initialized.")
 
     # User operations
@@ -132,18 +126,12 @@ class DBManager:
                     group_name = COALESCE($3, users.group_name)
             """, telegram_id, username, group_name)
 
-    async def set_user_ai_key(self, telegram_id: int, api_key: str, expires_at = None, purchased_at = None):
+    async def set_user_ai_key(self, telegram_id: int, api_key: str):
         async with self.pool.acquire() as conn:
-            if api_key:
-                await conn.execute("""
-                    INSERT INTO users (telegram_id, custom_ai_key, ai_expires_at, ai_purchased_at)
-                    VALUES ($1, $2, $3, $4)
-                    ON CONFLICT (telegram_id) DO UPDATE SET custom_ai_key = $2, ai_expires_at = $3, ai_purchased_at = COALESCE($4, users.ai_purchased_at)
-                """, telegram_id, api_key, expires_at, purchased_at)
-            else:
-                await conn.execute("""
-                    UPDATE users SET custom_ai_key = NULL, ai_expires_at = NULL WHERE telegram_id = $1
-                """, telegram_id)
+            await conn.execute("""
+                INSERT INTO users (telegram_id, custom_ai_key) VALUES ($1, $2)
+                ON CONFLICT (telegram_id) DO UPDATE SET custom_ai_key = $2
+            """, telegram_id, api_key)
 
     async def set_user_ai_model(self, telegram_id: int, model: str):
         async with self.pool.acquire() as conn:
@@ -174,18 +162,6 @@ class DBManager:
                 VALUES ($1, $2, $3, $4)
             """, telegram_id, prompt, response, model_used)
 
-    async def set_user_vpn(self, telegram_id: int, enabled: bool, key: str = None, expires_at = None, purchased_at = None):
-        async with self.pool.acquire() as conn:
-            if enabled:
-                await conn.execute("""
-                    INSERT INTO users (telegram_id, vpn_enabled, vpn_key, vpn_expires_at, vpn_purchased_at)
-                    VALUES ($1, $2, $3, $4, $5)
-                    ON CONFLICT (telegram_id) DO UPDATE SET vpn_enabled = $2, vpn_key = COALESCE($3, users.vpn_key), vpn_expires_at = $4, vpn_purchased_at = COALESCE($5, users.vpn_purchased_at)
-                """, telegram_id, enabled, key, expires_at, purchased_at)
-            else:
-                await conn.execute("""
-                    UPDATE users SET vpn_enabled = FALSE, vpn_expires_at = NULL WHERE telegram_id = $1
-                """, telegram_id)
 
     # Event operations (Афиша)
     async def get_events(self):
@@ -285,64 +261,6 @@ class DBManager:
         async with self.pool.acquire() as conn:
             return await conn.fetch("SELECT * FROM users ORDER BY id DESC")
 
-    async def update_user_subscription(self, telegram_id: int, vpn_enabled: bool, ai_balance: int):
-        async with self.pool.acquire() as conn:
-            await conn.execute("""
-                UPDATE users 
-                SET vpn_enabled = $2, ai_balance = $3 
-                WHERE telegram_id = $1
-            """, telegram_id, vpn_enabled, ai_balance)
-
-    async def generate_ai_key(self, request_limit: int = 100) -> str:
-        import uuid
-        key_val = f"UGMK-AI-{uuid.uuid4().hex[:8].upper()}"
-        async with self.pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO ai_keys (key_value, request_limit)
-                VALUES ($1, $2)
-            """, key_val, request_limit)
-        return key_val
-
-    async def activate_ai_key(self, key_value: str, telegram_id: int) -> int:
-        async with self.pool.acquire() as conn:
-            # Check key
-            row = await conn.fetchrow("""
-                SELECT * FROM ai_keys WHERE key_value = $1 AND used_by IS NULL
-            """, key_value)
-            if not row:
-                return 0
-                
-            limit = row['request_limit']
-            # Register user if not exists
-            await self.register_or_update_user(telegram_id)
-            
-            # Mark key as used
-            await conn.execute("""
-                UPDATE ai_keys 
-                SET used_by = $2, used_at = CURRENT_TIMESTAMP 
-                WHERE key_value = $1
-            """, key_value, telegram_id)
-            
-            # Update user balance
-            await conn.execute("""
-                UPDATE users 
-                SET ai_balance = ai_balance + $2 
-                WHERE telegram_id = $1
-            """, telegram_id, limit)
-            
-            return limit
-
-    async def check_user_ai_balance(self, telegram_id: int) -> int:
-        row = await self.get_user(telegram_id)
-        return row['ai_balance'] if row else 0
-
-    async def decrement_user_ai_balance(self, telegram_id: int) -> bool:
-        async with self.pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT ai_balance FROM users WHERE telegram_id = $1", telegram_id)
-            if not row or row['ai_balance'] <= 0:
-                return False
-            await conn.execute("UPDATE users SET ai_balance = ai_balance - 1 WHERE telegram_id = $1", telegram_id)
-            return True
 
     async def get_user_ai_requests(self, telegram_id: int):
         async with self.pool.acquire() as conn:

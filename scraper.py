@@ -9,45 +9,22 @@ from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 import redis.asyncio as redis
 from typing import Any
+from network_config import configure_direct_network
 
 # ═══════════════════ НАСТРОЙКИ ═══════════════════
 SCHEDULE_URL = "https://up.corp.tu-ugmk.com/student/schedule"
-LOGIN = os.getenv("LOGIN", "uvybhjhhv@gmail.com")
-PASSWORD = os.getenv("PASSWORD", "qazwsxedcip60000OP")
+LOGIN = os.getenv("LOGIN")
+PASSWORD = os.getenv("PASSWORD")
 
-CACHE_LIFETIME, CACHE_VERSION = 86400, 39
+if not LOGIN or not PASSWORD:
+    raise RuntimeError("LOGIN and PASSWORD must be configured in .env")
+
+CACHE_LIFETIME = 86400
+YEKATERINBURG_TZ = timezone(timedelta(hours=5))
 
 # ════════════ БАЗЫ ДАННЫХ ID ═════════════════════
-GROUPS_DB = {
-    "Ит-24107 гр.1": "756cb41d-42af-11ef-b448-00155d7f1420%3A309c2eb3-6dea-11f0-b44a-00155d7f1420",
-    "Ит-24107 гр.2": "ea53e266-6dd2-11f0-b44a-00155d7f1420%3A5bbb50dd-6dea-11f0-b44a-00155d7f1420",
-    "Ит-24107 гр.3": "e694ebbb-6dd3-11f0-b44a-00155d7f1420%3A9293ef2e-6dea-11f0-b44a-00155d7f1420",
-    "А-24101": "b47ff74e-3d0f-11ef-b448-00155d7f1420%3A715cc0fc-3eb1-11ef-b448-00155d7f1420",
-    "М-24102": "926cd860-42b2-11ef-b448-00155d7f1420%3A372960bb-4374-11ef-b448-00155d7f1420",
-    "Т-24105": "0e9d8133-42b5-11ef-b448-00155d7f1420%3A5873fb74-4373-11ef-b448-00155d7f1420",
-    "Эн-24103": "171f74fb-3d19-11ef-b448-00155d7f1420%3A19692d41-3ead-11ef-b448-00155d7f1420",
-    "ГД-24104": "14064fbf-4335-11ef-b448-00155d7f1420%3A148d5959-4376-11ef-b448-00155d7f1420",
-    "Гэм-24106": "d53322fa-4338-11ef-b448-00155d7f1420%3A629425ac-4375-11ef-b448-00155d7f1420",
-    "Эк-25109": "c52cf4a3-1542-11f0-b44a-00155d7f1420%3A06321270-5d88-11f0-b44a-00155d7f1420",
-    "А-25101": "64345217-d3ec-11ef-b449-00155d7f1420%3A87999d48-5d7f-11f0-b44a-00155d7f1420",
-    "Ит-25107": "4e6528d3-d3ef-11ef-b449-00155d7f1420%3A9a9bd9dc-5d84-11f0-b44a-00155d7f1420",
-    "М-25102": "efdd4827-d3fb-11ef-b449-00155d7f1420%3Aa7f635af-5d85-11f0-b44a-00155d7f1420",
-    "Т-25105": "8dd0b75a-d400-11ef-b449-00155d7f1420%3A690b7f2d-5d87-11f0-b44a-00155d7f1420",
-    "Эн-25103": "3d685fd3-d402-11ef-b449-00155d7f1420%3A5dfec504-5d88-11f0-b44a-00155d7f1420",
-    "Гд-25104": "8e4c58f1-d40a-11ef-b449-00155d7f1420%3A11b10f9e-5d82-11f0-b44a-00155d7f1420",
-    "Гэм-25106": "ef68433a-d40c-11ef-b449-00155d7f1420%3A14e87d8c-5d84-11f0-b44a-00155d7f1420",
-    "А-23101": "71b1e8a9-1979-11ee-86ac-005056953b1b%3A57124d43-1bca-11ee-86ac-005056953b1b",
-    "М-23102": "0cfbe051-196e-11ee-86ac-005056953b1b%3Ade1d410d-1bbf-11ee-86ac-005056953b1b",
-    "Т-23105": "7a4b0dc4-1998-11ee-86ac-005056953b1b%3A63885cf0-245e-11ee-92f9-005056953b1b",
-    "Ит-23107 гр.1": "2f95ecc0-1bd1-11ee-86ac-005056953b1b%3Aa933615b-6dd7-11f0-b44a-00155d7f1420",
-    "Ит-23107 гр.2": "7900f4dd-6e9f-11ef-b448-00155d7f1420%3A90401ef5-6ea0-11ef-b448-00155d7f1420",
-    "Гэм-23106": "92a56d28-1bc7-11ee-86ac-005056953b1b%3A0c22bf22-1bc4-11ee-86ac-005056953b1b",
-    "Гд-23104": "2ffaff2f-1a69-11ee-86ac-005056953b1b%3A0bb2e3d9-1bca-11ee-86ac-005056953b1b",
-    "Гэм-22106": "03092314-09a5-11ed-b935-005056953b1b%3Aa1b619de-0c15-11ed-b935-005056953b1b",
-}
+from schedule_config import GROUPS_DB, CACHE_VERSION, canonical_group, active_group, merged_groups, lesson_matches_group, migrate_group_preferences
 
-TEACHERS_DB = {"Сакулин Валерий Александрович": "000000376", "Мазитов Виктор Расульевич": "000000421", "Котельников Сергей Андреевич": "000000383", "Голубина Валентина Васильевна": "000000467", "Кабанов Александр Михайлович": "000000409", "Игумнова Юлия Олеговна": "000002912", "Тюжина Ирина Викторовна": "000002915", "Ивлев Андрей Дмитриевич": "000002261", "Гавриленко Никита Сергеевич": "000001833"}
-CLASSROOMS_DB = {"Ауд. 300": "2355c22e-2bcd-11e7-b191-005056953b1b", "Ауд. 203": "67941c0b-ca51-11ee-b440-00155d7f0e19"}
 DAYS_OF_WEEK = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
 
 logging.basicConfig(level=logging.INFO)
@@ -63,7 +40,10 @@ class RedisDAO:
     async def get(self, key): return json.loads(await self.client.get(key)) if self.ok and await self.client.exists(key) else None
     async def set(self, key, value, ex=CACHE_LIFETIME):
         if self.ok: await self.client.set(key, json.dumps(value, ensure_ascii=False), ex=ex)
-    async def blpop(self, key, timeout=0): return await self.client.blpop(key, timeout) if self.ok else None
+    async def blpop(self, key, timeout=4):
+        # redis-py 8 uses a 5-second socket timeout. Return from BLPOP before
+        # that deadline so an empty queue is not logged as a network failure.
+        return await self.client.blpop(key, timeout) if self.ok else None
 
 dao = RedisDAO()
 
@@ -72,8 +52,9 @@ class ScheduleParser:
         self.playwright, self.browser, self._initialized = None, None, False
     async def init(self):
         if self._initialized: return
+        configure_direct_network()
         self.playwright = await async_playwright().start()
-        l_kwargs = {"headless": True}
+        l_kwargs = {"headless": True, "args": ["--no-proxy-server"]}
         self.browser = await self.playwright.chromium.launch(**l_kwargs)
         self.ctx = await self.browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -83,7 +64,7 @@ class ScheduleParser:
         self._initialized = True
     async def _login(self, page):
         try:
-            logger.info(f"Attempting login as {LOGIN}...")
+            logger.info("Attempting schedule-site login...")
             await page.wait_for_selector('input[name="LoginForm[login]"], #openid-auth-user, input[type="text"]', timeout=15000)
             
             # Заполняем форму логина (1C или локальную)
@@ -117,23 +98,24 @@ class ScheduleParser:
             return False
 
     def _get_dates(self, offset):
-        mon = datetime.now() - timedelta(days=datetime.now().weekday()) + timedelta(weeks=offset)
+        mon = datetime.now(YEKATERINBURG_TZ) - timedelta(days=datetime.now(YEKATERINBURG_TZ).weekday()) + timedelta(weeks=offset)
         return mon.strftime("%d.%m.%Y"), (mon + timedelta(days=6)).strftime("%d.%m.%Y")
 
     def _build_url(self, wo=0, t_type=None, t_val=None, oid=None):
         sd, ed = self._get_dates(wo)
-        tm = {"group": "AcademicGroup", "teacher": "Teacher", "classroom": "Classroom"}
-        url = f"{SCHEDULE_URL}?scheduleType=Week&objectType={tm[t_type]}&objectId={oid}&startDate={sd}&endDate={ed}&_referrer=%2Fstudent%2Findex"
-        if t_type == "group": url += f"&another_group={urllib.parse.quote(t_val)}"
+        oid = urllib.parse.quote(urllib.parse.unquote(oid), safe="")
+        url = f"{SCHEDULE_URL}?scheduleType=Week&objectType=AcademicGroup&objectId={oid}&startDate={sd}&endDate={ed}&_referrer=%2Fstudent%2Findex"
+        url += f"&another_group={urllib.parse.quote(t_val)}"
         return url
 
     async def get_entity_id(self, t_type, t_val):
-        db_keys = {"group": "db_groups", "teacher": "db_teachers", "classroom": "db_classrooms"}
-        fallback_dbs = {"group": GROUPS_DB, "teacher": TEACHERS_DB, "classroom": CLASSROOMS_DB}
-        if dao.ok:
-            r_id = await dao.client.hget(db_keys[t_type], t_val)
-            if r_id: return r_id
-        return fallback_dbs[t_type].get(t_val)
+        if t_type != "group":
+            return None
+        t_val = canonical_group(t_val)
+        if not active_group(t_val):
+            return None
+        discovered = await dao.client.hgetall("db_groups") if dao.ok else {}
+        return merged_groups(discovered).get(t_val)
 
     async def discover_entities(self, html):
         try:
@@ -153,19 +135,16 @@ class ScheduleParser:
                     if obj_type == "AcademicGroup":
                         group_name = qs.get("another_group", [None])[0]
                         group_name = urllib.parse.unquote(group_name) if group_name else name
-                        await dao.client.hset("db_groups", group_name, obj_id)
-                    elif obj_type == "Teacher":
-                        await dao.client.hset("db_teachers", name, obj_id)
-                    elif obj_type == "Classroom":
-                        room_name = name
-                        if room_name and not room_name.startswith("Ауд."):
-                            room_name = f"Ауд. {room_name}"
-                        await dao.client.hset("db_classrooms", room_name, obj_id)
+                        if active_group(group_name) and lesson_matches_group(name, group_name):
+                            await dao.client.hset("db_groups", canonical_group(group_name), obj_id)
         except Exception as e:
             logger.error(f"Error in discover_entities: {e}")
 
     async def fetch(self, wo=0, t_type=None, t_val=None):
         try:
+            t_val = canonical_group(t_val)
+            if wo not in (0, 1) or not active_group(t_val):
+                return {"_error": "Выберите действующую группу и неделю"}
             oid = await self.get_entity_id(t_type, t_val)
             if not oid:
                 return {"_error": f"ID for {t_type} '{t_val}' not found"}
@@ -191,6 +170,9 @@ class ScheduleParser:
             with open("debug_last_fetch.html", "w", encoding="utf-8") as f: f.write(html)
             await self.discover_entities(html)
             res = self._parse(html, t_type, t_val)
+            if res.get("_error"):
+                return res
+            res["_group"] = t_val
             
             has_lessons = any(isinstance(v, list) and len(v) > 0 for k, v in res.items() if k != "_dates")
             
@@ -275,6 +257,10 @@ class ScheduleParser:
             schedule[day_name] = lessons
             
         schedule["_dates"] = dates
+        if t_type == "group":
+            rows = [lesson for lessons in schedule.values() if isinstance(lessons, list) for lesson in lessons]
+            if any(not lesson_matches_group(lesson.get("group"), t_val) for lesson in rows):
+                return {"_error": "Сайт вернул расписание другой группы. Обновите список групп и попробуйте снова."}
         return schedule
 
     def _parse_legacy(self, soup, t_type, t_val):
@@ -321,6 +307,10 @@ class ScheduleParser:
                 schedule[day] = lessons
                 day_idx += 1
         schedule["_dates"] = dates
+        if t_type == "group":
+            rows = [lesson for lessons in schedule.values() if isinstance(lessons, list) for lesson in lessons]
+            if any(not lesson_matches_group(lesson.get("group"), t_val) for lesson in rows):
+                return {"_error": "Сайт вернул расписание другой группы. Обновите список групп и попробуйте снова."}
         return schedule
 
 async def main():
@@ -333,8 +323,9 @@ async def main():
             if not job_data: continue
             job = json.loads(job_data[1])
             wo, tt, tv = job.get('week_offset', 0), job.get('target_type'), job.get('target_value')
-            tz = timezone(timedelta(hours=5))
-            mon = datetime.now(tz).date() - timedelta(days=datetime.now(tz).weekday()) + timedelta(weeks=wo)
+            if wo not in (0, 1):
+                continue
+            mon = datetime.now(YEKATERINBURG_TZ).date() - timedelta(days=datetime.now(YEKATERINBURG_TZ).weekday()) + timedelta(weeks=wo)
             sd = mon.strftime("%d.%m.%Y")
             key = f"data:v{CACHE_VERSION}:{sd}:{tt}:{tv}"
             res = await p.fetch(wo, tt, tv)
@@ -342,6 +333,8 @@ async def main():
                 await dao.set(key, res, ex=60)
             else:
                 await dao.set(key, res if res else {"_empty": True}, ex=CACHE_LIFETIME)
+            if dao.ok:
+                await dao.client.delete(f"queued:{key}")
         except Exception as e: logger.error(f"Loop error: {e}"); await asyncio.sleep(5)
 
 if __name__ == "__main__":

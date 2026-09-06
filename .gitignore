@@ -14,9 +14,13 @@ env/
 venv/
 ENV/
 
-# Docker
-.dockerignore
-
 # IDE
 .vscode/
 .idea/
+backups/
+
+debug_*.html
+debug_*.png
+
+.DS_Store
+debug.html

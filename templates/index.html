@@ -45,7 +45,7 @@
             align-items: center;
             overflow-x: hidden;
         }
-        
+
         .user-link {
             color: #60a5fa !important;
             text-decoration: none;
@@ -57,7 +57,7 @@
             text-decoration: underline;
             text-shadow: 0 0 8px rgba(96, 165, 250, 0.4);
         }
-        
+
         .blacklist-badge {
             display: inline-block;
             padding: 2px 6px;
@@ -66,17 +66,17 @@
             font-weight: 600;
             text-transform: uppercase;
         }
-        
+
         .text-success {
             background-color: rgba(16, 185, 129, 0.1);
             color: #10b981;
         }
-        
+
         .text-danger {
             background-color: rgba(239, 68, 68, 0.1);
             color: #ef4444;
         }
-        
+
         tr {
             transition: background-color 0.2s ease;
         }
@@ -375,97 +375,6 @@
             background-color: var(--success);
         }
 
-        /* AI Balance inputs */
-        .balance-form {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .balance-input {
-            width: 70px;
-            padding: 6px 10px;
-            font-size: 13px;
-            text-align: center;
-        }
-
-        .balance-btn {
-            background: var(--primary);
-            color: #fff;
-            border: none;
-            padding: 6px 12px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.2s ease;
-        }
-
-        .balance-btn:hover {
-            background: var(--primary-hover);
-        }
-
-        /* AI Key Generator Form */
-        .generator-box {
-            display: flex;
-            align-items: flex-end;
-            gap: 20px;
-            background: var(--input-bg);
-            border: 1px solid var(--card-border);
-            border-radius: 12px;
-            padding: 20px;
-        }
-
-        .generator-box .form-group {
-            margin-bottom: 0;
-            flex-grow: 1;
-        }
-
-        .generator-box .btn {
-            width: auto;
-            white-space: nowrap;
-            height: 45px;
-        }
-
-        /* Key lists */
-        .key-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 12px 20px;
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid var(--card-border);
-            border-radius: 8px;
-            margin-bottom: 8px;
-            font-size: 14px;
-        }
-
-        .key-value {
-            font-family: monospace;
-            font-weight: 600;
-            color: var(--accent);
-            background: rgba(217, 70, 239, 0.1);
-            padding: 4px 8px;
-            border-radius: 4px;
-            letter-spacing: 0.05em;
-        }
-
-        .copy-btn {
-            background: transparent;
-            border: 1px solid var(--card-border);
-            color: var(--text-secondary);
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-size: 12px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
-
-        .copy-btn:hover {
-            background: rgba(255, 255, 255, 0.08);
-            color: var(--text-primary);
-        }
-
         /* Success alerts */
         .alert-success {
             padding: 12px 20px;
@@ -509,7 +418,7 @@
         <div class="glass-card login-card">
             <h2>Вход в панель</h2>
             <p>Панель администратора TU UGMK Bot</p>
-            
+
             {% if error %}
             <div style="color: var(--danger); font-size: 14px; margin-bottom: 15px; font-weight: 500;">
                 ❌ {{ error }}
@@ -531,7 +440,7 @@
         <header>
             <div>
                 <h1>Панель управления</h1>
-                <p style="color: var(--text-secondary); font-size: 14px;">Администрирование пользователей, подписок VPN и ИИ</p>
+                <p style="color: var(--text-secondary); font-size: 14px;">Пользователи, расписание и бесплатный ИИ</p>
             </div>
             <form action="/logout" method="POST">
                 <button type="submit" class="logout-btn">Выйти</button>
@@ -551,18 +460,8 @@
                 <span class="label">Всего пользователей</span>
                 <span class="value">{{ users|length }}</span>
             </div>
-            <div class="glass-card stat-card">
-                <span class="label">Активных VPN</span>
-                <span class="value">{{ active_vpn_count }}</span>
-            </div>
-            <div class="glass-card stat-card">
-                <span class="label">Всего ИИ-ключей</span>
-                <span class="value">{{ ai_keys|length }}</span>
-            </div>
-            <div class="glass-card stat-card">
-                <span class="label">Неиспользованных ключей</span>
-                <span class="value">{{ unused_keys_count }}</span>
-            </div>
+
+
         </div>
 
         <div class="content-grid">
@@ -572,7 +471,7 @@
                     <h2 class="panel-title">Управление пользователями</h2>
                     <input type="text" id="user-search-input" class="form-control" placeholder="Поиск по ID, имени, группе..." style="max-width: 250px; font-size: 13px; padding: 6px 12px; margin-bottom: 0;" onkeyup="filterUsersTable()">
                 </div>
-                
+
                 <div class="table-container">
                     <table>
                         <thead>
@@ -580,7 +479,7 @@
                                 <th>Пользователь</th>
                                 <th>Группа</th>
                                 <th>ЧС</th>
-                                <th>VPN Подписка</th>
+
                                 <th>ИИ-Ассистент</th>
                             </tr>
                         </thead>
@@ -610,160 +509,38 @@
                                         </span>
                                     </div>
                                 </td>
-                                <td>
-                                    <div style="display: flex; align-items: center; gap: 8px;">
-                                        <label class="switch">
-                                            <input type="checkbox" class="vpn-status-checkbox" data-uid="{{ user.telegram_id }}" {% if user.vpn_enabled %}checked{% endif %} onchange="ajaxToggleVpn(this)">
-                                            <span class="slider"></span>
-                                        </label>
-                                        <span id="vpn-status-badge-{{ user.telegram_id }}" style="font-weight: 500; font-size: 12px;" class="{% if user.vpn_enabled %}badge badge-active{% else %}badge badge-inactive{% endif %}">
-                                            {% if user.vpn_enabled %}Активен{% else %}Откл.{% endif %}
-                                        </span>
-                                    </div>
-                                    <div class="vpn-expiry-text" id="vpn-expiry-{{ user.telegram_id }}" style="font-size: 11px; color: var(--text-secondary); margin-top: 6px; line-height: 1.4;">
-                                        {% if user.vpn_expires_at %}
-                                            До: {{ user.vpn_expires_at.strftime('%d.%m.%Y %H:%M') }}
-                                        {% else %}
-                                            Нет подписки
-                                        {% endif %}
-                                    </div>
-                                    <div style="margin-top: 8px;">
-                                        <select class="form-control vpn-expiry-select" data-uid="{{ user.telegram_id }}" onchange="updateVpnExpiry(this)" style="font-size: 11px; padding: 4px 8px; border-radius: 6px; width: 100%; max-width: 140px; background-color: var(--input-bg); border: 1px solid var(--card-border); color: var(--text-primary); cursor: pointer;">
-                                            <option value="">-- Управление VPN --</option>
-                                            <option value="30">+30 дней</option>
-                                            <option value="90">+90 дней</option>
-                                            <option value="365">+365 дней</option>
-                                            <option value="reset">Сбросить подписку</option>
-                                        </select>
-                                    </div>
-                                </td>
-                                <td>
-                                    <form action="/user/update_balance" method="POST" class="balance-form" style="margin-bottom: 6px; display: flex; gap: 4px;">
-                                        <input type="hidden" name="telegram_id" value="{{ user.telegram_id }}">
-                                        <input type="number" name="ai_balance" value="{{ user.ai_balance }}" class="form-control balance-input" min="0" required style="width: 70px; padding: 4px 8px; font-size: 13px;">
-                                        <button type="submit" class="balance-btn" style="padding: 4px 8px; font-size: 12px;">ОК</button>
-                                    </form>
-                                    <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.4;">
-                                        <div>Куплено: {{ user.ai_purchased_at.strftime('%d.%m.%Y %H:%M') if user.ai_purchased_at else '—' }}</div>
-                                        <div>До: {{ user.ai_expires_at.strftime('%d.%m.%Y %H:%M') if user.ai_expires_at else '—' }}</div>
-                                        <div style="margin-top: 4px; display: flex; align-items: center; gap: 4px;">
-                                            <span>Ключ:</span>
-                                            {% if user.custom_ai_key %}
-                                                <code style="font-family: monospace; background: rgba(255, 255, 255, 0.1); padding: 2px 4px; border-radius: 4px; font-size: 10px; word-break: break-all; max-width: 100px; display: inline-block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="{{ user.custom_ai_key }}">{{ user.custom_ai_key }}</code>
-                                                <button onclick="navigator.clipboard.writeText('{{ user.custom_ai_key }}'); alert('Ключ скопирован в буфер обмена!');" style="background: none; border: none; color: var(--primary); cursor: pointer; font-size: 11px; padding: 0 2px;" title="Скопировать ключ">📋</button>
-                                            {% else %}
-                                                <span style="color: var(--text-secondary);">—</span>
-                                            {% endif %}
-                                        </div>
-                                    </div>
-                                </td>
+
+                                <td><span class="badge badge-active">Бесплатно</span><div style="margin-top:6px;font-size:12px">{{ user.ai_model }}</div></td>
                             </tr>
                             {% endfor %}
                         </tbody>
                     </table>
                 </div>
             </div>
-            <!-- Right Side: AI Keys Generator and List -->
+
             <div style="display: flex; flex-direction: column; gap: 30px;">
                 <!-- OpenRouter Key Settings -->
                 <div class="glass-card panel">
                     <h2 class="panel-title">Настройки OpenRouter</h2>
                     <form action="/settings/openrouter_keys" method="POST" style="display: flex; flex-direction: column; gap: 15px;">
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label for="openrouter_management_key">Management API-ключ OpenRouter (для генерации ключей)</label>
-                            <input type="password" id="openrouter_management_key" name="openrouter_management_key" class="form-control" value="{{ openrouter_management_key }}" placeholder="sk-or-v1-..." autocomplete="new-password">
-                        </div>
+                        <div class="form-group" style="margin-bottom:0"><label for="openrouter_key">API-ключ OpenRouter</label><input type="password" id="openrouter_key" name="openrouter_key" class="form-control" value="{{ openrouter_key }}" placeholder="sk-or-v1-..." autocomplete="new-password"></div>
                         <button type="submit" class="btn">Сохранить настройки</button>
                     </form>
                 </div>
 
-                <!-- Key generator -->
-                <div class="glass-card panel">
-                    <h2 class="panel-title">Генератор ИИ-ключей</h2>
-                    <form action="/keys/generate" method="POST" class="generator-box">
-                        <div class="form-group">
-                            <label for="request_limit">Количество запросов</label>
-                            <input type="number" id="request_limit" name="request_limit" class="form-control" value="100" min="1" required>
-                        </div>
-                        <button type="submit" class="btn">Создать</button>
-                    </form>
-                </div>
 
-                <!-- Keys list -->
-                <div class="glass-card panel" style="max-height: 500px; overflow-y: auto;">
-                    <h2 class="panel-title">История ИИ-ключей</h2>
-                    <div style="display: flex; flex-direction: column; gap: 8px;">
-                        {% if ai_keys %}
-                            {% for key in ai_keys %}
-                            <div class="key-row">
-                                <div>
-                                    <span class="key-value" id="key-{{ key.id }}">{{ key.key_value }}</span>
-                                    <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">
-                                        Лимит: <b>{{ key.request_limit }}</b> запросов
-                                    </div>
-                                    {% if key.used_by %}
-                                        <div style="font-size: 11px; color: var(--success); margin-top: 2px;">
-                                            Активирован: {{ key.username or key.used_by }}
-                                        </div>
-                                    {% else %}
-                                        <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">
-                                            Не использован
-                                        </div>
-                                    {% endif %}
-                                </div>
-                                <button class="copy-btn" onclick="copyKey('{{ key.key_value }}')">Копировать</button>
-                            </div>
-                            {% endfor %}
-                        {% else %}
-                            <p style="color: var(--text-secondary); text-align: center; padding: 20px;">Нет сгенерированных ключей</p>
-                        {% endif %}
-                    </div>
-                </div>
             </div>
         </div>
     </div>
     <script>
-        function copyKey(value) {
-            navigator.clipboard.writeText(value).then(() => {
-                alert("Ключ " + value + " скопирован в буфер обмена!");
-            }).catch(err => {
-                console.error("Ошибка при копировании: ", err);
-            });
-        }
-        
-        function filterUsersTable() {
-            const input = document.getElementById("user-search-input");
-            const filter = input.value.toLowerCase();
-            const table = document.querySelector(".table-container table");
-            const rows = table.getElementsByTagName("tr");
-
-            for (let i = 1; i < rows.length; i++) {
-                const row = rows[i];
-                const cells = row.getElementsByTagName("td");
-                let match = false;
-                
-                for (let j = 0; j < cells.length; j++) {
-                    const cell = cells[j];
-                    if (cell) {
-                        const txt = cell.innerText || cell.textContent;
-                        if (txt.toLowerCase().indexOf(filter) > -1) {
-                            match = true;
-                            break;
-                        }
-                    }
-                }
-                row.style.display = match ? "" : "none";
-            }
-        }
-
         async function toggleBlacklist(checkbox) {
             const uid = checkbox.dataset.uid;
             const isBlacklisted = checkbox.checked;
             const badge = document.getElementById(`blacklist-badge-${uid}`);
-            
+
             badge.innerText = isBlacklisted ? "Забанен" : "Активен";
             badge.className = isBlacklisted ? "blacklist-badge text-danger" : "blacklist-badge text-success";
-            
+
             try {
                 const res = await fetch("/user/toggle_blacklist", {
                     method: "POST",
@@ -782,65 +559,6 @@
             }
         }
 
-        async function updateVpnExpiry(select) {
-            const uid = select.dataset.uid;
-            const action = select.value;
-            if (!action) return;
-            
-            const expiryTextDiv = document.getElementById(`vpn-expiry-${uid}`);
-            const originalText = expiryTextDiv.innerText;
-            expiryTextDiv.innerText = "Обновление...";
-            
-            try {
-                const res = await fetch("/user/update_vpn_expiry", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ telegram_id: uid, action: action })
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data.vpn_expires_at) {
-                        expiryTextDiv.innerText = "До: " + data.vpn_expires_at;
-                    } else {
-                        expiryTextDiv.innerText = "Нет подписки";
-                    }
-                } else {
-                    throw new Error("HTTP error " + res.status);
-                }
-            } catch (err) {
-                console.error("VPN expiry update failed:", err);
-                alert("Не удалось обновить подписку: " + err.message);
-                expiryTextDiv.innerText = originalText;
-            } finally {
-                select.value = "";
-            }
-        }
-        
-        async function ajaxToggleVpn(checkbox) {
-            const uid = checkbox.dataset.uid;
-            const isEnabled = checkbox.checked;
-            const statusBadge = document.getElementById(`vpn-status-badge-${uid}`);
-            
-            statusBadge.innerText = isEnabled ? "Активен" : "Откл.";
-            statusBadge.className = isEnabled ? "badge badge-active" : "badge badge-inactive";
-            
-            try {
-                const res = await fetch("/user/toggle_vpn_ajax", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ telegram_id: uid, vpn_enabled: isEnabled })
-                });
-                if (!res.ok) {
-                    throw new Error("HTTP error " + res.status);
-                }
-            } catch (err) {
-                console.error("VPN status toggle failed:", err);
-                alert("Не удалось изменить статус VPN: " + err.message);
-                checkbox.checked = !isEnabled;
-                statusBadge.innerText = !isEnabled ? "Активен" : "Откл.";
-                statusBadge.className = !isEnabled ? "badge badge-active" : "badge badge-inactive";
-            }
-        }
     </script>
     {% endif %}
 </body>

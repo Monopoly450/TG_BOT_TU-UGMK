@@ -1,8 +1,11 @@
 import os
 import logging
+import asyncio
 import aiohttp
 import base64
-from datetime import datetime, timedelta, timezone
+import io
+import math
+from PIL import Image, ImageOps, UnidentifiedImageError
 from openai import AsyncOpenAI
 
 logger = logging.getLogger("ai_manager")
@@ -12,27 +15,165 @@ from db_manager import db_manager
 # Read global OpenRouter key from environment
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-# Mapping friendly model names to OpenRouter specific IDs
-MODEL_MAP = {
-    # Premium
-    "kimi-k2.7-code": "moonshotai/kimi-k2.7-code",
-    "claude-opus-4.8": "anthropic/claude-opus-4.8",
-    "gpt-4": "openai/gpt-4o",
-    "gpt-5.5": "openai/gpt-5.5",
-    
-    # Standard
-    "gpt-4o-mini": "openai/gpt-4o-mini",
-    "deepseek-v3.2": "deepseek/deepseek-v3.2",
-    "minimax-m2.7": "minimax/minimax-m2.7",
-    "glm-5": "z-ai/glm-5",
-    
-    # Free
-    "nemotron-3-ultra-free": "nvidia/nemotron-3-ultra-550b-a55b:free",
-    "laguna-xs-2-free": "poolside/laguna-xs.2:free",
-    "qwen3-next-free": "qwen/qwen3-next-80b-a3b-instruct:free",
-    "gpt-oss-free": "openai/gpt-oss-120b:free",
-    "llama-3.3-free": "meta-llama/llama-3.3-70b-instruct:free"
-}
+# The catalog is deliberately kept in process memory: it is public metadata and
+# must not add a network request to every chat message.  A restart simply causes
+# the next request to refresh it again.
+MODEL_CATALOG_TTL_SECONDS = max(60, int(os.getenv("OPENROUTER_MODELS_CACHE_TTL", "3600")))
+_model_catalog_retry_at = 0.0
+_model_catalog_cache: list[dict] = []
+_model_catalog_updated_at = 0.0
+_model_catalog_lock = None
+
+# The free router remains available when the catalog cannot be reached.
+MAX_INPUT_PRICE = 0.30  # USD per million tokens
+MAX_OUTPUT_PRICE = 1.50
+MAX_IMAGE_PRICE = 0.001  # USD per image
+DEFAULT_AI_MODEL = "openrouter/free"
+FALLBACK_MODELS = [{
+    "id": DEFAULT_AI_MODEL, "name": "Автовыбор · бесплатно", "is_free": True,
+    "supports_images": True, "description": "OpenRouter подберёт бесплатную модель для текста или фото",
+    "input_price": 0, "output_price": 0,
+}]
+
+
+def normalize_model_id(model_name: str | None) -> str:
+    return model_name.strip() if isinstance(model_name, str) and model_name.strip() else DEFAULT_AI_MODEL
+
+
+def _is_chat_model(model: dict) -> bool:
+    architecture = model.get("architecture") or {}
+    input_modalities = set(architecture.get("input_modalities") or [])
+    output_modalities = set(architecture.get("output_modalities") or [])
+    return "text" in input_modalities and output_modalities == {"text"}
+
+
+def _is_free_model(model: dict) -> bool:
+    pricing = model.get("pricing") or {}
+    try:
+        # Missing mandatory prices, NaN, negative prices and any extra fee fail closed.
+        return all(float(pricing[field]) == 0 for field in ("prompt", "completion")) and all(
+            float(value) == 0 for value in pricing.values()
+        )
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def select_chat_models(raw_models: list[dict]) -> list[dict]:
+    catalog = {}
+    for model in raw_models:
+        if not isinstance(model, dict):
+            continue
+        model_id = model.get("id")
+        if not isinstance(model_id, str) or not model_id or not _is_chat_model(model):
+            continue
+        if any(word in model_id for word in (":batch", "content-safety", "moderation")):
+            continue
+        is_free = _is_free_model(model)
+        try:
+            pricing = {k: float(v) for k, v in model.get("pricing", {}).items()}
+            input_price = pricing["prompt"] * 1_000_000
+            output_price = pricing["completion"] * 1_000_000
+            if not all(math.isfinite(v) and v >= 0 for v in pricing.values()):
+                continue
+            if input_price > MAX_INPUT_PRICE or output_price > MAX_OUTPUT_PRICE or pricing.get("request", 0) > 0:
+                continue
+            if pricing.get("image", 0) > MAX_IMAGE_PRICE or pricing.get("internal_reasoning", 0) * 1_000_000 > MAX_OUTPUT_PRICE:
+                continue
+            if model_id.endswith(":free") and not is_free:
+                continue
+        except (KeyError, TypeError, ValueError):
+            continue
+        catalog[model_id] = {
+            "id": model_id, "name": model.get("name") or model_id, "is_free": is_free,
+            "supports_images": "image" in model["architecture"].get("input_modalities", []),
+            "description": ("Текст и фотографии" if "image" in model["architecture"].get("input_modalities", []) else "Работа с текстом"),
+            "input_price": round(input_price, 6), "output_price": round(output_price, 6),
+        }
+    return sorted(catalog.values(), key=lambda m: (not m["is_free"], m["id"] != DEFAULT_AI_MODEL, m["output_price"], m["name"].casefold()))
+
+
+def filter_chat_models(models: list[dict], category: str = "all") -> list[dict]:
+    return [m for m in models if category == "all"
+            or (category == "text" and not m["supports_images"])
+            or (category == "photo" and m["supports_images"])
+            or (category == "free" and m["is_free"])
+            or (category == "cheap" and not m["is_free"])]
+
+
+def normalize_chat_image(data: str) -> str:
+    """Validate an untrusted upload and return a bounded JPEG for both clients."""
+    if not isinstance(data, str) or len(data) > 7_000_000:
+        raise ValueError("Фото слишком большое. Максимум — 5 МБ.")
+    if data.startswith("data:"):
+        header, separator, data = data.partition(",")
+        if not separator or header not in ("data:image/jpeg;base64", "data:image/png;base64", "data:image/webp;base64"):
+            raise ValueError("Выберите фотографию JPEG, PNG или WebP.")
+    try:
+        raw = base64.b64decode(data, validate=True)
+        if not raw or len(raw) > 5 * 1024 * 1024:
+            raise ValueError("Фото слишком большое или пустое. Максимум — 5 МБ.")
+        with Image.open(io.BytesIO(raw)) as photo:
+            if photo.format not in ("JPEG", "PNG", "WEBP") or photo.width * photo.height > 25_000_000:
+                raise ValueError("Неподдерживаемый формат или разрешение фото (максимум 25 Мп).")
+            photo = ImageOps.exif_transpose(photo)
+            photo.thumbnail((1600, 1600))
+            output = io.BytesIO()
+            photo.convert("RGB").save(output, format="JPEG", quality=82)
+            return base64.b64encode(output.getvalue()).decode("ascii")
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as error:
+        raise ValueError("Не удалось прочитать фото. Выберите другой файл.") from error
+
+
+async def get_chat_models(force_refresh: bool = False) -> list[dict]:
+    """Refresh free and economical text and vision models from the public catalog hourly."""
+    global _model_catalog_cache, _model_catalog_updated_at, _model_catalog_lock, _model_catalog_retry_at
+    now = asyncio.get_running_loop().time()
+    if not force_refresh and _model_catalog_cache and (now < _model_catalog_retry_at or now - _model_catalog_updated_at < MODEL_CATALOG_TTL_SECONDS):
+        return _model_catalog_cache
+
+    if _model_catalog_lock is None:
+        _model_catalog_lock = asyncio.Lock()
+
+    async with _model_catalog_lock:
+        now = asyncio.get_running_loop().time()
+        if not force_refresh and _model_catalog_cache and (now < _model_catalog_retry_at or now - _model_catalog_updated_at < MODEL_CATALOG_TTL_SECONDS):
+            return _model_catalog_cache
+
+        headers = {}
+        try:
+            key = await db_manager.get_setting("openrouter_api_key")
+        except Exception:
+            key = None
+        key = key or OPENROUTER_API_KEY
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
+
+        try:
+            timeout = aiohttp.ClientTimeout(total=12)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(
+                    "https://openrouter.ai/api/v1/models",
+                    headers=headers,
+                    params={"input_modalities": "text", "output_modalities": "text", "sort": "most-popular"},
+                ) as response:
+                    if response.status != 200:
+                        raise RuntimeError(f"OpenRouter returned HTTP {response.status}")
+                    payload = await response.json()
+
+            catalog = select_chat_models(payload.get("data", []))
+
+            if not catalog:
+                raise RuntimeError("OpenRouter returned no eligible chat models")
+            _model_catalog_cache = catalog
+            _model_catalog_updated_at = asyncio.get_running_loop().time()
+            logger.info("Updated OpenRouter chat model catalog: %d models", len(catalog))
+        except Exception as error:
+            logger.warning("Unable to refresh OpenRouter model catalog: %s", error)
+            _model_catalog_retry_at = asyncio.get_running_loop().time() + 60
+            if not _model_catalog_cache:
+                _model_catalog_cache = FALLBACK_MODELS.copy()
+
+    return _model_catalog_cache
 
 async def get_ai_response(prompt: str, api_key: str, model_name: str, history: list, image_data_b64: str = None) -> str:
     """
@@ -55,22 +196,27 @@ async def get_ai_response(prompt: str, api_key: str, model_name: str, history: l
     if not key:
         raise ValueError("Ключ API OpenRouter не настроен. Укажите его в панели управления или .env файле.")
 
-    # Log key info for debugging (safe mask)
-    masked_key = f"{key[:10]}...{key[-4:]}" if len(key) > 15 else "too_short"
-    logger.info(f"Using API key from {key_source}: {masked_key} for model {model_name}")
+    logger.info("Using %s for model %s", key_source, model_name)
 
-    # Get mapped OpenRouter model identifier
-    router_model = MODEL_MAP.get(model_name, model_name)
-    if "/" not in router_model:
-        router_model = f"openai/{router_model}"  # default fallback
+    router_model = normalize_model_id(model_name)
 
-    supports_vision = any(x in router_model.lower() for x in ["gpt-4o", "gpt-5.5", "claude-opus", "claude-3-opus", "claude-3.5", "vision"])
+    metadata = next((m for m in await get_chat_models() if m["id"] == router_model), None)
+    if not metadata:
+        raise ValueError("Модель больше недоступна. Выберите другую модель.")
+    supports_vision = metadata["supports_images"]
+    if image_data_b64 and not supports_vision:
+        raise ValueError("Эта модель работает только с текстом. Выберите модель в разделе «Фото».")
 
     try:
         # Initialize OpenAI-compatible client pointing to OpenRouter
         client = AsyncOpenAI(
             api_key=key,
-            base_url="https://openrouter.ai/api/v1"
+            base_url="https://openrouter.ai/api/v1",
+            # Free provider pools often return Retry-After: 60.  Retrying in
+            # the request handler makes a Telegram user wait minutes without
+            # feedback; surface the rate-limit message immediately instead.
+            max_retries=0,
+            timeout=30.0,
         )
         
         # Build chat messages sequence
@@ -102,6 +248,7 @@ async def get_ai_response(prompt: str, api_key: str, model_name: str, history: l
             model=router_model,
             messages=messages,
             max_tokens=4096,
+            extra_body={"provider": {"sort": "price", "max_price": {"prompt": 0 if metadata["is_free"] else MAX_INPUT_PRICE, "completion": 0 if metadata["is_free"] else MAX_OUTPUT_PRICE, "request": 0, "image": 0 if metadata["is_free"] else MAX_IMAGE_PRICE}}},
             extra_headers={
                 "HTTP-Referer": "https://tu-ugmk-bot.ru",
                 "X-Title": "TU UGMK Bot"
@@ -109,116 +256,11 @@ async def get_ai_response(prompt: str, api_key: str, model_name: str, history: l
         )
         if not response or not getattr(response, 'choices', None) or len(response.choices) == 0 or response.choices[0] is None:
             raise ValueError("Модель ИИ временно перегружена или вернула пустой ответ. Пожалуйста, попробуйте другую модель или сделайте запрос позже.")
-        return response.choices[0].message.content
+        content = response.choices[0].message.content
+        if not content or not content.strip():
+            raise ValueError("Модель вернула пустой ответ. Попробуйте другой запрос или модель.")
+        return content
 
     except Exception as e:
         logger.error(f"OpenRouter API error (model {router_model}): {e}")
         raise e
-
-
-async def transcribe_audio(audio_data: bytes, format: str, api_key: str) -> str:
-    """
-    Sends audio bytes to OpenRouter audio/transcriptions API and returns the text.
-    """
-    key = api_key
-    key_source = "user_custom_key"
-    if not key:
-        key_source = "db_global_key"
-        try:
-            key = await db_manager.get_setting("openrouter_api_key")
-        except Exception:
-            key = None
-        if not key:
-            key_source = "env_global_key"
-            key = OPENROUTER_API_KEY
-            
-    if not key:
-        raise ValueError("Ключ API OpenRouter не настроен. Укажите его в панели управления или .env файле.")
-
-    masked_key = f"{key[:10]}...{key[-4:]}" if len(key) > 15 else "too_short"
-    logger.info(f"Using API key for transcription from {key_source}: {masked_key}")
-
-    url = "https://openrouter.ai/api/v1/audio/transcriptions"
-    headers = {
-        "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json"
-    }
-    
-    b64_data = base64.b64encode(audio_data).decode("utf-8")
-    payload = {
-        "model": "openai/whisper-large-v3",
-        "input_audio": {
-            "data": b64_data,
-            "format": format
-        }
-    }
-    
-    async with aiohttp.ClientSession() as session:
-        async with session.post(url, headers=headers, json=payload) as resp:
-            if resp.status not in (200, 201):
-                text = await resp.text()
-                logger.error(f"OpenRouter transcription API error: status {resp.status}, response: {text}")
-                raise ValueError(f"Ошибка OpenRouter: {text}")
-            
-            data = await resp.json()
-            return data.get("text", "")
-
-
-async def create_openrouter_key(limit_usd: float, expires_days: int = 30) -> str:
-    """
-    Creates an OpenRouter API key programmatically using the Management API key.
-    """
-    mgmt_key = None
-    try:
-        mgmt_key = await db_manager.get_setting("openrouter_management_key")
-    except Exception:
-        pass
-        
-    if not mgmt_key:
-        mgmt_key = os.getenv("OPENROUTER_MANAGEMENT_KEY")
-        
-    if not mgmt_key:
-        # Fallback to standard key if management key is not set
-        mgmt_key = os.getenv("OPENROUTER_API_KEY")
-        if not mgmt_key:
-            try:
-                mgmt_key = await db_manager.get_setting("openrouter_api_key")
-            except Exception:
-                pass
-                
-    if not mgmt_key:
-        raise ValueError("Management API Key для OpenRouter не настроен. Пожалуйста, укажите его в настройках панели управления.")
-        
-    url = "https://openrouter.ai/api/v1/keys"
-    headers = {
-        "Authorization": f"Bearer {mgmt_key}",
-        "Content-Type": "application/json"
-    }
-    
-    expires_at = (datetime.now(timezone.utc) + timedelta(days=expires_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    name = f"tg_{int(datetime.now(timezone.utc).timestamp())}"
-    
-    payload = {
-        "name": name,
-        "expires_at": expires_at,
-        "limit": limit_usd
-    }
-    
-    async with aiohttp.ClientSession() as session:
-        async with session.post(url, headers=headers, json=payload) as resp:
-            if resp.status not in (200, 201):
-                text = await resp.text()
-                logger.error(f"OpenRouter management API error: status {resp.status}, response: {text}")
-                raise ValueError(f"Ошибка OpenRouter: {text}")
-            
-            data = await resp.json()
-            api_key = data.get("key")
-            if not api_key:
-                # Fallback to nested data.key (used in tests)
-                key_data = data.get("data")
-                if isinstance(key_data, dict):
-                    api_key = key_data.get("key")
-            
-            if not api_key:
-                raise ValueError(f"Ключ не найден в ответе OpenRouter: {data}")
-            return api_key
