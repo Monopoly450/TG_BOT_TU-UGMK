@@ -6,6 +6,7 @@ import logging
 import asyncio
 import aiohttp
 from network_config import telegram_connector
+from ai_load import AIBusyError
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi import FastAPI, Request, Form, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -576,6 +577,8 @@ async def api_ai_chat(request: Request):
     except Exception as e:
         logger.error(f"AI response failed: {e}")
         err_msg = str(e).lower()
+        if isinstance(e, AIBusyError):
+            raise HTTPException(status_code=503, detail=str(e), headers={"Retry-After": "10"})
         if getattr(e, "status_code", None) == 429 or "429" in err_msg or "rate limit" in err_msg:
             raise HTTPException(status_code=429, detail="Модель временно занята или достигнут лимит OpenRouter. Подождите или выберите другую модель.")
         if has_custom_key and any(x in err_msg for x in ["401", "unauthorized", "invalid key"]):
@@ -914,7 +917,7 @@ async def api_admin_status(request: Request):
         "cpu": cpu,
         "ram": ram,
         "redis_status": redis_status,
-        "cache_version": 39,
+        "cache_version": CACHE_VERSION,
         "workers": workers
     }
 

@@ -10,6 +10,7 @@ from playwright.async_api import async_playwright
 import redis.asyncio as redis
 from typing import Any
 from network_config import configure_direct_network
+from schedule_refresh import daily_refresh_loop, store_schedule_result
 
 # ═══════════════════ НАСТРОЙКИ ═══════════════════
 SCHEDULE_URL = "https://up.corp.tu-ugmk.com/student/schedule"
@@ -19,7 +20,7 @@ PASSWORD = os.getenv("PASSWORD")
 if not LOGIN or not PASSWORD:
     raise RuntimeError("LOGIN and PASSWORD must be configured in .env")
 
-CACHE_LIFETIME = 86400
+CACHE_LIFETIME = 172800  # Daily refresh keeps a previous copy available during portal outages.
 YEKATERINBURG_TZ = timezone(timedelta(hours=5))
 
 # ════════════ БАЗЫ ДАННЫХ ID ═════════════════════
@@ -316,6 +317,7 @@ class ScheduleParser:
 async def main():
     await dao.connect()
     p = ScheduleParser(); await p.init()
+    refresh_task = asyncio.create_task(daily_refresh_loop(dao.client))
     logger.info("🚀 Scraper ready.")
     while True:
         try:
@@ -329,10 +331,7 @@ async def main():
             sd = mon.strftime("%d.%m.%Y")
             key = f"data:v{CACHE_VERSION}:{sd}:{tt}:{tv}"
             res = await p.fetch(wo, tt, tv)
-            if res and "_error" in res:
-                await dao.set(key, res, ex=60)
-            else:
-                await dao.set(key, res if res else {"_empty": True}, ex=CACHE_LIFETIME)
+            await store_schedule_result(dao, key, res, CACHE_LIFETIME)
             if dao.ok:
                 await dao.client.delete(f"queued:{key}")
         except Exception as e: logger.error(f"Loop error: {e}"); await asyncio.sleep(5)

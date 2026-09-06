@@ -7,6 +7,7 @@ import io
 import math
 from PIL import Image, ImageOps, UnidentifiedImageError
 from openai import AsyncOpenAI
+from ai_load import run_completion
 
 logger = logging.getLogger("ai_manager")
 
@@ -212,15 +213,13 @@ async def get_ai_response(prompt: str, api_key: str, model_name: str, history: l
         client = AsyncOpenAI(
             api_key=key,
             base_url="https://openrouter.ai/api/v1",
-            # Free provider pools often return Retry-After: 60.  Retrying in
-            # the request handler makes a Telegram user wait minutes without
-            # feedback; surface the rate-limit message immediately instead.
+            # Retry and concurrency budgets are shared by bot and Mini App.
             max_retries=0,
-            timeout=30.0,
+            timeout=25.0,
         )
         
         # Build chat messages sequence
-        messages = []
+        messages = [{"role": "system", "content": "Ты учебный помощник студентов ТУ УГМК. Отвечай на русском языке, если пользователь явно не попросил другой язык. Объясняй понятно и по делу."}]
         for h in history:
             content = h["content"]
             if isinstance(content, list) and not supports_vision:
@@ -244,7 +243,8 @@ async def get_ai_response(prompt: str, api_key: str, model_name: str, history: l
         else:
             messages.append({"role": "user", "content": prompt})
         
-        response = await client.chat.completions.create(
+        response = await run_completion(
+            client, key, metadata["is_free"],
             model=router_model,
             messages=messages,
             max_tokens=4096,
@@ -264,3 +264,6 @@ async def get_ai_response(prompt: str, api_key: str, model_name: str, history: l
     except Exception as e:
         logger.error(f"OpenRouter API error (model {router_model}): {e}")
         raise e
+    finally:
+        if 'client' in locals() and callable(getattr(client, 'close', None)):
+            await client.close()

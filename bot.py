@@ -33,6 +33,7 @@ import redis.asyncio as redis # type: ignore
 from secure_store import SecureStore
 from db_manager import db_manager
 from ai_manager import get_ai_response, get_chat_models, normalize_model_id, filter_chat_models, normalize_chat_image
+from ai_load import AIBusyError
 import io
 
 # ═══════════════════ НАСТРОЙКИ ═══════════════════
@@ -1964,7 +1965,9 @@ async def ai_chat_message(m: Message, state: FSMContext):
             is_rate_limit = "rate" in err_msg or "429" in err_msg or type(e).__name__ == "RateLimitError"
             is_vision_unsupported = any(x in err_msg for x in ["vision", "multimodal", "image input", "format"]) or ("400" in err_msg and image_data_b64 is not None)
             
-            if is_rate_limit:
+            if isinstance(e, AIBusyError):
+                await m.answer(str(e))
+            elif is_rate_limit:
                 await m.answer(
                     "⏳ <b>Превышен лимит запросов (Rate Limit) от провайдера OpenRouter.</b>\n\n"
                     "Пожалуйста, подождите несколько минут или смените модель ИИ в настройках.",

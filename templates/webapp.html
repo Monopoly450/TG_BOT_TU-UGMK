@@ -2858,6 +2858,10 @@
             typing.innerHTML = '<span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="typing-label">Думаю над ответом…</span>';
             container.appendChild(typing);
             container.scrollTop = container.scrollHeight;
+            const waitingTimer = setTimeout(() => {
+                const label = typing.querySelector('.typing-label');
+                if (label) label.textContent = 'Ждём ответ ИИ. При высокой нагрузке это займёт чуть больше времени…';
+            }, 8000);
             try {
                 const res = await fetch('/api/ai_chat', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2878,6 +2882,7 @@
                 }
                 showChatError(err.message + ' Сообщение сохранено в поле ввода.');
             } finally {
+                clearTimeout(waitingTimer);
                 typing.remove();
                 chatBusy = false;
                 setChatControls();

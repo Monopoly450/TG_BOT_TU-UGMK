@@ -3,12 +3,14 @@ import base64
 import io
 import json
 import unittest
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from PIL import Image
 import ai_manager as ai
 import dashboard as api
+import ai_load
 
 
 def photo():
@@ -107,6 +109,14 @@ class CatalogRefreshTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ChatTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        @asynccontextmanager
+        async def slot(*args):
+            yield
+        self.gate_patch = patch.object(ai_load, 'get_gate', return_value=SimpleNamespace(slot=slot, cooldown=AsyncMock()))
+        self.gate_patch.start()
+        self.addCleanup(self.gate_patch.stop)
+
     async def test_vision_payload_and_followup_retain_image(self):
         catalog = ai.select_chat_models([model()])
         client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=AsyncMock(
@@ -117,8 +127,10 @@ class ChatTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, "Ответ")
         self.assertEqual(client.chat.completions.create.call_args.kwargs["extra_body"]["provider"]["max_price"], {"prompt": 0, "completion": 0, "request": 0, "image": 0})
         messages = client.chat.completions.create.call_args.kwargs["messages"]
-        self.assertIsInstance(messages[0]["content"], list)
-        self.assertEqual(messages[1]["content"][1]["type"], "image_url")
+        self.assertEqual(messages[0]['role'], 'system')
+        self.assertIn('на русском', messages[0]['content'])
+        self.assertIsInstance(messages[1]["content"], list)
+        self.assertEqual(messages[2]["content"][1]["type"], "image_url")
 
     async def test_text_model_rejects_photo_before_provider(self):
         catalog = ai.select_chat_models([model("deepseek/deepseek-v3.2", inputs=["text"])])
