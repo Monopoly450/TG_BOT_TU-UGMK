@@ -42,6 +42,8 @@ import io
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 PROXY_URL = os.getenv("PROXY_URL")
 WEBAPP_URL = os.getenv("WEBAPP_URL", "https://your-bot-domain.ru")
+AUTHOR_DRAFT = 'Привет! Хочу сказать спасибо за бота / есть идея: '
+AUTHOR_URL = 'https://t.me/mopoly_rio?text=' + urllib.parse.quote(AUTHOR_DRAFT, safe='')
 
 if not BOT_TOKEN:
     raise ValueError("⚠️ BOT_TOKEN не найден! Убедитесь, что он указан в .env файле или переменных окружения.")
@@ -180,11 +182,6 @@ class OutgoingMessageTracker(BaseRequestMiddleware):
         if isinstance(result, Message):
             try:
                 await track_message(result.chat.id, result.message_id) # type: ignore
-                markup = getattr(method, "reply_markup", None)
-                if isinstance(markup, ReplyKeyboardMarkup) and any(
-                    b.text == "📅 Мое расписание" for row in markup.keyboard for b in row
-                ):
-                    await send_app_launcher(bot, result.chat.id)
             except Exception as e:
                 logger.error(f"Outgoing tracking failed: {e}")
         return result
@@ -317,39 +314,29 @@ def get_main_menu(val=None):
             [KeyboardButton(text="📅 Мое расписание"), KeyboardButton(text="🔔 Моя подписка")],
             [KeyboardButton(text="🤖 ИИ-Ассистент"), KeyboardButton(text="🏫 Экосистема")],
             [KeyboardButton(text="⭐ Избранное"), KeyboardButton(text="💻 Толк")],
-            [KeyboardButton(text="🧹 Очистить")]
+            [KeyboardButton(text="🧹 Очистить"), KeyboardButton(text="👨‍💻 Автор")]
         ]
-    return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
+    kb.insert(0, [get_app_keyboard_button()])
+    return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, is_persistent=True)
 
-async def send_app_launcher(bot_client, chat_id):
-    """Keep one launcher in the conversation whenever the main menu is shown."""
-    previous = await dao.get(f"miniapp_launcher:{chat_id}")
-    message = await bot_client.send_message(
-        chat_id,
-        "🎓 <b>ТУ УГМК · Кампус</b>\n\nРасписание, ИИ и жизнь университета — в одном приложении.",
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text="Открыть приложение ↗", web_app=WebAppInfo(url=f"{WEBAPP_URL.rstrip('/')}/webapp"))
-        ]]),
+def get_app_keyboard_button():
+    return KeyboardButton(
+        text="🎓 ТУ УГМК · Кампус", style="success",
+        web_app=WebAppInfo(url=f"{WEBAPP_URL.rstrip('/')}/webapp?launch=keyboard"),
     )
-    await dao.set(f"miniapp_launcher:{chat_id}", message.message_id)
-    if previous:
-        try:
-            await bot_client.delete_message(chat_id, int(previous))
-        except TelegramBadRequest:
-            pass
-    return message
-
 
 def get_submenu_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🔙 Назад"), KeyboardButton(text="🧹 Очистить")]
+            [get_app_keyboard_button()],
+            [KeyboardButton(text="🔙 Назад")],
+            [KeyboardButton(text="🧹 Очистить"), KeyboardButton(text="👨‍💻 Автор")]
         ],
-        resize_keyboard=True
+        resize_keyboard=True,
+        is_persistent=True,
     )
 
-def get_day_pagination_kb(target_date: date):        
+def get_day_pagination_kb(target_date: date):
     today = datetime.now(YEKATERINBURG_TZ).date()
     monday = today - timedelta(days=today.weekday())
     arrows = []
@@ -401,6 +388,22 @@ async def fmt_week(s: dict, group_name: str = "") -> str:
     return full_text if full_text.strip() else "😴 На этой неделе занятий нет." # type: ignore
 
 # --- ADMIN HANDLERS ---
+@dp.message(F.text == "👨‍💻 Автор")
+@dp.message(Command("author"))
+async def show_author(m: Message):
+    # Register before state handlers so this never becomes an AI prompt or a broadcast.
+    await m.answer(
+        "👨‍💻 <b>ТУ УГМК · Кампус</b>\n\n"
+        "Проект создан и развивается на личном энтузиазме для удобства студентов.\n"
+        "Автор и разработчик — Владислав (@mopoly_rio).\n\n"
+        "Если бот помогает в учёбе — буду рад вашим тёплым словам, отзывам и идеям!",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="💬 Написать автору", url=AUTHOR_URL, style="success")
+        ]]),
+    )
+
+
 @dp.message(Command("stop"), F.from_user.id.in_(ADMIN_IDS))
 async def admin_stop(m: Message):
     await dao.set("maintenance_mode", "1")
@@ -1025,9 +1028,6 @@ async def handle_weeks(m: Message, state: FSMContext):
 
 async def clear_chat_history(chat_id: int, exclude_ids: list = None):
     exclude_ids = list(exclude_ids or [])
-    launcher = await dao.get(f"miniapp_launcher:{chat_id}")
-    if launcher:
-        exclude_ids.append(int(launcher))
     ids = list(set(await dao.smembers(f"msg_history:{chat_id}")))
     ids = [int(x) for x in ids if int(x) not in exclude_ids]
     for i in range(0, len(ids), 100):
@@ -1037,6 +1037,7 @@ async def clear_chat_history(chat_id: int, exclude_ids: list = None):
                 try: await bot.delete_message(chat_id, mid)
                 except: continue
     await dao.delete(f"msg_history:{chat_id}")
+    await dao.delete(f"miniapp_launcher:{chat_id}")  # Retire the old launcher marker.
     for ex_id in exclude_ids:
         await dao.sadd(f"msg_history:{chat_id}", ex_id)
 
@@ -1150,7 +1151,7 @@ async def configure_mini_app_menu_button(chat_id: int | None = None):
         web_app_url = f"{WEBAPP_URL.rstrip('/')}/webapp"
         await bot.set_chat_menu_button(
             menu_button=MenuButtonWebApp(
-                text="Mini App",
+                text="🎓 ТУ УГМК · Кампус",
                 web_app=WebAppInfo(url=web_app_url),
             )
         )

@@ -92,6 +92,16 @@ class GroupApiTests(unittest.IsolatedAsyncioTestCase):
 
 
 class LauncherTests(unittest.IsolatedAsyncioTestCase):
+    async def test_author_draft_slash_cannot_be_parsed_as_username_path_on_mac(self):
+        b = self.module
+        message = SimpleNamespace(answer=AsyncMock())
+        await b.show_author(message)
+        url = message.answer.call_args.kwargs['reply_markup'].inline_keyboard[0][0].url
+        self.assertEqual(urlparse(url).path, '/mopoly_rio')
+        self.assertNotIn('/', urlparse(url).query)
+        self.assertIn('%2F', url)
+        self.assertEqual(parse_qs(urlparse(url).query)['text'], [b.AUTHOR_DRAFT])
+
     async def asyncSetUp(self):
         with patch.dict(os.environ, {'BOT_TOKEN':'12345:offline-test-token','PROXY_URL':''}), patch('secure_store.SecureStore'):
             import bot
@@ -124,23 +134,46 @@ class LauncherTests(unittest.IsolatedAsyncioTestCase):
                 await b.cb_sel(callback,MagicMock())
                 redis.hset.assert_awaited_once_with('user_subs','1','А-25101')
 
-    async def test_main_menu_message_creates_launcher(self):
+    async def test_main_menu_message_does_not_send_extra_launcher(self):
         b=self.module
         result=b.Message(message_id=7,date=datetime.now(timezone.utc),chat={'id':1,'type':'private'})
         method=SimpleNamespace(reply_markup=b.get_main_menu())
-        with patch.object(b,'track_message',AsyncMock()),patch.object(b,'send_app_launcher',AsyncMock()) as launcher:
-            await b.OutgoingMessageTracker()(AsyncMock(return_value=result),MagicMock(),method)
-            launcher.assert_awaited_once()
+        client = SimpleNamespace(send_message=AsyncMock())
+        send = AsyncMock(return_value=result)
+        with patch.object(b,'track_message',AsyncMock()) as track:
+            self.assertIs(await b.OutgoingMessageTracker()(send,client,method), result)
+            send.assert_awaited_once_with(client, method)
+            track.assert_awaited_once_with(1, 7)
+            client.send_message.assert_not_awaited()
 
-    async def test_launcher_replaces_previous_and_cleanup_keeps_current(self):
+    def test_reply_menus_launch_via_main_app_bridge_without_text(self):
+        b = self.module
+        for menu in [b.get_main_menu(), b.get_main_menu('group'), b.get_submenu_keyboard()]:
+            self.assertTrue(menu.is_persistent)
+            self.assertEqual(len(menu.keyboard[0]), 1)
+            button = menu.keyboard[0][0]
+            self.assertEqual(button.text, '🎓 ТУ УГМК · Кампус')
+            self.assertEqual(button.model_dump()['style'], 'success')
+            self.assertTrue(button.web_app.url.endswith('/webapp?launch=keyboard'))
+
+    async def test_native_menu_opens_app_directly_without_message(self):
+        b = self.module
+        client = SimpleNamespace(set_chat_menu_button=AsyncMock(), send_message=AsyncMock())
+        with patch.object(b, 'bot', client), patch.object(b, 'WEBAPP_URL', 'https://example.com/'):
+            await b.configure_mini_app_menu_button()
+            button = client.set_chat_menu_button.call_args.kwargs['menu_button']
+            self.assertEqual(button.type, 'web_app')
+            self.assertEqual(button.text, '🎓 ТУ УГМК · Кампус')
+            self.assertEqual(button.web_app.url, 'https://example.com/webapp')
+            client.send_message.assert_not_awaited()
+
+    async def test_cleanup_removes_old_launcher_and_keeps_explicit_exclusions(self):
         b=self.module
         redis=SimpleNamespace(get=AsyncMock(return_value='8'),set=AsyncMock(),smembers=AsyncMock(return_value={'7','8','9'}),delete=AsyncMock(),sadd=AsyncMock())
         client=SimpleNamespace(send_message=AsyncMock(return_value=SimpleNamespace(message_id=10)),delete_message=AsyncMock(),delete_messages=AsyncMock())
-        with patch.object(b,'dao',redis),patch.object(b,'bot',client),patch.object(b,'WEBAPP_URL','https://example.com'):
-            await b.send_app_launcher(client,1)
-            client.delete_message.assert_awaited_once_with(1,8)
-            self.assertEqual(client.send_message.call_args.kwargs['reply_markup'].inline_keyboard[0][0].web_app.url,'https://example.com/webapp')
-            await b.clear_chat_history(1)
+        with patch.object(b,'dao',redis),patch.object(b,'bot',client):
+            await b.clear_chat_history(1, exclude_ids=[9])
             deleted=client.delete_messages.call_args.args[1]
-            self.assertNotIn(8,deleted)
-            self.assertEqual(set(deleted),{7,9})
+            self.assertEqual(set(deleted),{7,8})
+            redis.delete.assert_any_await('miniapp_launcher:1')
+            redis.sadd.assert_awaited_once_with('msg_history:1', 9)

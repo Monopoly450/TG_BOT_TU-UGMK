@@ -91,6 +91,8 @@ async def main():
         await page.goto("https://miniapp.test/webapp")
         await page.wait_for_selector("#init-screen", state="hidden")
         await page.wait_for_function("allChatModels.length === 3 && !historyLoading")
+        for selector in ['body', '.nav-btn', '#chat-input-field', '.schedule-online button']:
+            assert await page.locator(selector).first.evaluate("el => getComputedStyle(el).webkitTapHighlightColor") == 'rgba(0, 0, 0, 0)'
         assert await page.locator('#morning-time-select').input_value() == '08:17'
         assert await page.locator('#evening-time-select').input_value() == 'Отключено'
         assert await page.locator('.week-btn').count() == 2
@@ -99,7 +101,45 @@ async def main():
         assert await page.locator('#tab-ecosystem').evaluate("el => el.classList.contains('active')")
         await page.locator('nav button[onclick*=schedule]').click()
         await page.wait_for_selector(".online-join")
+        assert await page.evaluate("() => { loadSchedule(0); return !!document.querySelector('#schedule-container .online-join'); }")
+        await page.wait_for_function("!document.getElementById('schedule-container').hasAttribute('aria-busy')")
         await page.screenshot(path=str(output / "schedule-mobile.png"))
+        # Week transitions must animate without letting a slower old request win.
+        async def week_route(route):
+            offset = parse_qs(urlparse(route.request.url).query)['week_offset'][0]
+            await asyncio.sleep(.18 if offset == '1' else .03)
+            await route.fulfill(json={'schedule': {'Понедельник': [{'time':'09:00', 'subject':'Неделя ' + offset}]}})
+        await page.route('**/api/schedule?*', week_route)
+        await page.emulate_media(reduced_motion='no-preference')
+        await page.locator('.week-btn').nth(1).click()
+        assert await page.locator('.week-selector').get_attribute('data-week') == '1'
+        await page.wait_for_function("scheduleAnimation?.playState === 'running'")
+        assert 'Неделя 1' in await page.locator('#schedule-container').inner_text()
+        await page.evaluate('Promise.all([loadSchedule(0), loadSchedule(1), loadSchedule(0)])')
+        await page.wait_for_timeout(400)
+        assert 'Неделя 0' in await page.locator('#schedule-container').inner_text()
+        assert 'Неделя 1' not in await page.locator('#schedule-container').inner_text()
+        assert await page.locator('.week-btn').first.get_attribute('aria-pressed') == 'true'
+        await page.emulate_media(reduced_motion='reduce')
+        await page.evaluate('loadSchedule(1)')
+        assert await page.evaluate('scheduleAnimation === null')
+        await page.unroute('**/api/schedule?*', week_route)
+        await page.evaluate('loadSchedule(0)')
+        # Content scrolls behind both rounded glass panels, with no clipped strip.
+        layout = await page.evaluate('''() => {
+            const tab = document.getElementById('tab-schedule').getBoundingClientRect();
+            const header = document.querySelector('header');
+            const nav = document.querySelector('nav');
+            return {top: tab.top, bottom: tab.bottom, headerBottom: header.getBoundingClientRect().bottom,
+                navTop: nav.getBoundingClientRect().top, headerBlur: getComputedStyle(header).backdropFilter,
+                navBlur: getComputedStyle(nav).backdropFilter};
+        }''')
+        assert layout['top'] == 0 and layout['bottom'] == 844, layout
+        assert layout['top'] < layout['headerBottom'] < layout['navTop'] < layout['bottom'], layout
+        assert layout['headerBlur'] != 'none' and layout['navBlur'] != 'none'
+        await page.locator('#tab-schedule').evaluate('el => el.scrollTop = 140')
+        await page.screenshot(path=str(output / 'schedule-scrolled-glass.png'))
+        await page.locator('#tab-schedule').evaluate('el => el.scrollTop = 0')
         await page.locator("nav button").nth(1).click()
         await page.screenshot(path=str(output / "chat-mobile.png"))
         await page.locator("#model-picker-button").click()
@@ -121,6 +161,12 @@ async def main():
         await page.wait_for_function("cameraStream && !document.getElementById('camera-shutter').disabled")
         await page.evaluate('window.firstCameraTrack = cameraStream.getVideoTracks()[0]')
         assert await page.evaluate('cameraStream.getAudioTracks().length') == 0
+        camera_box = await page.locator('#camera-dialog').bounding_box()
+        assert camera_box['x'] == 0 and camera_box['y'] == 0
+        assert camera_box['width'] == 390 and camera_box['height'] == 844
+        assert await page.locator('#camera-dialog').get_by_role('button', name='Выбрать из галереи', exact=True).count() == 0
+        await page.evaluate('openCamera()')
+        assert await page.evaluate('cameraStream.getVideoTracks()[0] === firstCameraTrack')
         await page.locator('#camera-flip').click()
         await page.wait_for_function("cameraStream && !document.getElementById('camera-shutter').disabled")
         assert await page.evaluate("firstCameraTrack.readyState === 'ended'")
@@ -152,9 +198,11 @@ async def main():
         await page.get_by_role('button', name='Закрыть камеру', exact=True).click()
         assert await page.evaluate("closedTrack.readyState === 'ended' && cameraStream === null")
         # A late permission result after closing must also stop its stream.
-        await page.evaluate("() => { navigator.mediaDevices.getUserMedia = () => new Promise(resolve => { window.resolveCamera = resolve; }); }")
+        await page.evaluate("() => { window.cameraRequests = 0; navigator.mediaDevices.getUserMedia = () => { window.cameraRequests++; return new Promise(resolve => { window.resolveCamera = resolve; }); }; }")
         await page.locator('#attach-button').click()
         await page.get_by_role('button', name='Сфотографировать', exact=True).click()
+        await page.evaluate('openCamera(); openCamera()')
+        assert await page.evaluate('window.cameraRequests') == 1
         await page.get_by_role('button', name='Закрыть камеру', exact=True).click()
         await page.evaluate("async () => { window.lateStream = await realGetUserMedia({video: true}); resolveCamera(lateStream); }")
         await page.wait_for_function("lateStream.getTracks().every(track => track.readyState === 'ended')")
@@ -166,13 +214,30 @@ async def main():
         assert await gallery.element.get_attribute('capture') is None
         await gallery.set_files({'name': 'task.png', 'mimeType': 'image/png', 'buffer': image.getvalue()})
         await page.wait_for_function("pendingPhoto && pendingPhoto.startsWith('data:image/png')")
-        await page.locator("#chat-input-field").fill("Помоги решить задание")
+        # Native clipboard text paste, followed by mixed image + text paste.
+        await page.context.grant_permissions(['clipboard-read', 'clipboard-write'])
+        await page.evaluate("navigator.clipboard.writeText('Помоги решить задание')")
+        await page.locator('#chat-input-field').fill('')
+        await page.locator('#chat-input-field').press('Control+V')
+        assert await page.locator('#chat-input-field').input_value() == 'Помоги решить задание'
+        await page.evaluate('''async () => {
+            const blob = await (await fetch(pendingPhoto)).blob();
+            removeAttachment();
+            await navigator.clipboard.write([new ClipboardItem({
+                'image/png': blob,
+                'text/plain': new Blob([' с картинки'], {type: 'text/plain'})
+            })]);
+        }''')
+        await page.locator('#chat-input-field').press('Control+V')
+        await page.wait_for_function("pendingPhoto && pendingPhoto.startsWith('data:image/png')")
+        assert await page.locator('#chat-input-field').input_value() == 'Помоги решить задание с картинки'
         await page.locator("#chat-send-button").click()
         await page.wait_for_selector('.typing-label')
         assert await page.locator('.typing-label').inner_text() == 'Думаю…'
         assert await page.locator('.typing-label').evaluate('el => parseFloat(getComputedStyle(el).fontSize)') <= 11
         await page.wait_for_function("!chatBusy")
         assert len(calls) == 1 and calls[0]["image"].startswith("data:image/png;base64,")
+        assert calls[0]['prompt'] == 'Помоги решить задание с картинки'
         assert await page.locator(".chat-msg.user img").count() == 1
         assert await page.locator(".chat-msg.ai").count() == 1
         ai_box = await page.locator('.chat-msg.ai').bounding_box()
@@ -299,6 +364,46 @@ async def main():
         assert 'Пара Ит-25107' not in await page.locator('#schedule-container').inner_text()
         assert await page.evaluate('currentTargetName') == 'Ит-26107'
         assert [w[1]['group_name'] for w in writes if w[0]=='/api/set_group'][-1] == 'Ит-26107'
+        # Exercise real motion as well as the reduced-motion path used above.
+        await page.emulate_media(reduced_motion='no-preference')
+        await page.evaluate("() => { switchTab('profile', document.querySelector('nav button[onclick*=profile]')); }")
+        await page.wait_for_function("document.getElementById('tab-profile').getAnimations().length > 0")
+        # Tapping the selected tab again must not restart its entrance animation.
+        assert await page.evaluate("() => { const running = tabAnimation; switchTab('profile', document.querySelector('nav button[onclick*=profile]')); return tabAnimation === running; }")
+        await page.evaluate("switchTab('chat', document.querySelector('nav button[onclick*=chat]'));switchTab('schedule', document.querySelector('nav button[onclick*=schedule]'));switchTab('chat', document.querySelector('nav button[onclick*=chat]'))")
+        await page.wait_for_timeout(450)
+        assert await page.locator('.tab-content.active').count() == 1
+        assert await page.locator('#tab-chat').evaluate("el => el.classList.contains('active')")
+        assert await page.locator('.is-leaving').count() == 0
+        assert await page.locator('nav .nav-btn.active').count() == 1
+        assert await page.locator('nav').evaluate("el => getComputedStyle(el, '::before').content") != 'none'
+        assert await page.locator('#chat-send-button').is_visible()
+        await page.evaluate("appendMessage('ai', 'Плавное появление нового ответа.'); appendMessage('ai', 'Сообщение из истории.', false)")
+        assert await page.locator('.chat-msg.ai').last.evaluate('el => el.getAnimations().length') == 0
+        await page.wait_for_timeout(400)
+        assert await page.locator('.message-new').count() == 0
+        await page.locator('#attach-button').click()
+        await page.wait_for_selector('#photo-dialog[open]')
+        await page.get_by_role('button', name='Закрыть выбор фото', exact=True).click()
+        await page.wait_for_selector('#photo-dialog', state='hidden')
+        await page.locator('#model-picker-button').click()
+        await page.wait_for_selector('#model-dialog[open]')
+        await page.keyboard.press('Escape')
+        await page.wait_for_selector('#model-dialog', state='hidden')
+        await page.evaluate("openStarostaModal()")
+        await page.wait_for_timeout(300)
+        await page.get_by_role('button', name='Закрыть панель старосты', exact=True).click()
+        await page.wait_for_selector('#starosta-modal', state='hidden')
+        await page.locator('#chat-input-field').fill('Текст после закрытия окон')
+        assert await page.locator('#chat-input-field').input_value() == 'Текст после закрытия окон'
+        await page.locator('#chat-input-field').blur()
+        await page.keyboard.press('Tab')
+        assert await page.evaluate("document.activeElement.matches(':focus-visible')")
+        await page.evaluate("setAppTheme('dark')")
+        await page.wait_for_function("document.documentElement.dataset.theme === 'dark'")
+        await page.emulate_media(reduced_motion='reduce')
+        await page.evaluate("switchTab('profile', document.querySelector('nav button[onclick*=profile]'))")
+        assert await page.locator('#tab-profile').evaluate('el => getComputedStyle(el).animationName') == 'none'
         assert not errors, errors
         await browser.close()
     print("Browser checks passed: filters, paid models, photo, saved draft, keyboard, starosta preview/events and schedule switching; no JS errors.")

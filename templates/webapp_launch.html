@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="referrer" content="no-referrer">
+    <title>ТУ УГМК · Кампус</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { margin: 0; min-height: 100dvh; display: grid; place-items: center; padding: 24px; background: var(--tg-theme-bg-color, #152822); color: var(--tg-theme-text-color, #e9f4ed); font: 16px/1.5 system-ui, sans-serif; }
+        main { max-width: 360px; text-align: center; }
+        h1 { font-size: 24px; margin: 12px 0; }
+        p { opacity: .75; }
+        button { font: inherit; font-weight: 600; border: 0; border-radius: 18px; padding: 14px 24px; background: #33744f; color: white; cursor: pointer; }
+        button:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>🎓 ТУ УГМК · Кампус</h1>
+        <p id="launch-status">{{ launch_message }}</p>
+        <button id="launch-button" type="button">{{ 'Открыть приложение' if launch_url else 'Попробовать снова' }}</button>
+    </main>
+    <script>
+        const launchUrl = {{ launch_url | tojson }};
+        const app = window.Telegram?.WebApp;
+        app?.ready();
+        const button = document.getElementById('launch-button');
+        const status = document.getElementById('launch-status');
+        let launching = false;
+        function launch(automatic = false) {
+            // A real signed launch may use this URL if configured in BotFather.
+            // Keep its Telegram fragment when navigating to the main interface.
+            if (app?.initData) { location.replace('/webapp' + location.hash); return; }
+            if (!launchUrl) { location.reload(); return; }
+            if (launching) return;
+            if (typeof app?.openTelegramLink !== 'function' ||
+                !app.isVersionAtLeast?.('6.1')) {
+                status.textContent = 'Открой «Кампус» кнопкой рядом с полем сообщения в Telegram.';
+                return;
+            }
+            launching = true;
+            button.disabled = true;
+            try {
+                if (automatic && (app.platform === 'android' || app.platform === 'android_x')) {
+                    // Android intercepts internal-link navigation without the
+                    // recent-WebView-tap check applied to openTelegramLink.
+                    // Keep this Android-only: macOS loads t.me as a web page.
+                    location.replace(launchUrl);
+                } else {
+                    app.openTelegramLink(launchUrl);
+                }
+            } catch (_) {
+                launching = false;
+                button.disabled = false;
+                status.textContent = 'Не удалось открыть приложение. Попробуй ещё раз.';
+                return;
+            }
+            // openTelegramLink no longer closes its source Mini App (Bot API 7+).
+            // Close only this disposable launcher, never the signed application.
+            setTimeout(() => app.close(), 200);
+        }
+        button.addEventListener('click', () => launch());
+        if (app?.initData) {
+            launch();
+        } else if (launchUrl) {
+            launch(true);
+        }
+    </script>
+</body>
+</html>

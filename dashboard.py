@@ -6,6 +6,7 @@ import logging
 import asyncio
 import aiohttp
 from network_config import telegram_connector
+from miniapp_launch import get_main_app_link
 from ai_load import AIBusyError
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi import FastAPI, Request, Form, Depends, HTTPException, status
@@ -308,6 +309,22 @@ async def _build_user_status_dict(uid: int, user_row):
 
 @app.get("/webapp", response_class=HTMLResponse)
 async def webapp(request: Request):
+    if request.query_params.get('launch') == 'keyboard':
+        launch_url = None
+        launch_message = 'Открываем приложение…'
+        try:
+            launch_url = await get_main_app_link()
+            if not launch_url:
+                launch_message = 'Прямой вход пока настраивается. Пока можно открыть «Кампус» кнопкой рядом с полем сообщения в Telegram.'
+        except Exception as error:
+            # Network exceptions can contain the Bot API URL and its token.
+            logger.warning('Main Mini App launch unavailable: %s', type(error).__name__)
+            launch_message = 'Не удалось связаться с Telegram. Попробуй ещё раз.'
+        return templates.TemplateResponse(
+            request=request, name='webapp_launch.html',
+            context={'launch_url': launch_url, 'launch_message': launch_message},
+            headers={'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer'},
+        )
     return templates.TemplateResponse(request=request, name="webapp.html")
 
 @app.post("/api/verify")
