@@ -1690,10 +1690,8 @@
                 <button class="filter-chip active" data-model-filter="all" onclick="setModelFilter('all')">Все</button>
                 <button class="filter-chip" data-model-filter="text" onclick="setModelFilter('text')">Текст</button>
                 <button class="filter-chip" data-model-filter="photo" onclick="setModelFilter('photo')">Фото</button>
-                <button class="filter-chip" data-model-filter="free" onclick="setModelFilter('free')">Free</button>
-                <button class="filter-chip" data-model-filter="cheap" onclick="setModelFilter('cheap')">Недорогие</button>
             </div>
-            <p class="dialog-note">«Фото» — модели для текста и изображений. Free — бесплатно. Для недорогих моделей указана цена OpenRouter за 1 млн токенов; расходы идут с API-ключа сервиса или вашего личного ключа. При смене модели начинается новый диалог.</p>
+            <p class="dialog-note">«Фото» — модели для текста и изображений. Если у модели указана стоимость, это цена OpenRouter за 1 млн токенов; расходы идут с API-ключа сервиса или вашего личного ключа. При смене модели начинается новый диалог.</p>
             <div id="model-list" class="model-list"></div>
         </dialog>
 
@@ -2839,7 +2837,7 @@
             const query = document.getElementById('model-search').value.trim().toLocaleLowerCase();
             const filtered = allChatModels.filter(model =>
                 (modelFilter === 'all' || modelFilter === 'photo' && model.supports_images ||
-                 modelFilter === 'text' && !model.supports_images || modelFilter === 'free' && model.is_free || modelFilter === 'cheap' && !model.is_free) &&
+                 modelFilter === 'text' && !model.supports_images) &&
                 (model.name + ' ' + model.id).toLocaleLowerCase().includes(query));
             const list = document.getElementById('model-list');
             list.replaceChildren();
@@ -3443,6 +3441,42 @@
             updateChatScrollButton();
         }
         document.getElementById('chat-messages').addEventListener('scroll', updateChatScrollButton, {passive:true});
+        // Dismiss only on a short background tap, not while scrolling, selecting
+        // a response, or using composer controls. Keep the text and attachment.
+        let keyboardDismissTap = null;
+        function isChatBackground(target) {
+            return activeTab === 'chat' && target instanceof Element &&
+                !document.querySelector('dialog[open], .modal-overlay.active') &&
+                !target.closest('button, a, input, textarea, select, label, [contenteditable], [role="button"], .composer, .chat-msg');
+        }
+        document.addEventListener('pointerdown', event => {
+            keyboardDismissTap = null;
+            if (!event.isPrimary || event.button !== 0 ||
+                document.activeElement !== document.getElementById('chat-input-field') ||
+                !isChatBackground(event.target)) return;
+            keyboardDismissTap = {id: event.pointerId, x: event.clientX, y: event.clientY, time: event.timeStamp};
+        }, {capture: true, passive: true});
+        document.addEventListener('pointermove', event => {
+            if (keyboardDismissTap?.id === event.pointerId &&
+                Math.hypot(event.clientX - keyboardDismissTap.x, event.clientY - keyboardDismissTap.y) > 10) {
+                keyboardDismissTap = null;
+            }
+        }, {passive: true});
+        document.addEventListener('pointercancel', () => { keyboardDismissTap = null; }, {passive: true});
+        document.addEventListener('pointerup', event => {
+            const tap = keyboardDismissTap;
+            keyboardDismissTap = null;
+            if (!tap || tap.id !== event.pointerId || event.timeStamp - tap.time > 500 ||
+                Math.hypot(event.clientX - tap.x, event.clientY - tap.y) > 10 ||
+                !isChatBackground(event.target) || window.getSelection()?.isCollapsed === false) return;
+            document.getElementById('chat-input-field').blur();
+            // Older WebViews use blur alone; newer Telegram clients also expose
+            // an explicit native keyboard dismissal method.
+            try {
+                if (typeof tg.hideKeyboard === 'function' && tg.isVersionAtLeast?.('9.1')) tg.hideKeyboard();
+            } catch (_) { /* blur remains effective if the native method fails. */ }
+            scheduleViewportUpdate();
+        }, {passive: true});
         try { document.getElementById('chat-input-field').value = sessionStorage.getItem('chat-draft:' + user.id) || ''; } catch (_) {}
         renderChatWelcome();
         // Use the visual viewport once: keyboard height is already excluded here.

@@ -177,7 +177,7 @@ async def main():
         await page.wait_for_selector("#model-dialog[open]")
         assert await page.evaluate("capturedTrack.readyState === 'ended' && cameraStream === null")
         assert await page.locator(".model-option").count() == 2
-        await page.get_by_role("button", name="Free", exact=True).click()
+        await page.get_by_role("button", name="Все", exact=True).click()
         assert await page.locator(".model-option").count() == 3
         await page.screenshot(path=str(output / "models-mobile.png"))
         await page.locator(".model-option").last.click()
@@ -292,6 +292,42 @@ async def main():
         await page.wait_for_timeout(30)
         await page.locator('nav button[onclick*=chat]').click()
         await page.locator("#chat-input-field").fill("Проверка повторного ввода")
+        # Background taps dismiss the keyboard without clearing the draft;
+        # drags and composer controls must not invoke native dismissal.
+        await page.evaluate("""() => {
+            window.keyboardHideCalls = 0;
+            tg.isVersionAtLeast = () => true;
+            tg.hideKeyboard = () => { window.keyboardHideCalls++; };
+            const box = document.getElementById('chat-messages');
+            box.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true, isPrimary:true, pointerId:42, button:0, clientX:20, clientY:100}));
+            box.dispatchEvent(new PointerEvent('pointermove', {bubbles:true, pointerId:42, clientX:20, clientY:140}));
+            box.dispatchEvent(new PointerEvent('pointerup', {bubbles:true, pointerId:42, clientX:20, clientY:140}));
+            const control = document.getElementById('attach-button');
+            control.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true, isPrimary:true, pointerId:43, button:0}));
+            control.dispatchEvent(new PointerEvent('pointerup', {bubbles:true, pointerId:43}));
+        }""")
+        assert await page.evaluate('keyboardHideCalls') == 0
+        assert await page.locator('#chat-input-field').evaluate('el => document.activeElement === el')
+        photo_before = await page.evaluate('pendingPhoto')
+        for native_mode in ['supported', 'unsupported', 'throws']:
+            await page.evaluate("""mode => {
+                tg.isVersionAtLeast = () => mode !== 'unsupported';
+                tg.hideKeyboard = () => { window.keyboardHideCalls++; if(mode === 'throws') throw Error('Host unavailable'); };
+            }""", native_mode)
+            await page.locator('#chat-input-field').focus()
+            point = await page.locator('#chat-messages').evaluate("""box => {
+                const rect = box.getBoundingClientRect();
+                for(let y=rect.top+4;y<rect.bottom;y+=12) for(let x=rect.left+4;x<rect.right;x+=12) {
+                    if(isChatBackground(document.elementFromPoint(x,y))) return {x,y};
+                }
+                throw Error('No chat background to tap');
+            }""")
+            await page.mouse.click(point['x'], point['y'])
+            assert await page.locator('#chat-input-field').evaluate('el => document.activeElement !== el')
+            assert await page.locator('#chat-input-field').input_value() == 'Проверка повторного ввода'
+            assert await page.evaluate('pendingPhoto') == photo_before
+        assert await page.evaluate('keyboardHideCalls') == 2
+        await page.evaluate('delete tg.hideKeyboard; delete tg.isVersionAtLeast')
         await page.locator("#chat-send-button").click()
         await page.wait_for_function("!chatBusy")
         for _ in range(3):
@@ -318,11 +354,13 @@ async def main():
         models.append({'id':'test/cheap','name':'Недорогая модель','is_free':False,'supports_images':False,'input_price':.1,'output_price':.3,'description':'Текст'})
         await page.evaluate('loadModels(selectedAIModel)')
         await page.locator('#model-picker-button').click()
-        await page.get_by_role('button',name='Недорогие',exact=True).click()
-        assert await page.locator('.model-option').count() == 1
-        assert '$0.1' in await page.locator('.model-option').inner_text()
+        await page.get_by_role('button',name='Все',exact=True).click()
+        assert await page.locator('[data-model-filter]').all_text_contents() == ['Все', 'Текст', 'Фото']
+        assert await page.locator('.model-option').count() == 4
+        paid_option = page.locator('.model-option').filter(has_text='Недорогая модель')
+        assert '$0.1' in await paid_option.inner_text()
         await page.screenshot(path=str(output/'models-cheap.png'))
-        await page.locator('.model-option').click()
+        await paid_option.click()
         await page.wait_for_function('!modelBusy')
         await page.locator('#chat-input-field').fill('Мой сохранённый черновик')
         await page.reload()

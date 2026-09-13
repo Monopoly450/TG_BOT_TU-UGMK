@@ -317,7 +317,7 @@ def get_main_menu(val=None):
             [KeyboardButton(text="🧹 Очистить"), KeyboardButton(text="👨‍💻 Автор")]
         ]
     kb.insert(0, [get_app_keyboard_button()])
-    return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, is_persistent=True)
+    return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, is_persistent=False)
 
 def get_app_keyboard_button():
     return KeyboardButton(
@@ -333,7 +333,7 @@ def get_submenu_keyboard():
             [KeyboardButton(text="🧹 Очистить"), KeyboardButton(text="👨‍💻 Автор")]
         ],
         resize_keyboard=True,
-        is_persistent=True,
+        is_persistent=False,
     )
 
 def get_day_pagination_kb(target_date: date):

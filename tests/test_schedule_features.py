@@ -149,7 +149,7 @@ class LauncherTests(unittest.IsolatedAsyncioTestCase):
     def test_reply_menus_launch_via_main_app_bridge_without_text(self):
         b = self.module
         for menu in [b.get_main_menu(), b.get_main_menu('group'), b.get_submenu_keyboard()]:
-            self.assertTrue(menu.is_persistent)
+            self.assertFalse(menu.is_persistent)
             self.assertEqual(len(menu.keyboard[0]), 1)
             button = menu.keyboard[0][0]
             self.assertEqual(button.text, '🎓 ТУ УГМК · Кампус')
