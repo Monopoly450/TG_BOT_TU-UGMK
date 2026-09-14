@@ -79,7 +79,7 @@ class ScheduleNotifications:
         week = (target - monday).days // 7
         async with self.fetch_slots:
             schedule = await asyncio.wait_for(self.schedule_manager.fetch_schedule(week, 'group', group), 75)
-        if not schedule or '_error' in schedule or '_pending' in schedule:
+        if not schedule or '_error' in schedule or '_pending' in schedule or '_unavailable' in schedule:
             logger.warning('Schedule unavailable for %s (%s); delivery will retry', group, kind)
             return
         if schedule.get('_group', group) != group:

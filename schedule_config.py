@@ -1,7 +1,8 @@
 """Shared group catalog for the bot, API and schedule workers."""
 import re
 
-CACHE_VERSION = 42
+CACHE_VERSION = 43
+SCHEDULE_UNAVAILABLE = "Портал пока не предоставляет расписание для выбранной группы и недели. Проверьте позже."
 GROUPS_DB = {'Ит-24107': 'c158228d-7b93-11f1-b455-00155d7f2942%3Afee16686-4374-11ef-b448-00155d7f1420',
  'А-24101': 'bb2b2840-3d0f-11ef-b448-00155d7f1420%3A715cc0fc-3eb1-11ef-b448-00155d7f1420',
  'М-24102': '9a3f0516-42b2-11ef-b448-00155d7f1420%3A372960bb-4374-11ef-b448-00155d7f1420',

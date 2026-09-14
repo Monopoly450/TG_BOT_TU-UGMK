@@ -124,6 +124,39 @@ async def main():
         await page.evaluate('loadSchedule(1)')
         assert await page.evaluate('scheduleAnimation === null')
         await page.unroute('**/api/schedule?*', week_route)
+        # The portal's explicit unavailable response is terminal, not an error
+        # or an empty timetable; a stalled request offers a bounded retry.
+        unavailable_calls = 0
+        async def unavailable_route(route):
+            nonlocal unavailable_calls
+            unavailable_calls += 1
+            await route.fulfill(json={'schedule': {'_unavailable': True}})
+        await page.route('**/api/schedule?*', unavailable_route)
+        await page.evaluate('loadSchedule(1)')
+        await page.wait_for_timeout(1200)
+        assert unavailable_calls == 1
+        assert 'Портал пока не предоставляет' in await page.locator('#schedule-container').inner_text()
+        assert await page.locator('#schedule-container .spinner').count() == 0
+        assert await page.locator('#schedule-container').get_attribute('aria-busy') is None
+        await page.screenshot(path=str(output / 'schedule-unavailable.png'))
+        await page.unroute('**/api/schedule?*', unavailable_route)
+        stalled = asyncio.Event()
+        release_stalled = asyncio.Event()
+        async def stalled_route(route):
+            stalled.set()
+            await release_stalled.wait()
+            await route.fulfill(json={'schedule': {'_pending': True}})
+        await page.route('**/api/schedule?*', stalled_route)
+        await page.evaluate('void loadSchedule(1)')
+        await stalled.wait()
+        await page.get_by_role('button', name='Попробовать ещё раз', exact=True).wait_for(timeout=23000)
+        assert await page.locator('#schedule-container .spinner').count() == 0
+        assert await page.locator('#schedule-container').get_attribute('aria-busy') is None
+        assert 'занятий нет' not in await page.locator('#schedule-container').inner_text()
+        release_stalled.set()
+        await page.unroute('**/api/schedule?*', stalled_route)
+        await page.get_by_role('button', name='Попробовать ещё раз', exact=True).click()
+        await page.wait_for_selector('.online-join')
         await page.evaluate('loadSchedule(0)')
         # Content scrolls behind both rounded glass panels, with no clipped strip.
         layout = await page.evaluate('''() => {

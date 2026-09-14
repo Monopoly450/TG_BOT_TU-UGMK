@@ -2632,7 +2632,19 @@
             const requestedGroup = currentTargetName;
             scheduleController?.abort();
             scheduleController = new AbortController();
+            const controller = scheduleController;
+            let timedOut = false;
+            const deadline = setTimeout(() => { timedOut = true; controller.abort(); }, 20000);
             const container = document.getElementById("schedule-container");
+            const showStillLoading = () => {
+                container.innerHTML = '<p class="section-hint" style="text-align:center">Портал отвечает дольше обычного. Расписание ещё загружается.</p>';
+                const retry = document.createElement('button');
+                retry.type = 'button';
+                retry.className = 'week-btn';
+                retry.textContent = 'Попробовать ещё раз';
+                retry.addEventListener('click', () => loadSchedule(offset));
+                container.appendChild(retry);
+            };
             const loadingTimer = setTimeout(() => {
                 if (requestId !== scheduleRequestId) return;
                 container.setAttribute('aria-busy', 'true');
@@ -2640,17 +2652,18 @@
             }, 180);
 
             try {
-                const signal = scheduleController.signal;
+                const signal = controller.signal;
                 const url = `/api/schedule?target_type=group&target_name=${encodeURIComponent(requestedGroup)}&week_offset=${offset}&uid=${user.id}&init_data=${encodeURIComponent(initData)}`;
                 for (let attempt = 0; attempt < 12; attempt++) {
-                if (signal.aborted || requestId !== scheduleRequestId) return;
+                if (requestId !== scheduleRequestId) return;
+                if (signal.aborted) { if (timedOut) showStillLoading(); return; }
                 const res = await fetch(url, {signal});
                 if (res.ok) {
                     const data = await res.json();
                     if (requestId !== scheduleRequestId || currentTargetName !== requestedGroup) return;
                     if (data.group_name && data.group_name !== requestedGroup) throw new Error("Ответ относится к другой группе");
                     if (data.schedule?._pending) {
-                        if (attempt === 11) throw new Error('Портал отвечает дольше обычного. Нажмите на неделю, чтобы повторить.');
+                        if (attempt === 11) { showStillLoading(); return; }
                         container.innerHTML = '<div class="spinner" style="margin:20px auto"></div><p class="section-hint" style="text-align:center">Загружаем расписание с портала…</p>';
                         await new Promise(resolve => setTimeout(resolve, 1000));
                         continue;
@@ -2673,10 +2686,13 @@
                 return;
                 }
             } catch (err) {
-                if (err.name === "AbortError" || requestId !== scheduleRequestId || currentTargetName !== requestedGroup) return;
+                if (requestId !== scheduleRequestId || currentTargetName !== requestedGroup) return;
+                if (timedOut) { showStillLoading(); return; }
+                if (err.name === "AbortError") return;
                 console.error("Load schedule failed:", err);
-                container.innerHTML = `<p style="color:var(--danger-color); text-align:center;">Ошибка: ${err.message}</p>`;
+                container.innerHTML = `<p style="color:var(--danger-color); text-align:center;">Ошибка: ${escapeHTML(err.message)}</p>`;
             } finally {
+                clearTimeout(deadline);
                 clearTimeout(loadingTimer);
                 if (requestId === scheduleRequestId) container.removeAttribute('aria-busy');
             }
@@ -2698,6 +2714,11 @@
 
             if (schedule._error) {
                 container.innerHTML = `<p style="text-align:center; color:var(--danger-color); padding:20px;">Не удалось загрузить расписание: ${escapeHTML(schedule._error)}</p>`;
+                return;
+            }
+
+            if (schedule._unavailable) {
+                container.innerHTML = '<p role="status" style="text-align:center; color:var(--text-muted); padding:20px;">Портал пока не предоставляет расписание для выбранной группы и недели. Проверьте позже.</p>';
                 return;
             }
 

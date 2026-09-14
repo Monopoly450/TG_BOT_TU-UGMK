@@ -212,7 +212,7 @@ dp.message.middleware(AntiFloodMiddleware())
 dp.callback_query.middleware(AntiFloodMiddleware())      
 
 # --- DATABASES ---
-from schedule_config import GROUPS_DB, CACHE_VERSION, canonical_group, active_group, merged_groups, lesson_matches_group, migrate_group_preferences
+from schedule_config import GROUPS_DB, CACHE_VERSION, SCHEDULE_UNAVAILABLE, canonical_group, active_group, merged_groups, lesson_matches_group, migrate_group_preferences
 
 DAYS_OF_WEEK = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]        
 
@@ -380,6 +380,10 @@ async def fmt_day(day_date: date, lessons: list, group_name: str = "") -> str:
     return text + "\n\n".join(formatted_lessons)
 
 async def fmt_week(s: dict, group_name: str = "") -> str:
+    if s.get('_unavailable'):
+        return SCHEDULE_UNAVAILABLE
+    if not s or s.get('_error') or s.get('_pending'):
+        return "Не удалось получить расписание с портала. Попробуйте позже."
     full_text = ""
     for day_name in DAYS_OF_WEEK[:6]: # type: ignore
         if d_str := s.get("_dates", {}).get(day_name):
@@ -974,7 +978,9 @@ async def display_day_schedule(message: Message | CallbackQuery, state: FSMConte
     day_lessons = week_s.get(day_name, []) # type: ignore
     is_error = not week_s or "_error" in week_s # type: ignore
 
-    if is_error:
+    if week_s.get('_unavailable'):
+        text = SCHEDULE_UNAVAILABLE
+    elif is_error:
         text = "⚠️ <b>Ошибка загрузки.</b>\nУниверситетский сайт не ответил вовремя или произошла ошибка парсинга. Попробуйте еще раз."
     else:
         text = await fmt_day(target_date, day_lessons, t_val)

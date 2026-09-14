@@ -56,9 +56,9 @@ async def store_schedule_result(dao, key, result, lifetime):
         previous = await dao.get(key)
         if previous and '_error' not in previous:
             # Keep a usable cache while the portal is unavailable; retry later.
-            await dao.set(key, previous, ex=lifetime)
+            await dao.set(key, previous, ex=min(lifetime, 300) if previous.get('_unavailable') or previous.get('_empty') else lifetime)
             return False
         await dao.set(key, result or {'_error': 'Портал временно недоступен'}, ex=60)
         return False
-    await dao.set(key, result, ex=lifetime)
+    await dao.set(key, result, ex=min(lifetime, 300) if result.get('_unavailable') or result.get('_empty') else lifetime)
     return True

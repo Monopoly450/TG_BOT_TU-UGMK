@@ -1,4 +1,5 @@
 import os
+import json
 import unittest
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -44,6 +45,23 @@ class GroupCatalogTests(unittest.TestCase):
 
 
 class SchedulePanelTests(unittest.IsolatedAsyncioTestCase):
+    notice = '<div class="alert alert-warning">Для заданных параметров данные не могут быть предоставлены.</div>'
+
+    def test_portal_notice_is_terminal_without_claiming_no_classes(self):
+        pages = [self.notice, self.page(self.notice),
+                 self.page('').replace('<option value="selected">Эк-25109</option>', '') + self.notice,
+                 self.page('').replace('id="selected"', 'id="missing"') + self.notice]
+        for html in pages:
+            with self.subTest(html=html):
+                self.assertEqual(ScheduleParser()._parse(html, 'group', 'Эк-25109'), {'_unavailable': True})
+
+    def test_hidden_foreign_notice_does_not_override_selected_schedule(self):
+        html = self.page(self.day('Эк-25109')).replace(self.day('Ит-24107', 'Вторник'), self.notice)
+        result = ScheduleParser()._parse(html, 'group', 'Эк-25109')
+        self.assertEqual(result['Понедельник'][0]['group'], 'Эк-25109')
+        # A notice in the account's hidden block cannot excuse a missing group.
+        self.assertIn('_error', ScheduleParser()._parse(html, 'group', 'Ит-26107'))
+
     @staticmethod
     def day(group, name='Понедельник'):
         return f'<div class="day-container"><h3>{name} 21.09.2026</h3><table><tr><td>08:30</td><td>Алгебра</td><td>201</td><td>{group}</td><td>Преподаватель</td></tr></table></div>'
@@ -94,6 +112,8 @@ class SchedulePanelTests(unittest.IsolatedAsyncioTestCase):
             wait_for_selector=AsyncMock(), title=AsyncMock(return_value='Портал'), content=AsyncMock(return_value=self.page('')))
         with patch('builtins.open', mock_open()), patch('scraper.asyncio.sleep', AsyncMock()):
             self.assertEqual(await parser.fetch(1, 'group', 'Эк-25109'), {'_empty': True, '_group': 'Эк-25109'})
+            parser.page.content.return_value = self.notice
+            self.assertEqual(await parser.fetch(1, 'group', 'Эк-25109'), {'_unavailable': True, '_group': 'Эк-25109'})
             parser.page.goto.return_value.status = 403
             parser.page.content.reset_mock()
             result = await parser.fetch(1, 'group', 'Эк-25109')
@@ -102,6 +122,16 @@ class SchedulePanelTests(unittest.IsolatedAsyncioTestCase):
 
 
 class GroupApiTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cached_unavailable_is_returned_without_polling_or_queueing(self):
+        result = {'_unavailable': True, '_group': 'Ит-26107'}
+        redis = SimpleNamespace(exists=AsyncMock(return_value=True), get=AsyncMock(return_value=json.dumps(result)),
+                                set=AsyncMock(), lpush=AsyncMock())
+        with patch.object(api, 'dao', redis):
+            for _ in range(2):
+                self.assertEqual(await api.ScheduleManager().fetch_schedule(1, 'group', 'Ит-26107'), result)
+        redis.set.assert_not_awaited()
+        redis.lpush.assert_not_awaited()
+
     async def test_notification_preferences_accept_custom_time_and_off(self):
         request = SimpleNamespace(json=AsyncMock(return_value={'uid': 1, 'init_data': 'signed', 'morning_time': '08:17', 'evening_time': 'Отключено'}))
         with patch.object(api, 'verify_telegram_init_data', return_value={'id': 1}), patch.object(api.dao, 'hset', AsyncMock()) as save:
@@ -150,6 +180,11 @@ class GroupApiTests(unittest.IsolatedAsyncioTestCase):
 
 
 class LauncherTests(unittest.IsolatedAsyncioTestCase):
+    async def test_week_formatter_distinguishes_unavailable_from_empty(self):
+        text = await self.module.fmt_week({'_unavailable': True}, 'Ит-26107')
+        self.assertIn('Портал пока не предоставляет', text)
+        self.assertNotIn('занятий нет', text)
+
     async def test_author_draft_slash_cannot_be_parsed_as_username_path_on_mac(self):
         b = self.module
         message = SimpleNamespace(answer=AsyncMock())

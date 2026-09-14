@@ -56,6 +56,15 @@ class NotificationTests(unittest.IsolatedAsyncioTestCase):
         await self.service.run(self.now + timedelta(minutes=2))
         self.assertEqual(self.bot.send_message.await_count, 2)
 
+    async def test_unavailable_data_never_sends_a_no_classes_notification(self):
+        self.sm.fetch_schedule.return_value = {'_unavailable': True, '_group': 'Ит-24107'}
+        await self.service.run(self.now)
+        self.bot.send_message.assert_not_awaited()
+        self.fmt.assert_not_awaited()
+        self.sm.fetch_schedule.return_value = {'Понедельник': []}
+        await self.service.run(self.now + timedelta(minutes=1))
+        self.bot.send_message.assert_awaited_once()
+
     async def test_sunday_evening_uses_next_week_and_reports_empty_day(self):
         self.redis.hashes['user_evening_time'] = {'1': '20:00'}
         self.sm.fetch_schedule.return_value = {'Понедельник': []}

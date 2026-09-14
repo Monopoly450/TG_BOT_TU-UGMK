@@ -162,7 +162,7 @@ class ScheduleParser:
             
             # Ждем появления контейнеров с расписанием или сообщения об ошибке
             try:
-                await self.page.wait_for_selector(".day-container, .alert-danger, .empty-result, table.table, h3", timeout=3000)
+                await self.page.wait_for_selector(".day-container, .alert-danger, .alert-warning, .alert-info, .empty-result, table.table, h3", timeout=3000)
                 # Даем немного времени на отрисовку JS если нужно
                 await asyncio.sleep(0.5)
             except:
@@ -176,7 +176,7 @@ class ScheduleParser:
             if res.get("_error"):
                 return res
             res["_group"] = t_val
-            if res.get("_empty"):
+            if res.get("_empty") or res.get("_unavailable"):
                 return res
             
             has_lessons = any(isinstance(v, list) and len(v) > 0 for k, v in res.items() if k != "_dates")
@@ -198,15 +198,31 @@ class ScheduleParser:
         # group's timetable. Never fall back to that hidden block when the
         # selected week is empty (or let it overwrite days in a partial week).
         panels = soup.select('.schedule-container')
+        def unavailable(scope, outside_panels=False):
+            for alert in scope.select('.alert, .alert-warning, .alert-info, .empty-result'):
+                if outside_panels and alert.find_parent(class_='schedule-container') is not None:
+                    continue
+                text = ' '.join(alert.get_text(' ', strip=True).casefold().split())
+                if 'для заданных параметров данные не могут быть предоставлены' in text:
+                    return True
+            return False
+
+        # This notice does not confirm an empty timetable. The portal may also
+        # reset its selector to the account's group when parameters have no data.
+        portal_unavailable = unavailable(soup, outside_panels=True)
         selected = None
         selector = soup.select_one('#group-select')
         if t_type == 'group' and selector is not None:
             options = [option for option in selector.select('option')
                        if canonical_group(option.get_text(' ', strip=True)).casefold() == canonical_group(t_val).casefold()]
             if len(options) != 1:
+                if portal_unavailable:
+                    return {"_unavailable": True}
                 return {"_error": "Сайт не вернул выбранную группу. Обновите список групп и попробуйте снова."}
             selected = soup.find(id=options[0].get('value')) if options[0].get('value') else None
             if selected is None or 'schedule-container' not in selected.get('class', []):
+                if portal_unavailable:
+                    return {"_unavailable": True}
                 return {"_error": "Не удалось найти блок расписания выбранной группы. Попробуйте позже."}
         elif panels:
             active = [panel for panel in panels if 'active' in panel.get('class', [])]
@@ -218,6 +234,8 @@ class ScheduleParser:
                 return {"_error": "Не удалось определить выбранное расписание на сайте."}
         if selected is not None:
             soup = selected
+            if unavailable(soup) or (portal_unavailable and not soup.select('.day-container, table')):
+                return {"_unavailable": True}
             # Only treat an explicitly selected, empty panel as an empty week.
             # Unknown HTML and HTTP failures must not become 'no lessons'.
             text = soup.get_text(' ', strip=True).casefold()
@@ -225,6 +243,8 @@ class ScheduleParser:
                 not text or re.search(r'расписани[ея]\s+(?:занятий\s+)?(?:не найдено|отсутствует|нет)|нет данных|данные отсутствуют', text)
             ):
                 return {"_empty": True}
+        elif portal_unavailable:
+            return {"_unavailable": True}
         
         # Находим контейнеры дней
         day_containers = soup.find_all("div", class_="day-container")

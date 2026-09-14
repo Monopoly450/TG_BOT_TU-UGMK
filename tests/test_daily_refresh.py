@@ -6,6 +6,14 @@ from schedule_refresh import enqueue_daily_refresh, store_schedule_result
 
 
 class RefreshTests(unittest.IsolatedAsyncioTestCase):
+    async def test_absent_data_has_short_cache_even_after_failed_refresh(self):
+        for result in [{'_unavailable': True}, {'_empty': True}]:
+            dao = SimpleNamespace(get=AsyncMock(return_value=result), set=AsyncMock())
+            self.assertTrue(await store_schedule_result(dao, 'cache', result, 172800))
+            dao.set.assert_awaited_with('cache', result, ex=300)
+            await store_schedule_result(dao, 'cache', {'_error': 'offline'}, 172800)
+            dao.set.assert_awaited_with('cache', result, ex=300)
+
     async def test_0800_yekaterinburg_boundary_and_restart_catchup(self):
         client=SimpleNamespace(exists=AsyncMock(return_value=False),hgetall=AsyncMock(return_value={}),eval=AsyncMock(return_value=46))
         before = datetime(2026,9,7,2,59,tzinfo=timezone.utc)
