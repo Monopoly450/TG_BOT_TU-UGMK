@@ -151,12 +151,14 @@ class ScheduleParser:
                 return {"_error": f"ID for {t_type} '{t_val}' not found"}
             url = self._build_url(wo, t_type, t_val, oid)
             logger.info(f"[{t_type}] Fetching: {url}")
-            await self.page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            response = await self.page.goto(url, wait_until="domcontentloaded", timeout=60000)
             if "login" in self.page.url.lower() or "auth" in self.page.url.lower():
                 if not await self._login(self.page): return {"_error": "Login failed"}
                 # Wait for any post-login redirects
                 await asyncio.sleep(3)
-                if self.page.url != url: await self.page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                response = await self.page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            if response is not None and response.status >= 400:
+                return {"_error": f"Сайт расписания недоступен (HTTP {response.status}). Попробуйте позже."}
             
             # Ждем появления контейнеров с расписанием или сообщения об ошибке
             try:
@@ -174,6 +176,8 @@ class ScheduleParser:
             if res.get("_error"):
                 return res
             res["_group"] = t_val
+            if res.get("_empty"):
+                return res
             
             has_lessons = any(isinstance(v, list) and len(v) > 0 for k, v in res.items() if k != "_dates")
             
@@ -190,6 +194,37 @@ class ScheduleParser:
 
     def _parse(self, html, t_type=None, t_val=None):
         soup, schedule, dates = BeautifulSoup(html, "lxml"), {}, {}
+        # The portal keeps the account's own timetable beside the requested
+        # group's timetable. Never fall back to that hidden block when the
+        # selected week is empty (or let it overwrite days in a partial week).
+        panels = soup.select('.schedule-container')
+        selected = None
+        selector = soup.select_one('#group-select')
+        if t_type == 'group' and selector is not None:
+            options = [option for option in selector.select('option')
+                       if canonical_group(option.get_text(' ', strip=True)).casefold() == canonical_group(t_val).casefold()]
+            if len(options) != 1:
+                return {"_error": "Сайт не вернул выбранную группу. Обновите список групп и попробуйте снова."}
+            selected = soup.find(id=options[0].get('value')) if options[0].get('value') else None
+            if selected is None or 'schedule-container' not in selected.get('class', []):
+                return {"_error": "Не удалось найти блок расписания выбранной группы. Попробуйте позже."}
+        elif panels:
+            active = [panel for panel in panels if 'active' in panel.get('class', [])]
+            if len(active) == 1:
+                selected = active[0]
+            elif len(panels) == 1:
+                selected = panels[0]
+            else:
+                return {"_error": "Не удалось определить выбранное расписание на сайте."}
+        if selected is not None:
+            soup = selected
+            # Only treat an explicitly selected, empty panel as an empty week.
+            # Unknown HTML and HTTP failures must not become 'no lessons'.
+            text = soup.get_text(' ', strip=True).casefold()
+            if not soup.select('.day-container, table') and (
+                not text or re.search(r'расписани[ея]\s+(?:занятий\s+)?(?:не найдено|отсутствует|нет)|нет данных|данные отсутствуют', text)
+            ):
+                return {"_empty": True}
         
         # Находим контейнеры дней
         day_containers = soup.find_all("div", class_="day-container")

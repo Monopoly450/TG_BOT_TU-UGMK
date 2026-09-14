@@ -2,7 +2,7 @@ import os
 import unittest
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch, mock_open
 from urllib.parse import parse_qs, urlparse, unquote
 
 os.environ.setdefault('LOGIN', 'offline-test')
@@ -41,6 +41,64 @@ class GroupCatalogTests(unittest.TestCase):
             correct = parser._parse(html.replace('Ит-24107', 'А-25101'), 'group', 'А-25101')
             self.assertNotIn('_error', correct)
             self.assertEqual(correct['Понедельник'][0]['group'], 'А-25101')
+
+
+class SchedulePanelTests(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def day(group, name='Понедельник'):
+        return f'<div class="day-container"><h3>{name} 21.09.2026</h3><table><tr><td>08:30</td><td>Алгебра</td><td>201</td><td>{group}</td><td>Преподаватель</td></tr></table></div>'
+
+    def page(self, selected, *, own_last=False):
+        selector = '<select id="group-select"><option value="own">Ит-24107</option><option value="selected">Эк-25109</option></select>'
+        own = f'<div id="own" class="schedule-container">{self.day("Ит-24107", "Вторник")}</div>'
+        target = f'<div id="selected" class="schedule-container active">{selected}</div>'
+        return selector + (target + own if own_last else own + target)
+
+    def test_empty_selected_week_does_not_use_hidden_own_schedule(self):
+        for empty in ['', '<p>Расписание не найдено</p>']:
+            self.assertEqual(ScheduleParser()._parse(self.page(empty), 'group', 'Эк-25109'), {'_empty': True})
+
+    def test_partial_selected_week_ignores_other_days_and_dom_order(self):
+        for own_last in [False, True]:
+            result = ScheduleParser()._parse(self.page(self.day('Эк-25109'), own_last=own_last), 'group', 'Эк-25109')
+            self.assertNotIn('_error', result)
+            self.assertNotIn('Вторник', result)
+            self.assertEqual(result['Понедельник'][0]['group'], 'Эк-25109')
+
+    def test_foreign_selected_rows_still_rejected(self):
+        result = ScheduleParser()._parse(self.page(self.day('Ит-24107')), 'group', 'Эк-25109')
+        self.assertIn('_error', result)
+
+    def test_missing_group_or_panel_is_not_an_empty_week(self):
+        for html in [self.page(''), self.page('').replace('id="selected"', 'id="missing"')]:
+            group = 'А-26101' if 'id="selected"' in html else 'Эк-25109'
+            self.assertIn('_error', ScheduleParser()._parse(html, 'group', group))
+
+    def test_legacy_tables_stay_inside_selected_panel(self):
+        table = '<table><tr><td>08:30</td><td>Алгебра</td><td>201</td><td>Эк-25109</td><td>Преподаватель</td></tr></table>'
+        result = ScheduleParser()._parse(self.page(table), 'group', 'Эк-25109')
+        self.assertNotIn('_error', result)
+        self.assertEqual(result['Понедельник'][0]['group'], 'Эк-25109')
+
+    def test_active_panel_without_selector_and_unknown_html(self):
+        html = self.page('').split('</select>', 1)[1]
+        self.assertEqual(ScheduleParser()._parse(html, 'group', 'Эк-25109'), {'_empty': True})
+        result = ScheduleParser()._parse(self.page('<p>Сервис временно недоступен</p>'), 'group', 'Эк-25109')
+        self.assertNotIn('_empty', result)
+
+    async def test_fetch_preserves_explicit_empty_week_and_rejects_http_error(self):
+        parser = ScheduleParser()
+        parser.get_entity_id = AsyncMock(return_value='test-id')
+        parser.discover_entities = AsyncMock()
+        parser.page = SimpleNamespace(url='https://portal.test/student/schedule', goto=AsyncMock(return_value=SimpleNamespace(status=200)),
+            wait_for_selector=AsyncMock(), title=AsyncMock(return_value='Портал'), content=AsyncMock(return_value=self.page('')))
+        with patch('builtins.open', mock_open()), patch('scraper.asyncio.sleep', AsyncMock()):
+            self.assertEqual(await parser.fetch(1, 'group', 'Эк-25109'), {'_empty': True, '_group': 'Эк-25109'})
+            parser.page.goto.return_value.status = 403
+            parser.page.content.reset_mock()
+            result = await parser.fetch(1, 'group', 'Эк-25109')
+            self.assertIn('HTTP 403', result['_error'])
+            parser.page.content.assert_not_awaited()
 
 
 class GroupApiTests(unittest.IsolatedAsyncioTestCase):
