@@ -305,6 +305,17 @@
             margin-bottom: 10px;
             display: flex;
             justify-content: space-between;
+            align-items: baseline;
+            flex-wrap: wrap;
+            gap: 4px 12px;
+        }
+
+        .day-date {
+            color: var(--text-muted);
+            font-size: 13px;
+            font-weight: 500;
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
         }
 
         .lesson-row {
@@ -2740,6 +2751,15 @@
                 const header = document.createElement("div");
                 header.className = "day-header";
                 header.innerHTML = `<span>${day}</span>`;
+                const date = schedule._dates?.[day];
+                if (typeof date === 'string' && /^\d{2}\.\d{2}\.\d{4}$/.test(date)) {
+                    const [d, m, y] = date.split('.');
+                    const time = document.createElement('time');
+                    time.className = 'day-date';
+                    time.dateTime = `${y}-${m}-${d}`;
+                    time.textContent = date;
+                    header.appendChild(time);
+                }
                 card.appendChild(header);
 
                 // If dayLessons is empty

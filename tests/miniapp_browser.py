@@ -29,7 +29,8 @@ async def main():
     status = {"ai_model": models[0]["id"], "group_name": "Ит-25107", "can_chat": True,
               "is_starosta": False, "is_admin": False, "morning_time": "08:17", "evening_time": "Отключено"}
     schedule = {"Понедельник": [{"time": "09:00–10:30", "subject": "Математический анализ", "type": "Лекция", "room": "Толк 1", "link": "https://tu-ugmk.ktalk.ru/jiydkhlxmj94", "teacher": "Иванова А. В."},
-                               {"time": "10:40–12:10", "subject": "Основы программирования", "type": "Практика", "room": "208", "teacher": "Петров И. С."}], "Вторник": []}
+                               {"time": "10:40–12:10", "subject": "Основы программирования", "type": "Практика", "room": "208", "teacher": "Петров И. С."}], "Вторник": [],
+                "_dates": {"Понедельник": "14.09.2026", "Вторник": "15.09.2026"}}
     calls = []
     fail_next = False
     race_mode = False
